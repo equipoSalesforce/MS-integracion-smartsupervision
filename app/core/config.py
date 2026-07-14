@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import Optional, List
 from pydantic_settings import BaseSettings
 from pydantic import AnyHttpUrl
 
@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     SFC_USERNAME: str
     SFC_PASSWORD: str
     SFC_SECRET_KEY: str
+    
+    # AWS S3 Configuration
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_REGION: str = "us-east-1"
+    AWS_S3_BUCKET: str = "mi-bucket-smartsupervision"
 
     class Config:
         # Pydantic buscará el archivo .env en la raíz del proyecto

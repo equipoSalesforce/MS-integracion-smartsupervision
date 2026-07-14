@@ -1,50 +1,48 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Float
-from sqlalchemy.ext.declarative import declarative_base
-from app.core.constants import SmartStatus
-
-Base = declarative_base()
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, Text, Float
+from app.api.dependencies import Base # O tu Base declarativa de SQLAlchemy
 
 class Queja(Base):
-    __tablename__ = "quejas"
+    __tablename__ = "cases"
 
-    # --- Campos Base e Identificador ---
-    codigo_queja = Column(String(30), primary_key=True, index=True) # Obligatorio
+    # Campo identificador de la queja mapeado a Smart_Code__c
+    Smart_Code__c = Column(String(30), primary_key=True)
     
-    # --- Estado interno de la integración ---
-    # Posibles valores: 'NUEVA_DESDE_SFC', 'ACK_ENVIADO', 'CREADA_CRM', 'EN_GESTION', 'CERRADA_SFC', etc.
-    status_smart = Column(String(50), default=SmartStatus.CREATED.value, index=True) 
+    # Metadato interno para el control del estado de sincronización local
+    status_smart = Column(String(30), nullable=False)
 
-    # --- Campos del Momento 1 (Datos de creación SFC -> Entidad) ---
+    # Campos de metadata de control requeridos para firmas/reglas SFC
     tipo_entidad = Column(Integer, nullable=True)
     entidad_cod = Column(String(5), nullable=True)
-    fecha_creacion = Column(DateTime, nullable=True)
-    codigo_pais = Column(String(3), nullable=True)
-    departamento_cod = Column(String(3), nullable=True)
-    municipio_cod = Column(String(5), nullable=True)
-    nombres = Column(String(50), nullable=True)
-    tipo_id_CF = Column(Integer, nullable=True)
-    numero_id_CF = Column(String(15), nullable=True)
-    telefono = Column(String(15), nullable=True)
-    correo = Column(String(50), nullable=True)
-    tipo_persona = Column(Integer, nullable=True)
-    sexo = Column(Integer, nullable=True)
-    lgbtiq = Column(Integer, nullable=True)
-    canal_cod = Column(Integer, nullable=True)
-    condicion_especial = Column(Integer, nullable=True)
-    producto_cod = Column(Integer, nullable=True)
-    producto_nombre = Column(String(100), nullable=True)
-    macro_motivo_cod = Column(Integer, nullable=True)
-    texto_queja = Column(Text, nullable=True)
-    anexo_queja = Column(Boolean, nullable=True)
-    tutela = Column(Integer, nullable=True)
-    ente_control = Column(Integer, nullable=True)
-    escalamiento_DCF = Column(Integer, nullable=True)
-    replica = Column(Integer, nullable=True)
-    argumento_replica = Column(Text, nullable=True)
-    desistimiento_queja = Column(Integer, nullable=True)
-    queja_expres = Column(Integer, nullable=True)
 
-    # --- Campos Exclusivos de Momento 3 (Gestión, Fraude y Cierre) ---
+    # --- Mapeo a Campos Salesforce (Case / Account) ---
+    CreatedDate = Column(DateTime, nullable=True)                  # fecha_creacion / fecha_creación
+    SuppliedName = Column(String(50), nullable=True)                # nombres
+    id_type__c = Column(Integer, nullable=True)                     # tipo_id_CF
+    id_number__c = Column(String(15), nullable=True)                # numero_id_CF
+    SuppliedPhone = Column(String(15), nullable=True)               # telefono
+    SuppliedEmail = Column(String(50), nullable=True)               # correo
+    sex__c = Column(Integer, nullable=True)                         # sexo
+    Country__c = Column(String(3), nullable=True)                   # codigo_pais
+    Departamento__c = Column(String(3), nullable=True)              # departamento_cod
+    Ciudad__c = Column(String(5), nullable=True)                    # municipio_cod
+    Origin = Column(Integer, nullable=True)                         # canal_cod
+    Product__c = Column(Integer, nullable=True)                     # producto_cod
+    Product_Name__c = Column(String(100), nullable=True)            # producto_nombre
+    Categorias_COL__c = Column(Integer, nullable=True)              # macro_motivo_cod
+    Description = Column(Text, nullable=True)                       # texto_queja
+    archivo_adjunto__c = Column(Boolean, nullable=True)             # anexo_queja
+    Urgent_Case__c = Column(Integer, nullable=True)                 # tutela
+    Ente_de_control__c = Column(Integer, nullable=True)             # ente_control
+    
+    # Atributos de flujo adicionales de la SFC
+    Escalamiento_DCF__c = Column(Integer, nullable=True)            # escalamiento_DCF
+    Replica__c = Column(Integer, nullable=True)                     # replica
+    Argumento_Replica__c = Column(Text, nullable=True)              # argumento_replica
+    Desistimiento__c = Column(Integer, nullable=True)               # desistimiento_queja
+    Quejas_express__c = Column(Integer, nullable=True)              # queja_expres
+    Instancia_de_recepcion__c = Column(Integer, nullable=True)      # insta_recepcion
+
+    # --- Campos de Momento 3 ---
     estado_cod = Column(Integer, nullable=True)
     fecha_actualizacion = Column(DateTime, nullable=True)
     producto_digital = Column(Integer, nullable=True)
@@ -53,9 +51,9 @@ class Queja(Base):
     rectificacion_queja = Column(Integer, nullable=True)
     prorroga_queja = Column(Integer, nullable=True)
     admision = Column(Integer, nullable=True)
-    documentacion_rta_final = Column(String(255), nullable=True)
+    documentacion_rta_final = Column(String(250), nullable=True)
     fecha_cierre = Column(DateTime, nullable=True)
-    marcacion = Column(String(255), nullable=True)
+    marcacion = Column(String(100), nullable=True)
     tipo_fraude = Column(Integer, nullable=True)
     modalidad_fraude = Column(Integer, nullable=True)
     monto_reclamado = Column(Float, nullable=True)
