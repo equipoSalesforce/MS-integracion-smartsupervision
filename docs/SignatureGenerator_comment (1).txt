@@ -1,0 +1,45 @@
+import hmac
+import hashlib
+import json
+
+# @API_SECRET, clave secreta suministrada mediante correo electronico enviado a cada entidad
+
+API_SECRET = ''
+
+api_key_bytes = bytes(API_SECRET, 'utf-8')
+
+# *************************************************************************************
+# @data, en esta variable va el cuerpo del mensaje enviado en la peticion,
+# este valor se debe modificar dependiendo el servicio que se desea consumir.
+# los servicios que requieren esta modificacion son de tipo PUT, PATCH, POST
+# *************************************************************************************
+data = {
+
+}
+
+signature = hmac.new(
+    api_key_bytes,
+    msg=json.dumps(data, ensure_ascii=False).encode('utf-8'),
+    digestmod=hashlib.sha256
+).hexdigest().upper()
+
+# ***********************************************************************************
+# se debe modificar la variable @path de acuerdo al servicio que se desea consumir,
+# los servicios que requieren esta modificacion son de tipo GET
+# ***********************************************************************************
+#path = 'https://qasmart.superfinanciera.gov.co/' # inicialización requerida para consumir el servicio <<get Queja>>
+#path = 'https://qasmart.superfinanciera.gov.co/api/load_queja/2943/'
+#path = 'https://smart.superfinanciera.gov.co/api/tarifas/tarjeta_credito/'
+path = 'https://qasmart.superfinanciera.gov.co/api/queja/'
+
+signature_path = hmac.new(
+    api_key_bytes,
+    msg=path.encode('utf-8'),
+    digestmod=hashlib.sha256
+).hexdigest().upper()
+
+# se utiliza para peticiones POST, PATCH y PUT
+print(f'Data - {signature}')
+
+# se utiliza para peticiones GET
+print(f'URL - {signature_path}')

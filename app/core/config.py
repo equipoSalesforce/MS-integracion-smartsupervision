@@ -1,0 +1,34 @@
+import os
+from typing import List
+from pydantic_settings import BaseSettings
+from pydantic import AnyHttpUrl
+
+class Settings(BaseSettings):
+    # Configuración del Microservicio
+    PROJECT_NAME: str = "sfc-smartsupervision-integration"
+    API_V1_STR: str = "/api/v1"
+    ENVIRONMENT: str = "development"  # development, qa, production
+
+    # Orígenes permitidos para CORS (por ejemplo, la IP/Dominio de tu CRM)
+    BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    
+    # Base de Datos (Inyectada desde .env o variable de entorno de ECS Fargate)
+    DATABASE_URL: str
+
+    # Configuración de la API de la SFC (SmartSupervisión)
+    SFC_API_BASE_URL: str
+    SFC_USERNAME: str
+    SFC_PASSWORD: str
+    SFC_SECRET_KEY: str
+
+    class Config:
+        # Pydantic buscará el archivo .env en la raíz del proyecto
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
+        
+    @classmethod
+    def model_rebuild(cls, **kwargs):
+        super().model_rebuild(**kwargs)
+
+settings = Settings()

@@ -1,0 +1,4811 @@
+{
+	"info": {
+		"_postman_id": "3e953b4d-adb3-4d3c-83b6-f5440def1e5f",
+		"name": "Smartsupervision - Doc API Quejas - Momento 4",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "22627065",
+		"_collection_link": "https://winter-meteor-80905.postman.co/workspace/Team-Workspace~c74ff199-cc53-4a2e-8903-effac5b99745/collection/22627065-3e953b4d-adb3-4d3c-83b6-f5440def1e5f?action=share&source=collection_link&creator=22627065"
+	},
+	"item": [
+		{
+			"name": "Login",
+			"item": [
+				{
+					"name": "iniciar sesión",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = JSON.parse(responseBody);\r",
+									"postman.setEnvironmentVariable(\"token\", jsonData.access);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "9DD4B628675D94BFF2D18F4ECC60FAEAE38D876335EFBC96656E295E40F82746",
+								"type": "text"
+							},
+							{
+								"key": "{{no-signature}}",
+								"value": "{{value-signature}}",
+								"type": "text",
+								"disabled": true
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"username\": \"\",\r\n    \"password\": \"\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{url}}api/login/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"login",
+								""
+							]
+						},
+						"description": "login"
+					},
+					"response": [
+						{
+							"name": "iniciar sesión",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"username\":\"admin\",\r\n    \"password\":\"123456789\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/login/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"login",
+										""
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 21:40:38 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "438"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"refresh\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM1ODAzNywianRpIjoiMmJkZjYzNDBlOGNiNDIxMTg5MTAwMDVkZGRjOTllYTQiLCJ1c2VyX2lkIjoxfQ.6RM0la2mrVZoZdu9QEgTh5M5pAC3NcC1ArfTXPbekpo\",\n    \"access\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNjM3MjczNDM3LCJqdGkiOiIyMWNjMjI4YmJhNWI0N2M3YTJmOTBjNjU3MDNjMDM2NyIsInVzZXJfaWQiOjF9.WbyO1qHR41OcdEbrY0xFqOY5NyACjZ0EI61jP9jF6Sw\"\n}"
+						},
+						{
+							"name": "iniciar sesión - Error Firma",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"username\":\"admin\",\r\n    \"password\":\"12345678\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/login/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"login",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:08:02 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "78"
+								},
+								{
+									"key": "Vary",
+									"value": "Cookie, Origin"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+						},
+						{
+							"name": "iniciar sesión - Credenciales erroneas",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"username\":\"admin\",\r\n    \"password\":\"12345678\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/login/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"login",
+										""
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:08:31 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "95"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"detail\": \"No active account found with the given credentials\",\n    \"messages\": []\n}"
+						},
+						{
+							"name": "iniciar sesión - Error en los datos",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"password\":\"123456789\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/login/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"login",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:09:46 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "101"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"username\": [\n            \"This field is required.\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+						}
+					]
+				},
+				{
+					"name": "refresh token",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"refresh\":\"\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://qasmart.superfinanciera.gov.co/api/token/refresh",
+							"protocol": "https",
+							"host": [
+								"qasmart",
+								"superfinanciera",
+								"gov",
+								"co"
+							],
+							"path": [
+								"api",
+								"token",
+								"refresh"
+							]
+						},
+						"description": "refresh"
+					},
+					"response": [
+						{
+							"name": "refresh token - Token usado",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									},
+									{
+										"key": "",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"refresh\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM2NjgwMiwianRpIjoiMmY3N2ExMzZlMDJlNDhiYjk1NzU5YTkyNzM5ZTllYzYiLCJ1c2VyX2lkIjoxfQ.hi8P87ssEbRb2JXtSXyxxDgObY4gaCZVmzHxlnxN0Lo\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/token/refresh",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"token",
+										"refresh"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:11:08 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "119"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": {\n        \"detail\": \"Token is blacklisted\",\n        \"code\": \"token_not_valid\"\n    },\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "refresh token - Invalido",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									},
+									{
+										"key": "Authorization",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"refresh\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM2NjgwMiwianRpIjoiMmY3N2ExMzZlMDJlNDhiYjk1NzU5YTkyNzM5ZTllYzYiLCJ1c2VyX2lkIjoxfQ.hi8P87ssEbRb2JXtSXyxxDgObY4gaCZVmzHxlnxN0Lo123\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/token/refresh",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"token",
+										"refresh"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:11:58 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "126"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": {\n        \"detail\": \"Token is invalid or expired\",\n        \"code\": \"token_not_valid\"\n    },\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "refresh token - Error en los datos",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									},
+									{
+										"key": "",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"access\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM2NjgwMiwianRpIjoiMmY3N2ExMzZlMDJlNDhiYjk1NzU5YTkyNzM5ZTllYzYiLCJ1c2VyX2lkIjoxfQ.hi8P87ssEbRb2JXtSXyxxDgObY4gaCZVmzHxlnxN0Lo\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/token/refresh",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"token",
+										"refresh"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:12:43 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "100"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"refresh\": [\n            \"This field is required.\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "refresh token - No se ecnuentra la firma o el Token",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									},
+									{
+										"key": "",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"access\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM2NjgwMiwianRpIjoiMmY3N2ExMzZlMDJlNDhiYjk1NzU5YTkyNzM5ZTllYzYiLCJ1c2VyX2lkIjoxfQ.hi8P87ssEbRb2JXtSXyxxDgObY4gaCZVmzHxlnxN0Lo\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/token/refresh",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"token",
+										"refresh"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:13:18 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "68"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								},
+								{
+									"key": "Vary",
+									"value": "Origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+						},
+						{
+							"name": "refresh token",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "918D697E4EE34F43B3C44C97BD8640F903BDB3B85274E28C684A6003F153E41D",
+										"type": "text"
+									},
+									{
+										"key": "",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"refresh\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM3MDY1NywianRpIjoiM2M2MWM3Y2EyOTUyNDFmZWFjYThiMjg2NTRkMjdlN2EiLCJ1c2VyX2lkIjoxfQ.cqdEt6V5c1Hw96sPoZG7AZK_0zpgtuOrmrfCVakNgTo\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/token/refresh",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"token",
+										"refresh"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:14:25 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "POST, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "438"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"access\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNjM3Mjg2MjY0LCJqdGkiOiIyNGQ5MGE1NDBlOGU0OWFkYjY0ODRiNTk1ZjdkMTQ0OCIsInVzZXJfaWQiOjF9.oSElMsiw3d7NkyuumiHuYCuDphT5QIqItVie0RCX3Rc\",\n    \"refresh\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTYzNzM3MDg2NCwianRpIjoiNTg2MTlhMWM3Y2I2NDc3MTg4N2RlNjgwMTFmNDM0OGMiLCJ1c2VyX2lkIjoxfQ.7CAVz79PRXdApOZ-ib1lmugwHv1SEKwnX2t2Sn-3_aA\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Queja - Momento 1",
+			"item": [
+				{
+					"name": "ACK",
+					"item": [
+						{
+							"name": "ack",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "FAAE1CAEBFA3724EAAE022ED7994E8AA9345E08D2DB07D269BCCFCC7BE981F3C",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"pqrs\": [\"168171113742384834\"]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/complaint/ack",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"complaint",
+										"ack"
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "ack -  Codigo no coincidente",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n    \"pqrs\": [\r\n        \"211634833518762814\",\r\n        \"21163483351876284as5\"\r\n    ]\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{url}}api/complaint/ack",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"complaint",
+												"ack"
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Thu, 21 Oct 2021 16:53:06 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept"
+										},
+										{
+											"key": "Allow",
+											"value": "POST, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "84"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"message\": \"update code\",\n    \"pqrs_error\": [\n        \"211634833518762814\",\n        \"21163483351876284as5\"\n    ]\n}"
+								},
+								{
+									"name": "ack",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n    \"pqrs\": [\r\n        \"221634833589304053\"\r\n    ]\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{url}}api/complaint/ack",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"complaint",
+												"ack"
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Thu, 21 Oct 2021 17:07:28 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept"
+										},
+										{
+											"key": "Allow",
+											"value": "POST, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "41"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"message\": \"update code\",\n    \"pqrs_error\": []\n}"
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Storage",
+					"item": [
+						{
+							"name": "Get File",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "50C94567300923114FA0323EAE9F2A63E86467ACE0E12959D2CFCB8E3CD602FC",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/storage/?codigo_queja__codigo_queja=14231696437985835033",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"storage",
+										""
+									],
+									"query": [
+										{
+											"key": "codigo_queja__codigo_queja",
+											"value": "14231696437985835033"
+										}
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "Add File - queja no existe",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "formdata",
+											"formdata": [
+												{
+													"key": "file",
+													"type": "file",
+													"src": "/C:/Users/Servi/Downloads/Documento de Flujo ETL  y Modelos Analíticos - Colombiana de Comercio.pdf"
+												},
+												{
+													"key": "type",
+													"value": "pdf",
+													"type": "text"
+												},
+												{
+													"key": "codigo_queja",
+													"value": "111635888992248094",
+													"type": "text"
+												}
+											]
+										},
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Bad Request",
+									"code": 400,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Mon, 15 Nov 2021 23:41:47 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "80"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"codigo_queja\": [\n        \"Object with codigo_queja=111635888992248094 does not exist.\"\n    ]\n}"
+								},
+								{
+									"name": "Add File - No viaja la informacion de firma o token",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/codigo_queja__codigo_queja=12345678921234",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												"codigo_queja__codigo_queja=12345678921234"
+											]
+										}
+									},
+									"status": "Bad Request",
+									"code": 400,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:34:43 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "68"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										},
+										{
+											"key": "Vary",
+											"value": "Origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+								},
+								{
+									"name": "Add File - Firma invalida",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/codigo_queja__codigo_queja=12345678921234",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												"codigo_queja__codigo_queja=12345678921234"
+											]
+										}
+									},
+									"status": "Bad Request",
+									"code": 400,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:35:04 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "78"
+										},
+										{
+											"key": "Vary",
+											"value": "Cookie, Origin"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+								},
+								{
+									"name": "Add File - Token invalido",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Unauthorized",
+									"code": 401,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:36:44 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "WWW-Authenticate",
+											"value": "Bearer realm=\"api\""
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "154"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 401,\n    \"messages\": [\n        {\n            \"token_class\": \"AccessToken\",\n            \"token_type\": \"access\",\n            \"message\": \"Token is invalid or expired\"\n        }\n    ],\n    \"detail\": \"Error APIException\"\n}"
+								},
+								{
+									"name": "Add File - no se encuentra el archivo",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/121637191320458543/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												"121637191320458543",
+												""
+											]
+										}
+									},
+									"status": "Not Found",
+									"code": 404,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:38:13 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "55"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 404,\n    \"detail\": \"Not found.\",\n    \"messages\": []\n}"
+								},
+								{
+									"name": "Add File - ID",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/13/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												"13",
+												""
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:38:46 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "670"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"id\": 13,\n    \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_Mj2yvZU.pdf?Expires=1637286826&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=cuqn%2B2ndgfIVOVKkhya9kOJUf0xny8aduj6ElGbFw2f3FE4KAK585D%2BG7mOp4bNbPme39Eh%2FGcV99AQKiWej04u%2FUKOCqvJBONUDKoesPAhdHYOrwSgVSq%2FOK%2FqcgbkumXyG7dqzjr08mwGPYQhDKfhJOHyZI863XFtJWVgDMZqUNxVSgczRo7OXBj3u8y1YSiQRjFTMo1w6qJIOksDx6VrMfbAq7XcK%2B5iYGEob2jwpniIhSS1DQ%2BQCfkNVZQgCtHul8ynzYY0eZsLs9jL60Hz6Pl3LacOufwt8YRQhq8FS47PLiobcIIfu4eiXky0ggeq4Agq%2BhHU6w4zbaHf6Ag%3D%3D\",\n    \"type\": \"pdf\",\n    \"state\": 1,\n    \"codigo_queja\": \"121637191320458543\"\n}"
+								},
+								{
+									"name": "Add File",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/?codigo_queja__codigo_queja=121637191320458543",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											],
+											"query": [
+												{
+													"key": "codigo_queja__codigo_queja",
+													"value": "121637191320458543"
+												}
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:39:38 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "6746"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"count\": 10,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": [\n        {\n            \"id\": 3,\n            \"file\": \"https://storage.googleapis.com/scanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_feOH8QL.pdf?Expires=1637286876&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=TZXv8%2FpbTApOgoKNTOMDfrC03moBxEGGs63v78JvatOz8Sj7R5U1tgYKBui%2BXf8110mbWUY51l8kV9ynLiFg%2FVxmVzZZGlCC1r8g1GZEzgAT5sHqJk8It%2FBE7Bj0cX3qkXEft8nuEO5oySxCg8gNPup9NcDy2VVnQ0xgwtByXZnbfNKUIaIuzyyX%2F9bPpDzCDm%2FIguQ3T4e%2FuPOiWTBqqGPpKXey%2BgZbdJi5Q3PHhgiCF7wgmXnuIugv%2FNCW6YQ9RhDcKpy3tjPoM2VILbuHftxhn63zsQUR4ZTTjoRVOEV9VLL7dADXxi%2BayRrDlX4lhQvWW31tOq99KwVNlrWeYA%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 2,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 7,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_2fwxoB3.pdf?Expires=1637286876&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=Fwle5e2%2FlFO0uiIUB4hVe5ItUVoDtpaq%2FSJG%2B6c3t1ZN80TDtSgLU1ddXtKlxJdBWuffDvtcmxQbNcH4%2BpmsxPYnufpAF2iRhcGvOyGWsqmRmWQrtRJU0lYGsyv2ngq%2B4KGqk1Hdzn7Pj67dHrzRX2LJjCbRu68gHGC7D9gVyWFopYfZjy5KDwlUj%2BbWsge0olgoWwUm21za3kx0LB3fiamwslp%2B%2BQ0NLTZUw17TPotSctj2HSmnmGoYVLKJ8Rbj8sSyjg8tM77LYvKZC6O5OjDhb0O0a%2BWwyp4v15lEI9fPt8gEvCpljs75pxfGv8QtHtx4DIVhUIjY5gkN3kJcaQ%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 8,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_NFbPfzi.pdf?Expires=1637286876&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=IdsX9EUhe4pdioxVT1eFj8ylSs8t3LO26yFVdPzXPi6Q9avRD2cMfFdiC6PFCuo98m2gAVKh3cPuGGVsJ7EfDUOXf%2BRQRyCUAMLHVaXMsQ2Onk6Q3ZQ4Ikd7%2By0sjYpjpjyHw1ufcJi6a9PZtZTaHtkhggy4x187RCyMhZjJt0WFu0Ci6wi5KzSmGaSjOxSBqFF4lcYJWES9Dc2BeIbHZqMLfudY61f3kRsngZVx8xqECUUXJ1%2FE05jz6aryoE0%2Blj7srAIAFJr4vUE0huUcyGFJUdKGV7xi9MOeRhAsx4RqvTgREvfC5el3xX%2B1zo86JA0z6wU92S7DSSHd%2Fm3GpQ%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 9,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_2qqY7AX.pdf?Expires=1637286877&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=jVXPwDYeeOZhbSnE1YAttFahBWoCGQCdqhBqJ5f%2BXtXZnqUIgTWBbRFPyxon8HQHIo0J9Scgk2cVRJecs0DoJGulJmRkF6uw%2BIEbfSuI4Y9zUcfsaJOTebbGKd3fQOmWtFWLCh9BG4sKe9V9G8Z1myhbmNuld4elwbVslAj5JqHhsNvMzG1yOdoif6f1RMXCt%2FDEVla%2FKdC07maX%2BLjtCCG7EOUSQx%2BBw5zvSKmAijKfa4AVk5sNyIXaZ0UHy%2BRXvdqslNihfiJkMxqY9qAPjmEVrt4OayrngMg%2F80hWvg1IG7Vq%2FdSI%2FwqTkESwJtKU46G090xZ1IFPf7iG%2BFAduQ%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 10,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_yjqdeAp.pdf?Expires=1637286877&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=QO85%2FGI58WaONtgQGa9uDTdEy1GnqunQhbDqzdyh%2BscC4WV3ohh85KZVP6NNZ1Yrw2r6cpDJkdS2LKD1H2YnS5pywurz4RuQsQVpjvGuBORGeMC3GxSkm3atroxozUeOEtRsur3I4cyWrAVfSu2Vj6y%2F0EAHMsDsj9QiIUIETb%2FT%2F2OtQoIC%2FFSAooOOJrqn2eu9NESthac5foIZP9VgWEx9eGCxE6DGJx5dOLOLjqfrCUTkTG%2FDTbTmPpamhkoalRKREqaiJaXecaX39MwoZdidXfG70QdnCkpv1otWkSU6DyrWZ2LBPVSmn30jtLczluEExH0fkGIXxb5601i%2Bpw%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 11,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_3XW59fh.pdf?Expires=1637286877&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=gqVfa4%2FWuwjB1ymAwJFquhGJvt%2BEhfTH7ShpZzJ32xuiTyY3afcxlfizJIeTx9gT0T2qPYwZVuHWjMJ%2B%2B7r5pz3Rk%2FRVuPxNRT19G1NHdFQamttbDg9LhCTI6gno7WqJma8JeO73L58e2csmtc7kEp6d50Lmdtd9mCg2hWzXpKQcsQeyvgVQw8lfBI3qgQUu3lKxJB551rH1WSwPZiNoXkDYa8lxdDAJpD4Y3zkQiJtgXLN0z07pWse11kDuxwan4BipfTcZoxDqvCwf05Anh2YBhhYuCd1D1kwFrtvVPPcvfSTUqp0FhpdUOq9WmWY41UyPFqNfeP8N5LxdVSsj7w%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 12,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_miaqiFi.pdf?Expires=1637286878&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=i5jg86Xtd%2FP9JgEwwpGeuUQyvz%2BzXG6dvbFeHeEfj7SHiSlpXILCNk25es2PWRAG0ZaNZd2B8OgsMQykv8Iy5eOdk6CUgEhtPtocD5XR4cnttTEUVkc74TiH6JNwucUG5yUol3N%2BczwHBLI9wIH12ZYwom2khxwz92RwlaTtQfjYWsfXpuvUX8Y9EKMvOrcvXyojn0SeIgqP9THsdB5SSGZkwAJ3sb7bmQzDpVz8UHN3hjZceiRJlFGxX%2FOiDYGfPqiuM9qu0PR7wg1h0%2Bm95ShKc%2BHURR95eztWzb8f%2FXuflmCD8iPFQgz4%2Byg8irZcdmsGWAqoCk79DsQKykTBQQ%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 13,\n            \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_Mj2yvZU.pdf?Expires=1637286878&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=A77hxJZEV9HdCbVx1R9F4FMmHTv8WM3aFFtCkOQhYg0k6X9qYdVo7K8es0jLVQDTx7Q%2FGmFQgFw4qo4vaJ%2BRbBIYfaiQm7Iq2hUA%2F5FGDhr%2F%2F0Wx8qfKXzio0NjsytmmxP5BET2QOCUetpRX9qjQJpoQwgIIL87PlAq6aq4f9JdF5b7msrAQ7ure3iIGb1Sy%2FqhgxmrOBWKcZJKM0JOQFldzOv8e8HZJ1kYx6ZTTQ%2BV7P38KUBE98%2FLyqoFsY5zfS48Rm%2FYBksM6LMqxJph%2BtIiUap2LxKbQbBSVDy5bv2mXepAQtMYRN%2FzKOSKO7QfEnVvEJ1Fn01LyIYYXZZHvJg%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 1,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 14,\n            \"file\": \"https://storage.googleapis.com/scanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_M8zVkLS.pdf?Expires=1637286878&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=KIASTnm66gVr1nUX89ReVHotZla0WfjiF1uXoiMkTmKNkkaFpIe84s3zZwBS5kKABjwzbZIbifbs3bqpCwqO4VxDXfzEFQZPcLWvJDzDNMbT0MJY%2FyFDoSF7uMf1BWtM2FBue%2BEdRUReHcGvI%2FM30CMdXfIvMv8%2BzpLxHmad%2F7%2B5FAMxeDKL4COqBBpgg56rsegfKAhGACBkjRUeTodHQbCs2P3Y6eO3EnuntEjz4GvYe29YbxKNeUHVdIbdXPfVdHMRfPx32MN8tXTLPTFOKESyHkb6WzjfutilU9uxILOufdhCI%2Fg1W8n4xWMKS7xciipEoLvYXFbPYUzeP91MxA%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 2,\n            \"codigo_queja\": \"121637191320458543\"\n        },\n        {\n            \"id\": 15,\n            \"file\": \"https://storage.googleapis.com/scanned-sfc-smartsupervision-dev/121637191320458543/1012407349_RB202101141508_ivyPogh.pdf?Expires=1637286878&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=COgOJ8yMiZG9v0R1EGynLGLMLCUWOd1udM32LAmLvhWq1Ze5iTrVN90qOCFC0UDyhrEO3sqvnYbRxKKEOAaK4I4EhQQvK9%2FMPSWLc3KQOCQRBzKKy2qLXk7J2EzHxwhs1puQOjWKWVwlO9bpZZ6C%2Fs7ZCjcSCiJcqfhresxWc1ZzrDEDdzisJvUC%2F7zCV4x9O6kFM3Mu%2BW0XrN164X3pXdVv2NRctUtU6EZXJ2%2BDOhHlBRQItE%2FmHzzrm103%2FUsPvys3sZMxDhswXVIT208k0KLy2wtXuKTqySaGYGZYaLBtHhytTkHugw5ltnRdyYn0CCCzVXugPTiLBurfLwgAcQ%3D%3D\",\n            \"type\": \"pdf\",\n            \"state\": 2,\n            \"codigo_queja\": \"121637191320458543\"\n        }\n    ]\n}"
+								},
+								{
+									"name": "Add File - No hay archivos o no existe la queja",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/?codigo_queja__codigo_queja=12163719132045854378945",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											],
+											"query": [
+												{
+													"key": "codigo_queja__codigo_queja",
+													"value": "12163719132045854378945"
+												}
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:40:10 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "62"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"count\": 0,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": []\n}"
+								},
+								{
+									"name": "Add File - No se filtra por queja",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Not Acceptable",
+									"code": 406,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 02:09:14 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "77"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 406,\n    \"detail\": \"Debe filtrar por codigo de queja\",\n    \"messages\": []\n}"
+								},
+								{
+									"name": "Add File -",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/?codigo_queja__codigo_queja=",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											],
+											"query": [
+												{
+													"key": "codigo_queja__codigo_queja",
+													"value": ""
+												}
+											]
+										}
+									},
+									"status": "Not Acceptable",
+									"code": 406,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 02:09:14 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "77"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 406,\n    \"detail\": \"Debe filtrar por codigo de queja\",\n    \"messages\": []\n}"
+								},
+								{
+									"name": "Add File - No se especifica el codigo de queja",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{url}}api/storage/?codigo_queja__codigo_queja=",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											],
+											"query": [
+												{
+													"key": "codigo_queja__codigo_queja",
+													"value": ""
+												}
+											]
+										}
+									},
+									"status": "Not Acceptable",
+									"code": 406,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 02:09:51 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "74"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 406,\n    \"detail\": \"Debe colocar un codigo valido\",\n    \"messages\": []\n}"
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "get complaint",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "6D0F992844F208B7E3D8CC6882805CEDCC84F3EE8724DF150D4B41DBC74046A7",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{url}}api/queja/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"queja",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "get complaint",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 22:47:54 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "1051"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"count\": 1,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": [\n        {\n            \"tipo_entidad\": 11,\n            \"entidad_cod\": \"18\",\n            \"fecha_creacion\": \"2022-01-18T21:00:07\",\n            \"codigo_queja\": \"11181118807587120\",\n            \"codigo_pais\": \"170\",\n            \"departamento_cod\": \"05\",\n            \"municipio_cod\": \"05004\",\n            \"nombres\": \"cf807587120\",\n            \"tipo_id_CF\": 1,\n            \"numero_id_CF\": \"807587120\",\n            \"tipo_persona\": 1,\n            \"sexo\": null,\n            \"lgbtiq\": null,\n            \"canal_cod\": 3,\n            \"condicion_especial\": null,\n            \"producto_cod\": 113,\n            \"producto_nombre\": null,\n            \"macro_motivo_cod\": 116,\n            \"texto_queja\": \"text complaint\",\n            \"anexo_queja\": true,\n            \"tutela\": null,\n            \"ente_control\": 1,\n            \"escalamiento_DCF\": null,\n            \"replica\": null,\n            \"argumento_replica\": null,\n            \"desistimiento_queja\": null,\n            \"queja_expres\": 2\n        }\n    ]\n}"
+						},
+						{
+							"name": "get complaint - Sin Quejas",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 22:51:01 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "62"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"count\": 0,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": []\n}"
+						},
+						{
+							"name": "get complaint - No se encuentra firma o token",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:15:00 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "68"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								},
+								{
+									"key": "Vary",
+									"value": "Origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+						},
+						{
+							"name": "get complaint - No coincide la firma",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:15:37 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "78"
+								},
+								{
+									"key": "Vary",
+									"value": "Cookie, Origin"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+						},
+						{
+							"name": "get complaint - Token invalido",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:16:55 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "154"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": [\n        {\n            \"token_class\": \"AccessToken\",\n            \"token_type\": \"access\",\n            \"message\": \"Token is invalid or expired\"\n        }\n    ],\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "get complaint - Sin token o Token mal formado",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:17:34 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "90"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"detail\": \"Authentication credentials were not provided.\",\n    \"messages\": []\n}"
+						}
+					]
+				},
+				{
+					"name": "queja generate",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "95570D6A3106BB21E8F700D93DF067027735E3AB1B926510593F26755D218333",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"cantidad_quejas\": 10\r\n}  ",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{url}}api/quejagenerate/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"quejagenerate",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "queja generate",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"cantidad_quejas\": 19\r\n}   ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://qasmart.superfinanciera.gov.co/api/quejagenerate/",
+									"protocol": "https",
+									"host": [
+										"qasmart",
+										"superfinanciera",
+										"gov",
+										"co"
+									],
+									"path": [
+										"api",
+										"quejagenerate",
+										""
+									]
+								}
+							},
+							"_postman_previewlanguage": "json",
+							"header": [],
+							"cookie": [],
+							"body": "{\n    \"successful\": 19,\n    \"successful_attachments\": 6,\n    \"successful_codigo_quejas\": [\n        \"29500426038\",\n        \"29929174163\",\n        \"29884080401\",\n        \"29977283594\",\n        \"29425021346\",\n        \"29692192081\",\n        \"29940902456\",\n        \"29839198950\",\n        \"29652111360\",\n        \"29307240745\",\n        \"29996762028\",\n        \"29344348087\",\n        \"29957624045\",\n        \"29864041347\",\n        \"2991598740\",\n        \"29482855359\",\n        \"29556547461\",\n        \"29667887269\",\n        \"29687603087\"\n    ]\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Queja - Momento 2",
+			"item": [
+				{
+					"name": "Storage",
+					"item": [
+						{
+							"name": "upload file",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "3FA80C65A3BC6D815CB3AC79EB7C83F78EBA7FA21604F924E9F7898DC99B8022",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "type",
+											"value": "pdf",
+											"type": "text"
+										},
+										{
+											"key": "codigo_queja",
+											"value": "142316551509974606",
+											"type": "text"
+										},
+										{
+											"key": "file",
+											"type": "file",
+											"src": "/C:/Users/Servi/Downloads/WhatsApp Image 2024-02-08 at 3.31.53 PM.jpeg"
+										},
+										{
+											"key": "reference",
+											"value": "6",
+											"type": "text",
+											"disabled": true
+										}
+									]
+								},
+								"url": {
+									"raw": "{{url}}api/storage/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"storage",
+										""
+									],
+									"query": [
+										{
+											"key": "type",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "",
+											"value": "",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "upload",
+									"originalRequest": {
+										"method": "POST",
+										"header": [],
+										"body": {
+											"mode": "formdata",
+											"formdata": [
+												{
+													"key": "file",
+													"type": "file",
+													"src": "/C:/Users/CreaTIC/Downloads/test_storage.pdf"
+												},
+												{
+													"key": "codigo_queja",
+													"value": "b084decb-5898-4758-81fa-1194d436fc91",
+													"type": "text"
+												},
+												{
+													"key": "type",
+													"value": "pdf",
+													"type": "text"
+												},
+												{
+													"key": "state",
+													"value": "1",
+													"type": "text"
+												}
+											],
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{url}}/api/storage/",
+											"host": [
+												"{{url}}"
+											],
+											"path": [
+												"api",
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Created",
+									"code": 201,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Wed, 03 Nov 2021 19:26:43 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "966"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"id\": 4,\n    \"file\": \"https://storage.googleapis.com/sfc-smartsupervision-dev.appspot.com/111635967485584476/test_storage_DLZW1bE.pdf?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com%2F20211103%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20211103T192643Z&X-Goog-Expires=3600&X-Goog-SignedHeaders=host&X-Goog-Signature=42ecb3e1a209bfeef23fc38621ea8e02fa3baa1930b26d6ad3c848afd4e74217adac0a9c8087f9ee25ed63d7ad383fe0eaf181f0aa3e3a411f5f74fb893a6bc5ec6f2901be435d4ff0c1733c35e803bbd9b7087acd940fb1a4e57bb59bab7dc7ad9a7f6c613bea4f21e2d21f5171b6cda5507d5e69ec8604e40f27c445aec34cfa475de6fd94f7a25eb4bf3ebab12902985808390b1f5b966b0ad7e34021808bda2c02f0eab1da564e96e72d4052a3df82d310b588d700b43f0ebf4290cca11479fb38dd18509da8a5939cf42f3e3829c512d48f85d783a8d42487e350cfe20c56439559d40a701241d5c6f1638677e5b41cf1beadf43cb2b5ac961acbc6e47b\",\n    \"type\": \"pdf\",\n    \"state\": 1,\n    \"codigo_queja\": \"b084decb-5898-4758-81fa-1194d436fc91\"\n}"
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "create complaint",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "E1A192502070F4594A61BB47905AAA7A61C83E514799550310156D85ED44D1EF",
+								"type": "text"
+							},
+							{
+								"key": "{{no-signature}}",
+								"value": "{{value-signature}}",
+								"type": "text",
+								"disabled": true
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n   \"tipo_entidad\":1,\r\n   \"entidad_cod\":423,\r\n   \"codigo_queja\":1423681232936,\r\n   \"codigo_pais\":170,\r\n   \"departamento_cod\":\"52\",\r\n   \"municipio_cod\":\"52001\",\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":209,\r\n   \"macro_motivo_cod\": 209,\r\n   \"numero_id_CF\":\"1040011014\",\r\n   \"tipo_id_CF\":1,\r\n   \"fecha_creacion\":\"2024-01-31T06:10:06\",\r\n   \"nombres\":\"Camila Salas\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":\"3\",\r\n   \"punto_recepcion\":\"1\",\r\n   \"admision\": 2,\r\n   \"texto_queja\":\"Prueba momento 2\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":\"\",\r\n   \"queja_expres\":1,\r\n   \"sexo\":1,\r\n   \"lgbtiq\":\"2\",\r\n   \"prorroga\":\"1\",\r\n   \"condicion_especial\":1,\r\n   \"desistimiento_queja\":\"2\",\r\n   \"es_apoderado\": true,\r\n   \"apoderado_nombre\": \"null\"\r\n} ",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{url}}api/queja/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"queja",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "create complaint",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 22:27:54 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "965"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n   \"tipo_entidad\":100,\n   \"entidad_cod\":\"9\",\n   \"codigo_queja\":\"10091005923875328\",\n   \"codigo_pais\":4,\n   \"departamento_cod\":\"5\",\n   \"municipio_cod\":\"5004\",\n   \"canal_cod\":1,\n   \"producto_cod\":103,\n   \"macro_motivo_cod\":103,\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\n   \"nombres\":\"new complaint to ScotiaBank\",\n   \"tipo_id_CF\":1,\n   \"numero_id_CF\":\"111111116\",\n   \"tipo_persona\":1,\n   \"insta_recepcion\":3,\n   \"punto_recepcion\":1,\n   \"admision\":1,\n   \"texto_queja\":\"text complaint1\",\n   \"anexo_queja\":false,\n   \"ente_control\":1\n}"
+						},
+						{
+							"name": "create complaint - Firma no valida",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:19:07 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "78"
+								},
+								{
+									"key": "Vary",
+									"value": "Cookie, Origin"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+						},
+						{
+							"name": "create complaint - Token no valido",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:19:35 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "154"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": [\n        {\n            \"token_class\": \"AccessToken\",\n            \"token_type\": \"access\",\n            \"message\": \"Token is invalid or expired\"\n        }\n    ],\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "create complaint - No se envia firma o token",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:19:51 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "68"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								},
+								{
+									"key": "Vary",
+									"value": "Origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+						},
+						{
+							"name": "create complaint - Codigo de queja existente",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:20:44 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "126"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"codigo_queja\": [\n            \"queja with this codigo queja already exists.\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "create complaint - Entidad equivocada",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:21:47 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "146"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"entidad_cod\": [\n            \"You do not have permission to for this complaint for this company\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "create complaint - Error en el formulario",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"tipo_entidad\":100,\r\n   \"entidad_cod\":\"9\",\r\n   \"codigo_queja\":\"10091005923875328\",\r\n   \"codigo_pais\":4,\r\n   \"departamento_cod\":\"5\",\r\n   \"municipio_cod\":\"5004\",\r\n   \"canal_cod\":1,\r\n   \"producto_cod\":103,\r\n   \"macro_motivo_cod\":103,\r\n   \"fecha_creacion\":\"2022-01-13T06:23:06\",\r\n   \"nombres\":\"new complaint to ScotiaBank\",\r\n   \"tipo_id_CF\":1,\r\n   \"numero_id_CF\":\"111111116\",\r\n   \"tipo_persona\":1,\r\n   \"insta_recepcion\":3,\r\n   \"punto_recepcion\":1,\r\n   \"admision\":1,\r\n   \"texto_queja\":\"text complaint1\",\r\n   \"anexo_queja\":false,\r\n   \"ente_control\":1\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:22:32 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "201"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"codigo_pais\": [\n            \"This field is required.\"\n        ],\n        \"departamento_codigo\": [\n            \"This field is required.\"\n        ],\n        \"municipio_codigo\": [\n            \"This field is required.\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Queja - Momento 3",
+			"item": [
+				{
+					"name": "Storage",
+					"item": [
+						{
+							"name": "upload file",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "1781896F1885B2638C79CD63C86A4D1C9D671BA5C311EE45E26C1E2CB2B52D53",
+										"type": "text"
+									},
+									{
+										"key": "{{no-signature}}",
+										"value": "{{value-signature}}",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "file",
+											"type": "file",
+											"src": "/C:/Users/cpineda/Downloads/14231712154822655975_RESP_FINAL_SFC.pdf"
+										},
+										{
+											"key": "type",
+											"value": "pdf",
+											"type": "text"
+										},
+										{
+											"key": "codigo_queja",
+											"value": "14231712154822655975",
+											"type": "text"
+										}
+									]
+								},
+								"url": {
+									"raw": "{{url}}api/storage/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"storage",
+										""
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "Add File - queja cerrada",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "formdata",
+											"formdata": [
+												{
+													"key": "file",
+													"type": "file",
+													"src": "/C:/Users/Servi/Downloads/Ruta del usuario WhatsApp Mi planilla (002) (1).pdf"
+												},
+												{
+													"key": "type",
+													"value": "pdf",
+													"type": "text"
+												},
+												{
+													"key": "codigo_queja",
+													"value": "25987654321",
+													"type": "text"
+												}
+											]
+										},
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Bad Request",
+									"code": 400,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:18:16 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "117"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"non_field_errors\": [\n            \"the complaint is already closed\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+								},
+								{
+									"name": "Add File - No existe la queja",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "formdata",
+											"formdata": [
+												{
+													"key": "file",
+													"type": "file",
+													"src": "/C:/Users/Servi/Downloads/Ruta del usuario WhatsApp Mi planilla (002) (1).pdf"
+												},
+												{
+													"key": "type",
+													"value": "pdf",
+													"type": "text"
+												},
+												{
+													"key": "codigo_queja",
+													"value": "14547897",
+													"type": "text"
+												}
+											]
+										},
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Bad Request",
+									"code": 400,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:32:55 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "131"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"status_code\": 400,\n    \"messages\": {\n        \"codigo_queja\": [\n            \"Object with codigo_queja=14547897 does not exist.\"\n        ]\n    },\n    \"detail\": \"Error APIException\"\n}"
+								},
+								{
+									"name": "Add File",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "formdata",
+											"formdata": [
+												{
+													"key": "file",
+													"type": "file",
+													"src": "/C:/Users/Servi/Downloads/Ruta del usuario WhatsApp Mi planilla (002) (1).pdf"
+												},
+												{
+													"key": "type",
+													"value": "pdf",
+													"type": "text"
+												},
+												{
+													"key": "codigo_queja",
+													"value": "12345678921234",
+													"type": "text"
+												}
+											]
+										},
+										"url": {
+											"raw": "{{url}}api/storage/",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"storage",
+												""
+											]
+										}
+									},
+									"status": "Created",
+									"code": 201,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Fri, 19 Nov 2021 01:33:41 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept, Cookie, Origin"
+										},
+										{
+											"key": "Allow",
+											"value": "GET, POST, HEAD, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "684"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"id\": 18,\n    \"file\": \"https://storage.googleapis.com/unscanned-sfc-smartsupervision-dev/12345678921234/Ruta_del_usuario_WhatsApp_Mi_planilla_002_1.pdf?Expires=1637286521&GoogleAccessId=backend%40sfc-smartsupervision-dev.iam.gserviceaccount.com&Signature=Rdis3plIRmKFbxjhnm%2BmY0f0DMi2AdrbCU47EnWgVEO9M4y1wm%2F7cS4gyYwq8VQg1S1HY%2FkZYA7dq9rd0%2B4Kk3n1K%2BQX9OmrR0Df4OmmLF4STY0a0dAE%2FARkct1sDZBNvcY%2BlQQMexIPwNJ%2FNImesJknEEfAKUsJDaub8%2BwH%2BMABsjt%2FIcops%2FrHhtX6DXVFFnQeW2BgM4X1ZjfLRDzI1Gj7lGRp2QwtK52i9CKKzdOxsBU0zDSRC9JjbCMPYK3%2B0LPU9%2FTwJ66e5f7WOvPd05V3G6Bjl1dK%2BfWQZzpX1IXNomewsOwnIzSrg6UeDjdeJ8KiLfg8uWypryV1uWa32A%3D%3D\",\n    \"type\": \"pdf\",\n    \"state\": 1,\n    \"codigo_queja\": \"12345678921234\"\n}"
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "actualizar queja",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "61DF13F951BCD9756C90F7896D2639E309DC1A92D3371F5F161723ADE5AEDF53",
+								"type": "text"
+							},
+							{
+								"key": "{{no-signature}}",
+								"value": "{{value-signature}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n   \"producto_cod\":213,\r\n   \"macro_motivo_cod\": 910,\r\n   \"estado_cod\": 4,\r\n   \"producto_digital\": 1,\r\n   \"documentacion_rta_final\": true,\r\n   \"a_favor_de\": 1,\r\n   \"anexo_queja\":true,\r\n   \"fecha_cierre\": \"2024-04-03T09:50:08\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{url}}api/queja/14231712154822655975/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"queja",
+								"14231712154822655975",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "update complaint",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-10-10T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":null,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"True\",\r\n   \"anexo_queja\":\"True\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/14231696429728207417/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"14231696429728207417",
+										""
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 23:59:11 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "941"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"codigo_queja\": \"1966169238221112\",\n    \"sexo\": 2,\n    \"lgbtiq\": 2,\n    \"condicion_especial\": 8,\n    \"canal_cod\": 13,\n    \"producto_cod\": 101,\n    \"macro_motivo_cod\": 306,\n    \"estado_cod\": 2,\n    \"fecha_actualizacion\": \"2022-01-18T16:29:09\",\n    \"producto_digital\": 1,\n    \"a_favor_de\": 2,\n    \"aceptacion_queja\": 1,\n    \"rectificacion_queja\": 1,\n    \"desistimiento_queja\": 1,\n    \"prorroga_queja\": 2,\n    \"admision\": 1,\n    \"documentacion_rta_final\": false,\n    \"anexo_queja\": false,\n    \"fecha_cierre\": \"2021-01-05T08:01:58\",\n    \"tutela\": 1,\n    \"ente_control\": 99,\n    \"marcacion\": 2,\n    \"queja_expres\": 1\n}"
+						},
+						{
+							"name": "update complaint - Firma erronea",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-01-07T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":2,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"False\",\r\n   \"anexo_queja\":\"False\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/25987654321/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"25987654321",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:24:06 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "78"
+								},
+								{
+									"key": "Vary",
+									"value": "Cookie, Origin"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+						},
+						{
+							"name": "update complaint - No se envia Firma o token",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-01-07T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":2,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"False\",\r\n   \"anexo_queja\":\"False\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/25987654321/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"25987654321",
+										""
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:27:04 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "68"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								},
+								{
+									"key": "Vary",
+									"value": "Origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+						},
+						{
+							"name": "update complaint - Token invalido",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-01-07T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":2,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"False\",\r\n   \"anexo_queja\":\"False\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/25987654321/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"25987654321",
+										""
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:27:45 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "154"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": [\n        {\n            \"token_class\": \"AccessToken\",\n            \"token_type\": \"access\",\n            \"message\": \"Token is invalid or expired\"\n        }\n    ],\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "update complaint - Queja cerrada",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-01-07T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":2,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"False\",\r\n   \"anexo_queja\":\"False\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/25987654321/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"25987654321",
+										""
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:30:36 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "55"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 404,\n    \"detail\": \"Not found.\",\n    \"messages\": []\n}"
+						},
+						{
+							"name": "update complaint - Queja no encontrada",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"sexo\":2,\r\n   \"lgbtiq\":2,\r\n   \"condicion_especial\":8,\r\n   \"canal_cod\":13,\r\n   \"producto_cod\":101,\r\n   \"macro_motivo_cod\":306,\r\n   \"estado_cod\":2,\r\n   \"fecha_actualizacion\":\"2022-01-07T17:34:7\",\r\n   \"producto_digital\":1,\r\n   \"a_favor_de\":2,\r\n   \"aceptacion_queja\":1,\r\n   \"rectificacion_queja\":1,\r\n   \"desistimiento_queja\":1,\r\n   \"prorroga_queja\":2,\r\n   \"admision\":1,\r\n   \"documentacion_rta_final\":\"False\",\r\n   \"anexo_queja\":\"False\",\r\n   \"fecha_cierre\":\"2021-01-05T08:01:58\",\r\n   \"tutela\":1,\r\n   \"ente_control\":99,\r\n   \"marcacion\":2,\r\n   \"queja_expres\":2\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/queja/25987654321123456/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										"25987654321123456",
+										""
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:31:19 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "55"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 404,\n    \"detail\": \"Not found.\",\n    \"messages\": []\n}"
+						}
+					]
+				},
+				{
+					"name": "partial update queja",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "AAF5C201B632F2710D7A18D8C4B56AA7759E732F43B85BF519DE038DA9B08865",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"estado_cod\": 4,\r\n    \r\n    \"fecha_cierre\": \"2022-09-16 02:02:05\",\r\n    \r\n    \"fecha_actualizacion\": \"2022-09-12 3:55:00\",\r\n    \r\n    \"documentacion_rta_final\":true, \"a_favor_de\":3,\r\n    \r\n    \"macro_motivo_cod\": 101, \"producto_cod\": 101, \"canal_cod\":2,\r\n    \r\n    \"anexo_queja\":true, \"desistimiento_queja\":2, \"marcacion\":1\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://qasmart.superfinanciera.gov.co/api/queja/142347622214657/",
+							"protocol": "https",
+							"host": [
+								"qasmart",
+								"superfinanciera",
+								"gov",
+								"co"
+							],
+							"path": [
+								"api",
+								"queja",
+								"142347622214657",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "partial update queja not found",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "6B3F3A88580C4BB23B02264FE2C40E9D770732B45C16669D28EB2CB3DD9338B3",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n   \"Nombres\": \"financial consumer name6 patch\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}/api/queja/5c10962230ca4778aeab6933b90354eb2/",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"api",
+										"queja",
+										"5c10962230ca4778aeab6933b90354eb2",
+										""
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Tue, 02 Nov 2021 17:12:15 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.7"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, PUT, PATCH, DELETE, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "23"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"detail\": \"Not found.\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Usuario - Momento 4",
+			"item": [
+				{
+					"name": "ACK",
+					"item": [
+						{
+							"name": "ack usuarios",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "9E8177DE90C89362006A73EBB6426C6BBDB82E995E4B86E69C6E562FE4E39D21",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"numero_id_CF\":[\r\n        \"1030672411\"\r\n    ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{url}}api/usuarios/ack/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"usuarios",
+										"ack",
+										""
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "ack -  Codigo no coincidente",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n    \"pqrs\": [\r\n        \"211634833518762814\",\r\n        \"21163483351876284as5\"\r\n    ]\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{url}}api/complaint/ack",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"complaint",
+												"ack"
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Thu, 21 Oct 2021 16:53:06 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept"
+										},
+										{
+											"key": "Allow",
+											"value": "POST, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "84"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"message\": \"update code\",\n    \"pqrs_error\": [\n        \"211634833518762814\",\n        \"21163483351876284as5\"\n    ]\n}"
+								},
+								{
+									"name": "ack",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "X-SFC-Signature",
+												"value": "",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n    \"pqrs\": [\r\n        \"221634833589304053\"\r\n    ]\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{url}}api/complaint/ack",
+											"host": [
+												"{{url}}api"
+											],
+											"path": [
+												"complaint",
+												"ack"
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Date",
+											"value": "Thu, 21 Oct 2021 17:07:28 GMT"
+										},
+										{
+											"key": "Server",
+											"value": "WSGIServer/0.2 CPython/3.9.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept"
+										},
+										{
+											"key": "Allow",
+											"value": "POST, OPTIONS"
+										},
+										{
+											"key": "X-Frame-Options",
+											"value": "DENY"
+										},
+										{
+											"key": "Content-Length",
+											"value": "41"
+										},
+										{
+											"key": "X-Content-Type-Options",
+											"value": "nosniff"
+										},
+										{
+											"key": "Referrer-Policy",
+											"value": "same-origin"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"message\": \"update code\",\n    \"pqrs_error\": []\n}"
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "usuarios actualizados",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-SFC-Signature",
+								"value": "045E66584ABB24F8B620D1C89873770D9F10D7878247E6745673C97B57D3B4F9",
+								"type": "text"
+							},
+							{
+								"key": "{{no-signature}}",
+								"value": "{{value-signature}}",
+								"type": "text",
+								"disabled": true
+							}
+						],
+						"url": {
+							"raw": "{{url}}api/usuarios/info/",
+							"host": [
+								"{{url}}api"
+							],
+							"path": [
+								"usuarios",
+								"info",
+								""
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "get complaint",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 22:47:54 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "1051"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"count\": 1,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": [\n        {\n            \"tipo_entidad\": 11,\n            \"entidad_cod\": \"18\",\n            \"fecha_creacion\": \"2022-01-18T21:00:07\",\n            \"codigo_queja\": \"11181118807587120\",\n            \"codigo_pais\": \"170\",\n            \"departamento_cod\": \"05\",\n            \"municipio_cod\": \"05004\",\n            \"nombres\": \"cf807587120\",\n            \"tipo_id_CF\": 1,\n            \"numero_id_CF\": \"807587120\",\n            \"tipo_persona\": 1,\n            \"sexo\": null,\n            \"lgbtiq\": null,\n            \"canal_cod\": 3,\n            \"condicion_especial\": null,\n            \"producto_cod\": 113,\n            \"producto_nombre\": null,\n            \"macro_motivo_cod\": 116,\n            \"texto_queja\": \"text complaint\",\n            \"anexo_queja\": true,\n            \"tutela\": null,\n            \"ente_control\": 1,\n            \"escalamiento_DCF\": null,\n            \"replica\": null,\n            \"argumento_replica\": null,\n            \"desistimiento_queja\": null,\n            \"queja_expres\": 2\n        }\n    ]\n}"
+						},
+						{
+							"name": "get complaint - Sin Quejas",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Thu, 18 Nov 2021 22:51:01 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "62"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"count\": 0,\n    \"pages\": 1,\n    \"next\": null,\n    \"previous\": null,\n    \"results\": []\n}"
+						},
+						{
+							"name": "get complaint - No se encuentra firma o token",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text",
+										"disabled": true
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:15:00 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "68"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								},
+								{
+									"key": "Vary",
+									"value": "Origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"missing header\"\n}"
+						},
+						{
+							"name": "get complaint - No coincide la firma",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:15:37 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "78"
+								},
+								{
+									"key": "Vary",
+									"value": "Cookie, Origin"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 400,\n    \"detail\": \"Error\",\n    \"message\": \"Sign verification failed\"\n}"
+						},
+						{
+							"name": "get complaint - Token invalido",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:16:55 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "154"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"messages\": [\n        {\n            \"token_class\": \"AccessToken\",\n            \"token_type\": \"access\",\n            \"message\": \"Token is invalid or expired\"\n        }\n    ],\n    \"detail\": \"Error APIException\"\n}"
+						},
+						{
+							"name": "get complaint - Sin token o Token mal formado",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-SFC-Signature",
+										"value": "",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{url}}api/queja/",
+									"host": [
+										"{{url}}api"
+									],
+									"path": [
+										"queja",
+										""
+									],
+									"query": [
+										{
+											"key": "name__contains",
+											"value": "test1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Date",
+									"value": "Fri, 19 Nov 2021 01:17:34 GMT"
+								},
+								{
+									"key": "Server",
+									"value": "WSGIServer/0.2 CPython/3.9.1"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "WWW-Authenticate",
+									"value": "Bearer realm=\"api\""
+								},
+								{
+									"key": "Vary",
+									"value": "Accept, Cookie, Origin"
+								},
+								{
+									"key": "Allow",
+									"value": "GET, POST, HEAD, OPTIONS"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "DENY"
+								},
+								{
+									"key": "Content-Length",
+									"value": "90"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Referrer-Policy",
+									"value": "same-origin"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status_code\": 401,\n    \"detail\": \"Authentication credentials were not provided.\",\n    \"messages\": []\n}"
+						}
+					]
+				}
+			]
+		}
+	]
+}
