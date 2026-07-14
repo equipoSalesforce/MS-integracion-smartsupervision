@@ -2,6 +2,7 @@ import httpx
 from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.integrations.sfc_interceptor import SfcRequestInterceptor
+from app.core.auth import SfcAuthManager
 
 class SfcClient:
     def __init__(self, interceptor: SfcRequestInterceptor):

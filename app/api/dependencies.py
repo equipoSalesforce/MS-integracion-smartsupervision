@@ -65,4 +65,5 @@ def get_sfc_client() -> SfcClient:
     """
     signature_context = SfcSignatureContext(settings.SFC_SECRET_KEY)
     auth_manager = SfcAuthManager(signature_context)
-    return SfcClient(auth_manager=auth_manager)
+    
+    return SfcClient(interceptor=auth_manager)
