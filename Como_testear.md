@@ -7,7 +7,7 @@ Este documento detalla los pasos necesarios para configurar, ejecutar y probar e
 ## 1. Requisitos Previos
 
 * **Python:** versión 3.10 o superior.
-* **Base de Datos:** SQLite (por defecto en local) o PostgreSQL.
+* **Base de Datos:** SQLite (por defecto en local) o MySQL.
 
 ---
 

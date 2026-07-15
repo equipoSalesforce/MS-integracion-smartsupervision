@@ -80,7 +80,7 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         queja_db_mock = Queja(
             Smart_Code__c="142316551509974606",
             status_smart=SmartStatus.CREATED.value,
-            archivo_adjunto__c=True
+            smart_anexo_queja__c=True
         )
         
         # Configuramos el mock de la consulta para que devuelva None la primera vez, y luego la queja

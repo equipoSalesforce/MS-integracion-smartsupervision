@@ -1,60 +1,50 @@
 from sqlalchemy import Column, String, Integer, DateTime, Boolean, Text, Float
-from app.api.dependencies import Base # O tu Base declarativa de SQLAlchemy
+from app.api.dependencies import Base
 
 class Queja(Base):
-    __tablename__ = "cases"
+    __tablename__ = "quejas"
 
-    # Campo identificador de la queja mapeado a Smart_Code__c
-    Smart_Code__c = Column(String(30), primary_key=True)
+    # Llaves de control e Identificadores únicos
+    Smart_Code__c = Column(String(50), primary_key=True)
+    status_smart = Column(String(50), nullable=False) # Metadata de control local del cron
     
-    # Metadato interno para el control del estado de sincronización local
-    status_smart = Column(String(30), nullable=False)
-
-    # Campos de metadata de control requeridos para firmas/reglas SFC
     tipo_entidad = Column(Integer, nullable=True)
-    entidad_cod = Column(String(5), nullable=True)
+    entidad_cod = Column(String(10), nullable=True)
 
-    # --- Mapeo a Campos Salesforce (Case / Account) ---
-    CreatedDate = Column(DateTime, nullable=True)                  # fecha_creacion / fecha_creación
-    SuppliedName = Column(String(50), nullable=True)                # nombres
-    id_type__c = Column(Integer, nullable=True)                     # tipo_id_CF
-    id_number__c = Column(String(15), nullable=True)                # numero_id_CF
-    SuppliedPhone = Column(String(15), nullable=True)               # telefono
-    SuppliedEmail = Column(String(50), nullable=True)               # correo
-    sex__c = Column(Integer, nullable=True)                         # sexo
-    Country__c = Column(String(3), nullable=True)                   # codigo_pais
-    Departamento__c = Column(String(3), nullable=True)              # departamento_cod
-    Ciudad__c = Column(String(5), nullable=True)                    # municipio_cod
-    Origin = Column(Integer, nullable=True)                         # canal_cod
-    Product__c = Column(Integer, nullable=True)                     # producto_cod
-    Product_Name__c = Column(String(100), nullable=True)            # producto_nombre
-    Categorias_COL__c = Column(Integer, nullable=True)              # macro_motivo_cod
-    Description = Column(Text, nullable=True)                       # texto_queja
-    archivo_adjunto__c = Column(Boolean, nullable=True)             # anexo_queja
-    Urgent_Case__c = Column(Integer, nullable=True)                 # tutela
-    Ente_de_control__c = Column(Integer, nullable=True)             # ente_control
+    # --- Objeto Case / Account Mapeado Exacto a tu Diccionario ---
+    CreatedDate = Column(DateTime, nullable=True)
+    SuppliedName = Column(String(100), nullable=True)
+    id_type__c = Column(String(50), nullable=True)
+    id_number__c = Column(String(50), nullable=True)
+    SuppliedPhone = Column(String(50), nullable=True)
+    SuppliedEmail = Column(String(100), nullable=True)
+    company_name__c = Column(String(200), nullable=True)
     
-    # Atributos de flujo adicionales de la SFC
-    Escalamiento_DCF__c = Column(Integer, nullable=True)            # escalamiento_DCF
-    Replica__c = Column(Integer, nullable=True)                     # replica
-    Argumento_Replica__c = Column(Text, nullable=True)              # argumento_replica
-    Desistimiento__c = Column(Integer, nullable=True)               # desistimiento_queja
-    Quejas_express__c = Column(Integer, nullable=True)              # queja_expres
-    Instancia_de_recepcion__c = Column(Integer, nullable=True)      # insta_recepcion
+    # Campos Picklist / Valores Homologados Regulados
+    sc_genero__c = Column(String(50), nullable=True)          # sexo (SFC)
+    canal__c = Column(String(100), nullable=True)             # canal_cod (SFC)
+    Ente_de_control__c = Column(String(100), nullable=True)   # ente_control (SFC)
+    sc_Condicion_especial__c = Column(String(100), nullable=True) # condicion_especial (SFC)
+    tipo_de_persona__c = Column(String(50), nullable=True)    # tipo_persona (SFC)
+    
+    # Control de Flujos y Momentos
+    smart_anexo_queja__c = Column(Boolean, nullable=True)     # anexo_queja (SFC)
+    Urgent_Case__c = Column(Boolean, nullable=True)            # tutela (SFC)
+    Desistimiento__c = Column(String(50), nullable=True)      # desistimiento_queja (SFC)
+    Quejas_express__c = Column(String(50), nullable=True)     # queja_expres (SFC)
+    Instancia_de_recepcion__c = Column(String(50), nullable=True) # insta_recepcion (SFC)
+    
+    # Metadata Adicional de Auditoría SFC
+    Product__c = Column(String(100), nullable=True)
+    smart_Producto_nombre__c = Column(String(200), nullable=True)
+    Categorias_COL__c = Column(String(250), nullable=True)
+    Description = Column(Text, nullable=True)
 
-    # --- Campos de Momento 3 ---
-    estado_cod = Column(Integer, nullable=True)
-    fecha_actualizacion = Column(DateTime, nullable=True)
-    producto_digital = Column(Integer, nullable=True)
-    a_favor_de = Column(Integer, nullable=True)
-    aceptacion_queja = Column(Integer, nullable=True)
-    rectificacion_queja = Column(Integer, nullable=True)
-    prorroga_queja = Column(Integer, nullable=True)
-    admision = Column(Integer, nullable=True)
-    documentacion_rta_final = Column(String(250), nullable=True)
-    fecha_cierre = Column(DateTime, nullable=True)
-    marcacion = Column(String(100), nullable=True)
-    tipo_fraude = Column(Integer, nullable=True)
-    modalidad_fraude = Column(Integer, nullable=True)
-    monto_reclamado = Column(Float, nullable=True)
-    monto_reconocido = Column(Float, nullable=True)
+    # --- Campos de Cierre / Momento 3 ---
+    Smart_Status__c = Column(String(50), nullable=True)       # estado_cod (SFC)
+    ClosedDate = Column(DateTime, nullable=True)               # fecha_cierre (SFC)
+    card_amount__c = Column(Float, nullable=True)              # monto_reconocido / Importe Afectación (SFC)
+    Aceptacion__c = Column(String(50), nullable=True)
+    Prorroga__c = Column(String(50), nullable=True)
+    admision_col__c = Column(String(50), nullable=True)
+    Rectificacion__c = Column(String(50), nullable=True)

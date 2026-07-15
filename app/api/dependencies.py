@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 # Base declarativa compartida por todos los modelos de SQLAlchemy
 Base = declarative_base()
 
-# Configuración del motor de Base de Datos para PostgreSQL (AWS Aurora)
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+# Configuración del motor de Base de Datos para MySQL (AWS Aurora / RDS)
+# pool_recycle ayuda a prevenir el error "MySQL server has gone away" al reciclar conexiones inactivas
+engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
