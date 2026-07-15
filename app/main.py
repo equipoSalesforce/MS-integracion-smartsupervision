@@ -1,23 +1,28 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
 
+# Inicialización del Logger de la aplicación
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida del microservicio.
-    Aquí inicializaremos conexiones pesadas al arrancar (Base de datos, Clientes HTTP)
-    y las cerraremos limpiamente al apagar el contenedor.
+    Aquí se gestiona la inicialización de conexiones pesadas al arrancar 
+    y el cierre limpio de recursos al apagar el contenedor.
     """
     # --- Lógica de Startup (Arranque) ---
-    print(f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT}")
+    logger.info(f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT}")
 
     yield
 
     # --- Lógica de Shutdown (Apagado) ---
-    print(f"Apagando {settings.PROJECT_NAME} limpiamente...")
+    logger.info(f"Apagando {settings.PROJECT_NAME} limpiamente...")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -50,8 +55,10 @@ async def health_check():
     }
 
 # --- REGISTRO DE RUTAS ---
-# Esto monta las rutas de app/api/routes_quejas.py bajo el prefijo "/api/v1/quejas"
+# Monta las rutas de app/api/routes_quejas.py bajo el prefijo "/api/v1/quejas"
+# y las agrupa ordenadamente bajo la sección "Quejas" en la interfaz de Swagger.
 app.include_router(
     quejas_router,
-    prefix=f"{settings.API_V1_STR}/quejas"
+    prefix=f"{settings.API_V1_STR}/quejas",
+    tags=["Quejas"]
 )

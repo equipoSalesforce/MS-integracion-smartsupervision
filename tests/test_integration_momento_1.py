@@ -11,6 +11,7 @@ from app.models.quejas import Base, Queja
 from app.integrations.sfc_client import SfcClient
 from app.core.constants import SmartStatus
 
+# Base de datos aislada para testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_integration.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -40,8 +41,8 @@ class TestCronIntegration(unittest.TestCase):
     @patch("app.services.momento_1_sync.SincronizacionService._descargar_y_subir_a_s3", new_callable=AsyncMock)
     def test_cron_sync_multiple_quejas_mixed_attachments(self, mock_descarga_s3):
         """
-        Prueba el flujo de sincronización validando nombres y valores 
-        reales del diccionario de Salesforce.
+        Prueba el flujo de integración real de punta a punta guardando datos 
+        físicos en base de datos y validando las traducciones del Mapper[cite: 1].
         """
         mock_quejas_response = {
             "Response": {
@@ -54,11 +55,11 @@ class TestCronIntegration(unittest.TestCase):
                         "fecha_creacion": "2026-07-14T12:00:00",
                         "nombres": "Camila Salas",
                         "anexo_queja": True,
-                        "sexo": 1,                     # SFC: Femenino
-                        "canal_cod": 13,               # SFC: Internet
-                        "ente_control": 1,             # SFC: Procuraduría
-                        "condicion_especial": 8,       # SFC: Mujer embarazada
-                        "tipo_persona": 2              # SFC: Jurídica
+                        "sexo": 1,                      # SFC: Femenino -> CRM: Femenino[cite: 1]
+                        "canal_cod": 13,                # SFC: Internet -> CRM: Internet[cite: 1]
+                        "ente_control": 1,              # SFC: Procuraduría -> CRM: Procuraduría[cite: 1]
+                        "condicion_especial": 8,        # SFC: Mujer embarazada -> CRM: Mujer embarazada[cite: 1]
+                        "tipo_persona": 2               # SFC: Jurídica -> CRM: Jurídica[cite: 1]
                     },
                     {
                         "codigo_queja": "22222222222",
@@ -67,11 +68,11 @@ class TestCronIntegration(unittest.TestCase):
                         "fecha_creacion": "2026-07-14T12:05:00",
                         "nombres": "Juan Perez",
                         "anexo_queja": False,
-                        "sexo": 2,                     # SFC: Masculino
-                        "canal_cod": 14,               # SFC: Oficinas
-                        "ente_control": 2,             # SFC: Contraloría
-                        "condicion_especial": 1,       # SFC: Adulto mayor
-                        "tipo_persona": 1              # SFC: Natural
+                        "sexo": 2,                      # SFC: Masculino -> CRM: Masculino[cite: 1]
+                        "canal_cod": 14,                # SFC: Oficinas -> CRM: Oficinas[cite: 1]
+                        "ente_control": 2,              # SFC: Contraloría -> CRM: Contraloría[cite: 1]
+                        "condicion_especial": 1,        # SFC: Adulto mayor -> CRM: Adulto mayor[cite: 1]
+                        "tipo_persona": 1               # SFC: Natural -> CRM: Natural[cite: 1]
                     }
                 ]
             }
@@ -81,6 +82,7 @@ class TestCronIntegration(unittest.TestCase):
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value={"Response": {"results": []}})
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
 
+        # NOTA: Ajusta esta ruta si registraste tus endpoints de rutas_quejas bajo otro prefijo en main.py
         response = self.client.post("/api/v1/quejas/sync/momento-1")
         self.assertEqual(response.status_code, 200)
 

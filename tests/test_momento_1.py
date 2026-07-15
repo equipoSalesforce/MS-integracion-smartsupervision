@@ -65,7 +65,7 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
 
     async def test_flujo_completo_momento_1_exitoso(self):
         """
-        Prueba el flujo completo secuencial del Momento 1:
+        Prueba el flujo completo secuencial del Momento 1 usando el Repositorio:
         Creación (Created) -> Descarga (FileDownload-OK) -> Confirmación (reportACK-OK).
         """
         # Configuramos los retornos asíncronos de los mocks del cliente SFC
@@ -73,18 +73,20 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=self.mock_adjuntos_response)
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value=self.mock_ack_response)
 
-        # Mock de consulta a la Base de Datos utilizando nomenclatura de Salesforce (Smart_Code__c)
-        # Primera consulta: Verificar si la queja existe al descargar (retorna None = Nueva)
-        # Segunda consulta: Obtener quejas para descargar adjuntos (retorna nuestra queja mock)
-        # Tercera consulta: Obtener quejas para el lote ACK (retorna nuestra queja mock)
+        # Instanciamos el objeto queja que simulará estar en base de datos
         queja_db_mock = Queja(
             Smart_Code__c="142316551509974606",
             status_smart=SmartStatus.CREATED.value,
             smart_anexo_queja__c=True
         )
         
-        # Configuramos el mock de la consulta para que devuelva None la primera vez, y luego la queja
+        # Configuración de los efectos secundarios para las llamadas internas de QuejasCRUD:
+        # - first(): 1° llamada (verificar existencia en sync) -> retorna None (nueva queja).
+        #            2° llamada (actualizar estado tras S3 en descargar_adjuntos_pendientes) -> retorna la queja.
         self.db_mock.query().filter().first.side_effect = [None, queja_db_mock]
+        
+        # - all(): 1° llamada (buscar pendientes en descargar_adjuntos_pendientes) -> retorna lote.
+        #          2° llamada (buscar listos en reportar_ack_pendientes) -> retorna lote.
         self.db_mock.query().filter().all.side_effect = [[queja_db_mock], [queja_db_mock]]
 
         # Instanciamos el servicio de sincronización
@@ -101,9 +103,9 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.get_adjuntos_list.assert_called_once_with("142316551509974606")
         self.sfc_client_mock.send_ack_batch.assert_called_once_with(["142316551509974606"])
 
-        # 2. Verificamos que se haya ejecutado el guardado y commit en base de datos
-        self.assertEqual(self.db_mock.add.call_count, 1)  # Se agregó la queja nueva mapeada
-        self.assertTrue(self.db_mock.commit.called)
+        # 2. Verificamos que se haya ejecutado el guardado y commit en base de datos vía el repositorio
+        self.assertEqual(self.db_mock.add.call_count, 1)  # Se delegó el add de la nueva queja mapeada
+        self.assertTrue(self.db_mock.commit.called)       # Se confirmaron las transacciones
 
         # 3. Verificamos la transición final de estados de la máquina de estados
         # Como todo fue exitoso, el estado final en el objeto queja de la BD debe ser "reportACK-OK"
