@@ -14,28 +14,24 @@ from app.core.mapping import SfcSalesforceMapper
 logger = logging.getLogger(__name__)
 
 class Momento2SincronizacionService:
-    def __init__(self, sfc_client: SfcClient, db: Session, s3_client=None):
+    def __init__(self, sfc_client: SfcClient, db: Session, s3_client=None):     
         self.sfc_client = sfc_client
         self.db = db
         self.s3_client = s3_client
 
     async def ejecutar_envio_momento_2(self, smart_code: str) -> Dict[str, Any]:
         """
-        Orquesta el flujo del Momento 2 usando el repositorio para la base de datos[cite: 5].
+        Orquesta el flujo del Momento 2 usando el repositorio para la base de datos.
         """
         logger.info(f"[Momento 2] Iniciando pipeline de despacho para el caso: {smart_code}")
         
-        # 1. Consolidación Relacional delegada en el Repositorio[cite: 5]
+        # 1. Consolidación Relacional delegada en el Repositorio
         datos_consolidados = QuejasCRUD.obtener_datos_consolidados_caso(self.db, smart_code)
         if not datos_consolidados:
             return {"status": "error", "message": f"Caso {smart_code} no encontrado en la base de datos."}
 
         try:
-            
-            # TODO: corregir posteriormente
-            # 2. Transformación con el Mapper (Caja negra)
-            # El mapper asume recibir un objeto SQLAlchemy. Simulamos uno con SimpleNamespace
-            # para mantener la compatibilidad con el mapper y evitar dependencias de la tabla real
+            # 2. Transformación con el Mapper Universal
             sfc_raw_payload = SfcSalesforceMapper.db_entity_to_sfc_payload(datos_consolidados)
 
             # 3. Regla de Negocio: ID Compuesto regulatorio
@@ -48,7 +44,11 @@ class Momento2SincronizacionService:
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
             # 5. Envío del caso por red
-            await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
+            # Guardamos el JSON plano filtrado dentro del nodo "Body"
+            payload_final = {"Body": payload_validado.model_dump()}
+            
+            # --- CORREGIDO: Pasamos payload_final directamente ya que es un diccionario ---
+            await self.sfc_client.post_nueva_queja(payload_final)
             
             # 6. Pipeline de archivos (S3 -> SFC)
             if payload_validado.anexo_queja:
@@ -101,9 +101,9 @@ class Momento2SincronizacionService:
             s3_key = obj["Key"]
             file_size = obj["Size"]
 
-            # Regla de Oro: Máximo 30MB por archivo[cite: 4, 5]
+            # Regla de Oro: Máximo 30MB por archivo
             if file_size > 30 * 1024 * 1024:
-                raise ValueError(f"El archivo {s3_key} supera el límite de 30MB permitido por la SFC[cite: 4, 5].")
+                raise ValueError(f"El archivo {s3_key} supera el límite de 30MB permitido por la SFC.")
 
             file_type = s3_key.split(".")[-1] if "." in s3_key else "pdf"
 
