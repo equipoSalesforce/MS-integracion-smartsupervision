@@ -4,14 +4,13 @@ import re
 import unicodedata
 from datetime import datetime, date
 from typing import Dict, Any, Optional
-from app.models.quejas import Queja
 
 logger = logging.getLogger(__name__)
 
 class SfcSalesforceMapper:
     
     # ======================================================================
-    # DICCIONARIOS OFICIALES DE EQUIVALENCIAS DE VALORES (DIVIPOLA & Picklists)
+    # DICCIONARIOS DE EQUIVALENCIAS DE VALORES (DIVIPOLA & Picklists)
     # ======================================================================
     SEXO_SFC_TO_SF = {1: "Femenino", 2: "Masculino", 3: "Trans", 4: "No binario", 10: "No Aplica"}
     SEXO_SF_TO_SFC = {v.lower(): k for k, v in SEXO_SFC_TO_SF.items()}
@@ -49,43 +48,67 @@ class SfcSalesforceMapper:
     MUNI_DIVIPOLA_INV = {v: k.title() for k, v in MUNI_DIVIPOLA.items()}
 
     # ======================================================================
-    # MAPA MAESTRO DE TRADUCCIÓN UNIFICADO (Salesforce CRM <-> SFC)
+    # ⬇️ MOTOR 1: SFC -> CRM (MOMENTO 1)
+    # Solo los 29 campos exactos que la SFC envía cuando nace una queja.
     # ======================================================================
-    MAPPING_SF_TO_SFC_MASTER = {
-        # --- Datos Básicos y Momento 2 ---
+    MAPPING_MOMENTO_1_SFC_TO_CRM = {
+        "tipo_entidad": "tipo_entidad",
+        "entidad_cod": "entidad_cod",
+        "fecha_creacion": "CreatedDate",
+        "codigo_queja": "Smart_Code__c",
+        "codigo_pais": "codigo_pais__c",
+        "departamento_cod": "Departamento__c",
+        "municipio_cod": "SC_municipio__c",
+        "nombres": "SuppliedName",
+        "tipo_id_CF": "id_type__c",
+        "numero_id_CF": "id_number__c",
+        "telefono": "SuppliedPhone",
+        "correo": "SuppliedEmail",
+        "tipo_persona": "tipo_de_persona__c",
+        "sexo": "sc_genero__c",
+        "lgbtiq": "lgbtiq__c",
+        "canal_cod": "canal__c",
+        "condicion_especial": "sc_Condicion_especial__c",
+        "producto_cod": "Product__c",
+        "producto_nombre": "smart_Producto_nombre__c",
+        "macro_motivo_cod": "Categorias_COL__c",
+        "texto_queja": "Description",
+        "anexo_queja": "smart_anexo_queja__c",
+        "tutela": "Urgent_Case__c",
+        "ente_control": "Ente_de_control__c",
+        "escalamiento_DCF": "escalamiento_DCF__c",
+        "replica": "replica__c",
+        "argumento_replica": "argumento_replica__c",
+        "desistimiento_queja": "Desistimiento__c",
+        "queja_expres": "Quejas_express__c"
+    }
+
+    # ======================================================================
+    # ⬆️ MOTOR 2: CRM -> SFC (MOMENTOS 2 y 3)
+    # Todos los campos, incluyendo los requeridos para envío y cierre.
+    # ======================================================================
+    MAPPING_CRM_TO_SFC_MASTER = {
+        # --- Datos Base (M2) ---
         "Smart_Code__c": "codigo_queja",
         "Departamento__c": "departamento_cod",
         "SC_municipio__c": "municipio_cod",
         "canal__c": "canal_cod",
         "Product__c": "producto_cod",
         "Categorias_COL__c": "macro_motivo_cod",
-        "CreatedDate": "fecha_creación",              # Mapeado para M2/M3 con tilde
+        "CreatedDate": "fecha_creación",              # M2/M3 requiere tilde
         "SuppliedName": "nombres",
         "id_type__c": "tipo_id_CF",
         "id_number__c": "numero_id_CF",
-        "tipo_de_persona__c": "tipo_Persona",          # Capital P para M2/M3
-        "Instancia_de_recepcion__c": "insta_recepcion",
-        "admision_col__c": "admision",
+        "tipo_de_persona__c": "tipo_Persona",          # M2/M3 requiere 'P' mayúscula
         "Description": "texto_queja",
         "smart_anexo_queja__c": "anexo_queja",
         "Ente_de_control__c": "ente_control",
         
-        # --- Datos Momento 1 Adicionales ---
-        "LastName": "apellido",
-        "person_birthdate__c": "fecha_nacimiento",
-        "SuppliedEmail": "correo",
-        "SuppliedPhone": "telefono",
-        "company_name__c": "razon_social",
-        "direccion__c": "direccion",
-        "LastModifiedDate": "fecha_actualizacion",
-        "sc_genero__c": "sexo",
-        "sc_Condicion_especial__c": "condicion_especial",
-        "Urgent_Case__c": "tutela",
-        "Desistimiento__c": "desistimiento_queja",
-        "Quejas_express__c": "queja_expres",
-        "smart_Producto_nombre__c": "producto_nombre",
+        # --- Variables específicas de envío del Momento 2 ---
+        "Instancia_de_recepcion__c": "insta_recepcion",
+        "admision_col__c": "admision",
 
-        # --- Datos Momento 3 (Cierre) ---
+        # --- Datos de Cierre (Momento 3) ---
         "ClosedDate": "fecha_cierre",
         "Marcacion__c": "marcacion",
         "monto_reclamado__c": "monto_reclamado",
@@ -96,16 +119,8 @@ class SfcSalesforceMapper:
         "Rectificacion__c": "rectificacion_queja"
     }
 
-    # Mapa de Entrada para Reconstrucción (Momento 1)
-    MAPPING_SFC_TO_SF = {v: k for k, v in MAPPING_SF_TO_SFC_MASTER.items()}
-    # Añadimos aliases alternativos recibidos por la SFC en Momento 1 para evitar caídas
-    MAPPING_SFC_TO_SF.update({
-        "fecha_creacion": "CreatedDate",
-        "tipo_persona": "tipo_de_persona__c"
-    })
-
     # ======================================================================
-    # MÉTODOS DE SOPORTE TÉCNICO
+    # MÉTODOS DE UTILIDAD
     # ======================================================================
     @staticmethod
     def _normalize_text(text: str) -> str:
@@ -120,111 +135,110 @@ class SfcSalesforceMapper:
 
     @classmethod
     def _get_sf_field_value(cls, entity: Any, field_name: str) -> Any:
-        fallbacks = {
-            "Smart_Code__c": ["CaseNumber"],
-            "SuppliedName": ["FirstName"],
-            "id_number__c": ["bank_account_dni__c"],
-            "Description": ["Subject"],
-            "SuppliedEmail": ["ContactEmail"],
-            "SuppliedPhone": ["numero_whatsapp__c"]
-        }
         if isinstance(entity, dict):
-            val = entity.get(field_name)
-        else:
-            val = getattr(entity, field_name, None)
-        if val is not None: return val
-            
-        for fallback in fallbacks.get(field_name, []):
-            if isinstance(entity, dict):
-                val = entity.get(fallback)
-            else:
-                val = getattr(entity, fallback, None)
-            if val is not None: return val
-        return None
+            return entity.get(field_name)
+        return getattr(entity, field_name, None)
+
+    # ======================================================================
+    # TRADUCTORES (CÓDIGOS <-> TEXTOS)
+    # ======================================================================
+    @classmethod
+    def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
+        """[SFC -> CRM] Momento 1: Convierte códigos SFC a textos descriptivos."""
+        if sfc_value is None: return None
+        if sfc_key in ("sexo", "sc_genero__c"): return cls.SEXO_SFC_TO_SF.get(int(sfc_value), "No Aplica")
+        elif sfc_key in ("canal_cod", "canal__c"): return cls.CANAL_SFC_TO_SF.get(int(sfc_value), "Internet")
+        elif sfc_key in ("ente_control", "Ente_de_control__c"): return cls.ENTE_SFC_TO_SF.get(int(sfc_value), "Otros")
+        elif sfc_key in ("condicion_especial", "sc_Condicion_especial__c"): return cls.CONDICION_SFC_TO_SF.get(int(sfc_value), "No aplica")
+        elif sfc_key in ("tipo_persona", "tipo_de_persona__c"): return cls.PERSONA_SFC_TO_SF.get(int(sfc_value), "Natural")
+        elif sfc_key in ("departamento_cod", "Departamento__c"): return cls.DEPT_DIVIPOLA_INV.get(str(sfc_value), sfc_value)
+        elif sfc_key in ("municipio_cod", "SC_municipio__c"): return cls.MUNI_DIVIPOLA_INV.get(str(sfc_value), sfc_value)
+        elif sfc_key in ("anexo_queja", "smart_anexo_queja__c", "tutela", "Urgent_Case__c", 
+                         "desistimiento_queja", "Desistimiento__c", "queja_expres", "Quejas_express__c",
+                         "lgbtiq", "lgbtiq__c", "escalamiento_DCF", "escalamiento_DCF__c", "replica", "replica__c"):
+            return bool(sfc_value)
+        return sfc_value
 
     @classmethod
     def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
-        if sf_value is None: 
-            return None
-        if sf_key in ("smart_anexo_queja__c", "Urgent_Case__c", "sinRespuestaFinal?", "Desistimiento__c", "Quejas_express__c"):
-            return bool(sf_value)                        # Forzamos booleanos reales para la SFC
+        """[CRM -> SFC] Momentos 2 y 3: Convierte textos descriptivos a códigos SFC."""
+        if sf_value is None: return None
+        if sf_key in ("smart_anexo_queja__c", "Urgent_Case__c", "sinRespuestaFinal?", "Aceptacion__c", "Prorroga__c", "Rectificacion__c"):
+            return bool(sf_value)
 
         sf_val_str = str(sf_value).strip()
         normalized = cls._normalize_text(sf_val_str)
 
-        if sf_key == "canal__c":
-            return cls.CANAL_SF_TO_SFC.get(normalized, 13)
-        elif sf_key == "Ente_de_control__c":
-            return cls.ENTE_SF_TO_SFC.get(normalized, 99)
-        elif sf_key == "tipo_de_persona__c":
-            return cls.PERSONA_SF_TO_SFC.get(normalized, 1)
-        elif sf_key == "sc_genero__c":
-            return cls.SEXO_SF_TO_SFC.get(normalized, 10)
-        elif sf_key == "sc_Condicion_especial__c":
-            return cls.CONDICION_SF_TO_SFC.get(normalized, 98)
-        elif sf_key == "Departamento__c":
-            return cls.DEPT_DIVIPOLA.get(normalized, sf_value)
-        elif sf_key == "SC_municipio__c":
-            return cls.MUNI_DIVIPOLA.get(normalized, sf_value)
-        elif sf_key == "Description":
-            return cls._strip_html(sf_val_str)[:4500].strip()
-        elif sf_key in ("id_number__c", "bank_account_dni__c"):
-            return re.sub(r'[^a-zA-Z0-9]', '', sf_val_str)[:15]
-        elif sf_key in ("SuppliedPhone", "numero_whatsapp__c"):
+        if sf_key == "canal__c": return cls.CANAL_SF_TO_SFC.get(normalized, 13)
+        elif sf_key == "Ente_de_control__c": return cls.ENTE_SF_TO_SFC.get(normalized, 99)
+        elif sf_key == "tipo_de_persona__c": return cls.PERSONA_SF_TO_SFC.get(normalized, 1)
+        elif sf_key == "sc_genero__c": return cls.SEXO_SF_TO_SFC.get(normalized, 10)
+        elif sf_key == "sc_Condicion_especial__c": return cls.CONDICION_SF_TO_SFC.get(normalized, 98)
+        elif sf_key == "Departamento__c": return cls.DEPT_DIVIPOLA.get(normalized, sf_value)
+        elif sf_key == "SC_municipio__c": return cls.MUNI_DIVIPOLA.get(normalized, sf_value)
+        elif sf_key == "Description": return cls._strip_html(sf_val_str)[:4500].strip()
+        elif sf_key in ("id_number__c", "bank_account_dni__c", "SuppliedPhone", "numero_whatsapp__c"):
             return re.sub(r'[^\d+]', '', sf_val_str)[:15]
-
         return sf_value
 
     # ======================================================================
-    # SERIALIZADORES CONSOLIDADOS (CONVERTIDORES)
+    # MÉTODOS PÚBLICOS DE MAPEO (LAS PUERTAS DE ENTRADA Y SALIDA)
     # ======================================================================
+    @classmethod
+    def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        [MOMENTO 1] (SFC -> CRM)
+        Traduce el JSON original de la SFC a tu CRM local (solo 29 variables).
+        """
+        crm_data = {}
+        for sfc_key, value in sfc_data.items():
+            if sfc_key in cls.MAPPING_MOMENTO_1_SFC_TO_CRM:
+                crm_key = cls.MAPPING_MOMENTO_1_SFC_TO_CRM[sfc_key]
+                if sfc_key == "fecha_creacion" and isinstance(value, str):
+                    try:
+                        crm_data[crm_key] = datetime.fromisoformat(value.replace(" ", "T")).isoformat()
+                    except ValueError:
+                        crm_data[crm_key] = value
+                else:
+                    crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
+        return crm_data
+
     @classmethod
     def db_entity_to_sfc_payload(cls, entity: Any) -> Dict[str, Any]:
         """
-        [Unificado para M2 y M3] Traduce TODOS los atributos relacionales de la DB
-        a un diccionario maestro etiquetado en el lenguaje de la SFC[cite: 1].
+        [MOMENTO 2 y 3] (CRM -> SFC)
+        Traduce el JSON/Diccionario que llega de tu CRM a la estructura estricta de la SFC.
         """
         sfc_data = {
             "codigo_pais": "COL",
             "punto_recepcion": 1
         }
-        for sf_field, sfc_field in cls.MAPPING_SF_TO_SFC_MASTER.items():
+        for sf_field, sfc_field in cls.MAPPING_CRM_TO_SFC_MASTER.items():
             value = cls._get_sf_field_value(entity, sf_field)
             
             if isinstance(value, (datetime, date)):
-                # El Momento 2 requiere ISO completa con 'T', Momento 3 requiere 'YYYY-MM-DD'[cite: 1]
+                # Manejo de fechas para la SFC (Requiere T en creación)
                 if sf_field == "CreatedDate":
                     sfc_data[sfc_field] = value.strftime("%Y-%m-%dT%H:%M:%S")
-                    sfc_data["fecha_creacion"] = value.strftime("%Y-%m-%d") # Fallback M1/M3
+                    sfc_data["fecha_creacion"] = value.strftime("%Y-%m-%d")
                 else:
                     sfc_data[sfc_field] = value.strftime("%Y-%m-%d")
+            elif isinstance(value, str) and sf_field in ("CreatedDate", "ClosedDate") and "T" in value:
+                # Si llega como ISO string, lo formateamos correctamente
+                try:
+                    dt_val = datetime.fromisoformat(value)
+                    if sf_field == "CreatedDate":
+                        sfc_data[sfc_field] = dt_val.strftime("%Y-%m-%dT%H:%M:%S")
+                        sfc_data["fecha_creacion"] = dt_val.strftime("%Y-%m-%d")
+                    else:
+                        sfc_data[sfc_field] = dt_val.strftime("%Y-%m-%d")
+                except ValueError:
+                    sfc_data[sfc_field] = value
             else:
                 sfc_data[sfc_field] = cls._translate_value_to_sfc(sf_field, value)
 
-        # Inyectamos duplicados alternativos por seguridad tipográfica de momentos
+        # Inyectamos duplicado de seguridad tipográfica si aplica
         if "tipo_Persona" in sfc_data:
             sfc_data["tipo_persona"] = sfc_data["tipo_Persona"]
 
         return sfc_data
-
-    @classmethod
-    def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
-        """[Para Momento 1] Traduce el JSON nativo de la SFC a un diccionario Salesforce."""
-        db_data = {}
-        for key, value in sfc_data.items():
-            if key in cls.MAPPING_SFC_TO_SF:
-                db_key = cls.MAPPING_SFC_TO_SF[key]
-                if db_key in ("CreatedDate", "ClosedDate", "LastModifiedDate") and isinstance(value, str):
-                    try:
-                        db_data[db_key] = datetime.fromisoformat(value.replace(" ", "T"))
-                    except ValueError:
-                        db_data[db_key] = None
-                else:
-                    db_data[db_key] = value
-        return db_data
-
-    @classmethod
-    def create_entity_from_sfc(cls, sfc_data: Dict[str, Any], status_smart: str) -> Queja:
-        db_dict = cls.sfc_payload_to_db_dict(sfc_data)
-        db_dict["status_smart"] = status_smart
-        return Queja(**db_dict)

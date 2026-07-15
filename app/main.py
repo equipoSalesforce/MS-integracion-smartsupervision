@@ -1,3 +1,4 @@
+# app/main.py
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, status
@@ -11,12 +12,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Ciclo de vida del microservicio.
-    Aquí se gestiona la inicialización de conexiones pesadas al arrancar 
-    y el cierre limpio de recursos al apagar el contenedor.
+    Ciclo de vida de la aplicación (Stateless Gateway).
+    Gestiona de manera limpia el arranque y el apagado del contenedor 
+    en entornos de nube como AWS ECS + Fargate.
     """
     # --- Lógica de Startup (Arranque) ---
-    logger.info(f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT}")
+    logger.info(
+        f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
+        f"como Gateway de Integración 100% Stateless."
+    )
 
     yield
 
@@ -40,13 +44,13 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# --- Endpoint Crítico para AWS ECS + Fargate ---
+# --- Endpoint Crítico de AWS ALB Health Check ---
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
 async def health_check():
     """
-    Endpoint utilizado por el Target Group del Balanceador de Carga de AWS (ALB).
-    Si este endpoint no retorna HTTP 200, AWS asumirá que el contenedor falló
-    y lo reemplazará automáticamente sin interrumpir el servicio.
+    Health check síncrono para el Balanceador de Carga de AWS (ALB).
+    Al no depender de base de datos local, no requiere validar conexiones 
+    pesadas, resultando en respuestas inmediatas de alta confiabilidad.
     """
     return {
         "status": "healthy",
@@ -55,8 +59,6 @@ async def health_check():
     }
 
 # --- REGISTRO DE RUTAS ---
-# Monta las rutas de app/api/routes_quejas.py bajo el prefijo "/api/v1/quejas"
-# y las agrupa ordenadamente bajo la sección "Quejas" en la interfaz de Swagger.
 app.include_router(
     quejas_router,
     prefix=f"{settings.API_V1_STR}/quejas",

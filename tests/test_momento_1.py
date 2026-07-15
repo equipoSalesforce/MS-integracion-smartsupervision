@@ -1,21 +1,17 @@
+# tests/test_momento_1.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from sqlalchemy.orm import Session
 from app.services.momento_1_sync import SincronizacionService
-from app.models.quejas import Queja
 from app.integrations.sfc_client import SfcClient
-from app.core.constants import SmartStatus
 
 class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
-        # 1. Mock de la base de datos (Session de SQLAlchemy)
-        self.db_mock = MagicMock(spec=Session)
-        
-        # 2. Mock del cliente de la SFC
+        # 1. Mock del cliente de la SFC y S3
         self.sfc_client_mock = MagicMock(spec=SfcClient)
-        
-        # 3. Datos simulados de la API de la SFC (Momento 1) con envoltura "Response"
+        self.s3_client_mock = MagicMock()  # Mock simple para S3
+
+        # 2. Datos simulados completos de la SFC (Momento 1) con los 29 campos obligatorios
         self.mock_quejas_response = {
             "Response": {
                 "count": 1,
@@ -26,20 +22,38 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
                         "codigo_queja": "142316551509974606",
                         "tipo_entidad": 1,
                         "entidad_cod": "423",
-                        "fecha_creacion": "2024-01-31T06:10:06",
+                        "fecha_creacion": "2026-01-31T06:10:06",
+                        "codigo_pais": "COL",
+                        "departamento_cod": "11",
+                        "municipio_cod": "11001",
                         "nombres": "Camila Salas",
+                        "tipo_id_CF": 1,
                         "numero_id_CF": "1040011014",
-                        "texto_queja": "Prueba de sincronización",
-                        "anexo_queja": True,  # Tiene adjuntos para forzar descarga
-                        "macro_motivo_cod": 209,
+                        "telefono": "3001234567",
+                        "correo": "camila@test.com",
+                        "tipo_persona": 1,
+                        "sexo": 1,
+                        "lgbtiq": False,
+                        "canal_cod": 13,
+                        "condicion_especial": 98,
                         "producto_cod": 209,
-                        "canal_cod": 13
+                        "producto_nombre": "Cuenta de Ahorros",
+                        "macro_motivo_cod": 209,
+                        "texto_queja": "Prueba de sincronización",
+                        "anexo_queja": True,  # Tiene adjuntos
+                        "tutela": False,
+                        "ente_control": 99,
+                        "escalamiento_DCF": False,
+                        "replica": False,
+                        "argumento_replica": None,
+                        "desistimiento_queja": False,
+                        "queja_expres": False
                     }
                 ]
             }
         }
         
-        # 4. Datos simulados de listado de adjuntos con envoltura "Response"
+        # 3. Datos simulados de listado de adjuntos
         self.mock_adjuntos_response = {
             "Response": {
                 "count": 1,
@@ -55,67 +69,61 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
             }
         }
         
-        # 5. Respuesta simulada del ACK
+        # 4. Respuesta simulada de confirmación ACK
         self.mock_ack_response = {
             "Response": {
                 "message": "Código actualizado",
-                "pqrs_error": []  # Sin errores para que marque reportACK-OK
+                "pqrs_error": []  # Sin errores
             }
         }
 
     async def test_flujo_completo_momento_1_exitoso(self):
         """
-        Prueba el flujo completo secuencial del Momento 1 usando el Repositorio:
-        Creación (Created) -> Descarga (FileDownload-OK) -> Confirmación (reportACK-OK).
+        Prueba el flujo completo del Momento 1 en memoria (Stateless):
+        1. Consulta quejas nuevas.
+        2. Simula descargas S3.
+        3. Envía el ACK.
+        4. Retorna el payload mapeado en español con anexos.
         """
-        # Configuramos los retornos asíncronos de los mocks del cliente SFC
+        # Configuramos los retornos del cliente SFC
         self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=self.mock_quejas_response)
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=self.mock_adjuntos_response)
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value=self.mock_ack_response)
 
-        # Instanciamos el objeto queja que simulará estar en base de datos
-        queja_db_mock = Queja(
-            Smart_Code__c="142316551509974606",
-            status_smart=SmartStatus.CREATED.value,
-            smart_anexo_queja__c=True
-        )
+        # Instanciamos el servicio síncrono en memoria
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
         
-        # Configuración de los efectos secundarios para las llamadas internas de QuejasCRUD:
-        # - first(): 1° llamada (verificar existencia en sync) -> retorna None (nueva queja).
-        #            2° llamada (actualizar estado tras S3 en descargar_adjuntos_pendientes) -> retorna la queja.
-        self.db_mock.query().filter().first.side_effect = [None, queja_db_mock]
-        
-        # - all(): 1° llamada (buscar pendientes en descargar_adjuntos_pendientes) -> retorna lote.
-        #          2° llamada (buscar listos en reportar_ack_pendientes) -> retorna lote.
-        self.db_mock.query().filter().all.side_effect = [[queja_db_mock], [queja_db_mock]]
+        # Simulamos que la subida/descarga a S3 es exitosa y retorna la metadata del archivo
+        service._descargar_y_subir_a_s3 = AsyncMock(return_value={
+            "nombre_archivo": "13.pdf",
+            "s3_key": "quejas/142316551509974606/13_pdf",
+            "bucket": "mi-bucket-smartsupervision"
+        })
 
-        # Instanciamos el servicio de sincronización
-        service = SincronizacionService(sfc_client=self.sfc_client_mock, db=self.db_mock)
-        service._descargar_y_subir_a_s3 = AsyncMock()
-
-        # Ejecutamos el pipeline completo del Momento 1
+        # Ejecutamos el pipeline completo
         resultado = await service.ejecutar_flujo_completo_momento_1()
 
         # --- VERIFICACIONES ---
-        
-        # 1. Comprobamos que el servicio haya consultado y llamado a los endpoints correctos usando el ID canónico
+        # 1. Validamos llamadas de red a la SFC
         self.sfc_client_mock.fetch_quejas_pagina.assert_called_once()
         self.sfc_client_mock.get_adjuntos_list.assert_called_once_with("142316551509974606")
         self.sfc_client_mock.send_ack_batch.assert_called_once_with(["142316551509974606"])
 
-        # 2. Verificamos que se haya ejecutado el guardado y commit en base de datos vía el repositorio
-        self.assertEqual(self.db_mock.add.call_count, 1)  # Se delegó el add de la nueva queja mapeada
-        self.assertTrue(self.db_mock.commit.called)       # Se confirmaron las transacciones
+        # 2. Validamos que el retorno sea una lista y contenga exactamente un registro mapeado
+        self.assertIsInstance(resultado, list)
+        self.assertEqual(len(resultado), 1)
 
-        # 3. Verificamos la transición final de estados de la máquina de estados
-        # Como todo fue exitoso, el estado final en el objeto queja de la BD debe ser "reportACK-OK"
-        self.assertEqual(queja_db_mock.status_smart, SmartStatus.REPORT_ACK_OK.value)
+        # 3. Validamos que las traducciones de Picklists (códigos -> texto) del CRM se hayan aplicado
+        queja_mapeada = resultado[0]
+        self.assertEqual(queja_mapeada["Smart_Code__c"], "142316551509974606")
+        self.assertEqual(queja_mapeada["sc_genero__c"], "Femenino")  # 1 -> Femenino
+        self.assertEqual(queja_mapeada["canal__c"], "Internet")       # 13 -> Internet
+        self.assertEqual(queja_mapeada["Ente_de_control__c"], "Otros") # 99 -> Otros
+        self.assertEqual(queja_mapeada["sc_Condicion_especial__c"], "No aplica") # 98 -> No aplica
 
-        # 4. Verificamos la estructura de la respuesta final del orquestador
-        self.assertEqual(resultado["status"], "success")
-        self.assertEqual(resultado["quejas"]["nuevas_quejas_descargadas"], 1)
-        self.assertEqual(resultado["archivos"]["descargas_ok"], 1)
-        self.assertEqual(resultado["ack"]["ack_exitosos"], 1)
+        # 4. Validamos que los metadatos del archivo de S3 estén inyectados en la respuesta
+        self.assertEqual(len(queja_mapeada["archivos_s3"]), 1)
+        self.assertEqual(queja_mapeada["archivos_s3"][0]["nombre_archivo"], "13.pdf")
 
 if __name__ == "__main__":
     unittest.main()

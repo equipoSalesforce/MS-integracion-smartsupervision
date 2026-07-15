@@ -1,3 +1,4 @@
+# app/core/config.py
 import os
 from typing import Optional, List
 from pydantic_settings import BaseSettings
@@ -9,12 +10,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"  # development, qa, production
 
-    # Orígenes permitidos para CORS (por ejemplo, la IP/Dominio de tu CRM)
+    # Orígenes permitidos para CORS (por ejemplo, la IP/Dominio de tu CRM local)
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
     
-    # Base de Datos (Inyectada desde .env o variable de entorno de ECS Fargate)
-    DATABASE_URL: str
-
     # Configuración de la API de la SFC (SmartSupervisión)
     SFC_API_BASE_URL: str
     SFC_USERNAME: str
