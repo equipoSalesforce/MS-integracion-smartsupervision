@@ -23,13 +23,13 @@ class SfcRequestInterceptor(httpx.Auth):
 
         # Si es la petición de Login, no inyectamos firma ni token (evita bucle infinito)
         if "/api/login/" in str(request.url):
-            request.headers["Accept"] = "application/json"  # Login espera JSON[cite: 2]
+            request.headers["Accept"] = "application/json"  # Login espera JSON
             yield request
             return
 
         # 2. Inyectamos el Bearer Token
-        token = await self.auth_manager.get_valid_token()[cite: 2]
-        request.headers["Authorization"] = f"Bearer {token}"[cite: 2]
+        token = await self.auth_manager.get_valid_token()
+        request.headers["Authorization"] = f"Bearer {token}"
 
         # 3. Metadatos y firmas para JSON
         is_file_upload = False
@@ -41,7 +41,7 @@ class SfcRequestInterceptor(httpx.Auth):
             body_bytes = await request.read()  # Lee el cuerpo JSON de forma segura
             payload = json.loads(body_bytes.decode('utf-8')) if body_bytes else {}
         else:
-            # Peticiones GET normales (como obtener listado de quejas)[cite: 2]
+            # Peticiones GET normales (como obtener listado de quejas)
             request.headers["Accept"] = "application/json"
 
         # 4. Calculamos y estampamos la firma digital

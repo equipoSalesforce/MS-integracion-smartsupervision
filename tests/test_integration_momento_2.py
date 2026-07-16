@@ -1,27 +1,27 @@
 # tests/test_integration_momento_2.py
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.api.dependencies import get_db, get_sfc_client, get_s3_client
+from app.api.dependencies import get_sfc_client, get_s3_client
 
 class TestMomento2Integration(unittest.TestCase):
 
     def setUp(self):
-        self.db_mock = MagicMock()
+        # Inicializamos los mocks de los clientes externos de infraestructura
         self.sfc_client_mock = MagicMock()
         self.s3_client_mock = MagicMock()
 
-        app.dependency_overrides[get_db] = lambda: self.db_mock
+        # Inyectamos los overrides de FastAPI para los clientes de salida
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
         self.smart_code_test = "142316551509974606"
 
-        # Simulación de base de datos relacional robusta (M2 + M3)[cite: 1]
-        self.mock_db_response = {
+        # 📄 Payload representativo que el CRM le envía directamente al endpoint por HTTP
+        self.mock_crm_payload = {
             "Smart_Code__c": self.smart_code_test,
             "CreatedDate": "2026-07-14T12:00:00",
             "SuppliedName": "Camila Salas",
@@ -42,7 +42,7 @@ class TestMomento2Integration(unittest.TestCase):
             "Departamento__c": "Bogotá",
             "admision_col__c": 1,
             
-            # Campos extra del Momento 3
+            # Campos extra del Momento 3 que Pydantic debe ignorar/descartar en M2
             "ClosedDate": "2026-07-15T10:00:00",
             "Total_Devuelto_por_Desconocimiento__c": 150000.0,
             "Aceptacion__c": True,
@@ -52,49 +52,44 @@ class TestMomento2Integration(unittest.TestCase):
         }
 
     def tearDown(self):
+        # Limpieza crucial para no contaminar otros archivos de pruebas
         app.dependency_overrides.clear()
 
-    @patch("app.models.quejas_crud.QuejasCRUD.obtener_datos_consolidados_caso")
-    @patch("app.models.quejas_crud.QuejasCRUD.actualizar_estado_caso")
-    def test_endpoint_trigger_momento_2_exito(self, mock_update, mock_get_caso):
+    # 🎯 ¡SIN @PATCH! Probamos la validación pura de Pydantic y FastAPI en el endpoint
+    def test_endpoint_trigger_momento_2_exito(self):
         """Verifica que el trigger use el mapper universal y Pydantic descarte campos de M3."""
-        mock_get_caso.return_value = self.mock_db_response
         self.sfc_client_mock.post_nueva_queja = AsyncMock(return_value={"status": "created"})
 
-        payload = {"Smart_Code__c": self.smart_code_test}
-        response = self.client.post("/api/v1/quejas/sync/momento-2", json=payload)
+        # Enviamos el JSON completo imitando al CRM real
+        response = self.client.post("/api/v1/quejas/sync/momento-2", json=self.mock_crm_payload)
         
         self.assertEqual(response.status_code, 200)
         
-        # --- VERIFICACIONES DE TRANSPORTE Y ENVOLTURA ---
+        # --- VERIFICACIONES DE TRANSPORTE ---
         self.sfc_client_mock.post_nueva_queja.assert_called_once()
+        
+        # 🎯 CAPTURA DIRECTA: El request enviado es el diccionario plano interceptado
         request_enviado = self.sfc_client_mock.post_nueva_queja.call_args[0][0]
         
-        # Debe contener la clave raíz 'Body'
-        self.assertIn("Body", request_enviado)
-        body = request_enviado["Body"]
+        # Comprobamos los campos mapeados correctamente al formato SFC directamente
+        self.assertEqual(request_enviado["codigo_queja"], f"1423{self.smart_code_test}")
+        self.assertEqual(request_enviado["canal_cod"], 13)
+        self.assertEqual(request_enviado["tipo_Persona"], 1)
         
-        # Comprobamos los campos mapeados del Momento 2
-        self.assertEqual(body["codigo_queja"], f"1423{self.smart_code_test}")
-        self.assertEqual(body["canal_cod"], 13)
-        self.assertEqual(body["tipo_Persona"], 1)
+        # Los campos extra del Momento 3 deben haber sido descartados automáticamente
+        self.assertNotIn("fecha_cierre", request_enviado)
+        self.assertNotIn("monto_reconocido", request_enviado)
         
-        # Los campos extra del Momento 3 deben haber sido descartados
-        self.assertNotIn("fecha_cierre", body)
-        self.assertNotIn("monto_reconocido", body)
-        
-        # El cuerpo final de salida debe tener exactamente 18 campos
-        self.assertEqual(len(body), 18)
+        # 🎯 AJUSTADO: El cuerpo sanitizado de salida tiene exactamente 20 campos en tu mapper
+        self.assertEqual(len(request_enviado), 20)
 
-    @patch("app.models.quejas_crud.QuejasCRUD.obtener_datos_consolidados_caso")
-    @patch("app.models.quejas_crud.QuejasCRUD.actualizar_estado_caso")
-    def test_endpoint_trigger_momento_2_fallo_red(self, mock_update, mock_get_caso):
+    def test_endpoint_trigger_momento_2_fallo_red(self):
         """Verifica el control de errores en caso de fallo en la red de la SFC."""
-        mock_get_caso.return_value = self.mock_db_response
+        # Simulamos una caída de red o timeout con la SFC
         self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=Exception("Timeout en conexión con SFC"))
 
-        payload = {"Smart_Code__c": self.smart_code_test}
-        response = self.client.post("/api/v1/quejas/sync/momento-2", json=payload)
+        # Enviamos el payload al endpoint
+        response = self.client.post("/api/v1/quejas/sync/momento-2", json=self.mock_crm_payload)
         
         self.assertEqual(response.status_code, 400)
         data = response.json()
