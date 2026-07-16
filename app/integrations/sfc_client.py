@@ -139,6 +139,39 @@ class SfcClient:
         except httpx.RequestError:
             SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
+    async def put_actualizar_queja(self, sfc_codigo_queja: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Envía la actualización completa de estado, fraudes o cierre (Momento 3)
+        hacia la SFC utilizando el verbo PUT de forma síncrona.
+        """
+        url = f"{self.base_url}/api/queja/{sfc_codigo_queja}/"
+        logger.info(f"[SfcClient] Enviando actualización de estado M3 a: {url}")
+        
+        # Envolvemos el payload mapeado en la raíz canónica exigida por la proforma
+        wrapped_payload = {
+            "Body": payload
+        }
+        
+        try:
+            # Al ser un JSON estándar, permitimos que el interceptor (SfcAuthManager)
+            # calcule y estampe el header X-SFC-Signature de forma transparente[cite: 2].
+            response = await self.client.put(url, json=wrapped_payload)
+            
+            if response.status_code != 200:
+                logger.error(
+                    f"SFC rechazó la actualización del caso. "
+                    f"Código: {response.status_code}. Respuesta: {response.text}[cite: 2]"
+                )
+                
+            response.raise_for_status()
+            return response.json()
+            
+        except httpx.HTTPStatusError as exc:
+            SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
+        except httpx.RequestError:
+            SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
+    
+    
     async def close(self):
         """Cierra de forma segura el pool de conexiones del cliente HTTPX."""
         await self.client.aclose()

@@ -1,6 +1,7 @@
 # app/schemas/crm_payloads.py
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, model_validator
+from typing import List, Optional, Literal
+from datetime import date
 
 class ArchivoS3Schema(BaseModel):
     nombre_archivo: str = Field(..., description="Nombre final del archivo guardado")
@@ -43,3 +44,115 @@ class QuejaMapeadaCrmResponse(BaseModel):
 
     # Inyección indispensable de los adjuntos procesados
     archivos_s3: List[ArchivoS3Schema] = Field(default=[])
+
+# ======================================================================
+# 🏁 MOMENTO 3: PAYLOADS DE ENTRADA DESDE EL CRM (SALESFORCE)
+# ======================================================================
+
+class Momento3BaseCrmInput(BaseModel):
+    """
+    Campos base compartidos por cualquier flujo de actualización de hitos en M3.
+    """
+    Smart_Code__c: str = Field(..., description="Código único de la queja asignado por la SFC / CRM")
+    canal__c: Optional[str] = Field(None, description="Canal de atención mapeado (ej: Internet)")
+    Product__c: Optional[int] = Field(None, description="Código numérico del producto financiero")
+    Categorias_COL__c: Optional[int] = Field(None, description="Código numérico del macro motivo de la queja")
+    
+    # El CRM manda los archivos con sus nombres originales de Salesforce (ej: "respuesta_cliente_v2.pdf")
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Lista de archivos cargados en S3")
+
+
+class Momento3TramiteCrmInput(Momento3BaseCrmInput):
+    """
+    Payload para actualizaciones ordinarias y transiciones de estados intermedios.
+    """
+    estado_cod__c: int = Field(..., description="Código del estado actual del trámite (Debe ser diferente a 4)")
+    producto_digital__c: int = Field(1, description="Indica si corresponde a un producto digital")
+    admision_col__c: int = Field(1, description="Estado de admisión del caso")
+
+
+class Momento3FraudeCrmInput(Momento3BaseCrmInput):
+    """
+    Payload especializado para reportar y actualizar incidentes clasificados como Fraude.
+    """
+    estado_cod__c: int = Field(..., description="Estado del trámite durante el proceso de investigación")
+    tipo_fraude__c: int = Field(..., description="Código de clasificación del fraude")
+    modalidad_fraude__c: int = Field(..., description="Código de la modalidad detectada")
+    monto_reclamado__c: float = Field(..., description="Valor total reclamado por el consumidor")
+    monto_reconocido__c: float = Field(..., description="Valor final reconocido/devuelto")
+    
+    nombre_archivo_fraude: Optional[str] = Field(
+        None, 
+        description="Nombre original del archivo en la lista que corresponde al dictamen de fraude"
+    )
+
+    @model_validator(mode="after")
+    def verificar_existencia_archivo_fraude(self) -> "Momento3FraudeCrmInput":
+        """Valida preventivamente que el archivo objetivo realmente venga en el listado."""
+        num_archivos = len(self.archivos_s3)
+        
+        if num_archivos < 1:
+            raise ValueError(
+                f"No se envió un documento de investigación de fraude, cancelando envío de actualización de queja"
+            )
+        
+        if not self.nombre_archivo_fraude:
+            if num_archivos == 1:
+                self.nombre_archivo_fraude = self.archivos_s3[0].nombre_archivo
+            else:
+                raise ValueError(
+                f"El archivo especificado '{self.nombre_archivo_fraude}' "
+                f"no se encuentra dentro del listado de archivos_s3 provistos."
+            )
+        else:
+            
+            nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
+            if self.nombre_archivo_fraude not in nombres_en_lista:
+                raise ValueError(
+                    f"El archivo especificado '{self.nombre_archivo_fraude}' "
+                    f"no se encuentra dentro del listado de archivos_s3 provistos."
+                )
+        return self
+
+
+class Momento3CierreCrmInput(Momento3BaseCrmInput):
+    """
+    Payload obligatorio para ejecutar el Cierre Definitivo de la queja.
+    """
+    estado_cod__c: Literal[4] = Field(4, description="Código de estado de cierre definitivo fijado en 4")
+    ClosedDate: date = Field(..., description="Fecha de cierre definitivo (YYYY-MM-DD)")
+    a_favor_de__c: int = Field(..., description="Sentido de la decisión final")
+    Aceptacion__c: bool = Field(True, description="Indica si hubo aceptación de la queja")
+    Rectificacion__c: bool = Field(False, description="Indica si hubo rectificación")
+    Prorroga__c: bool = Field(False, description="Indica si la entidad hizo uso de prórroga")
+    
+    nombre_archivo_final: Optional[str] = Field(
+        None, 
+        description="Nombre original del archivo en la lista que corresponde a la respuesta de cierre"
+    )
+
+    @model_validator(mode="after")
+    def gestionar_nombre_archivo_cierre(self) -> "Momento3CierreCrmInput":
+        num_archivos = len(self.archivos_s3)
+        
+        if num_archivos == 0:
+            raise ValueError(
+                f"No se envió un documento de cierre del caso, cancelando envío de actualización de queja"
+            )
+            
+        if not self.nombre_archivo_final:
+            if num_archivos == 1:
+                self.nombre_archivo_final = self.archivos_s3[0].nombre_archivo
+            else:
+                raise ValueError(
+                    f"Se recibieron {num_archivos} archivos. Es obligatorio especificar el parámetro "
+                    f"'nombre_archivo_final' para indicarle al sistema cuál corresponde a la RESP_FINAL_SFC.[cite: 3]"
+                )
+        else:
+            nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
+            if self.nombre_archivo_final not in nombres_en_lista:
+                raise ValueError(
+                    f"El archivo especificado '{self.nombre_archivo_final}' "
+                    f"no se encuentra dentro del listado de archivos_s3 provistos.[cite: 3]"
+                )
+        return self

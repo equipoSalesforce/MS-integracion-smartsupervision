@@ -391,10 +391,92 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
         )
         
     logger.info("Recibido archivo multipart/form-data de forma correcta en el Mock.")
+    
+    # 🎯 TRIGGER M3: Simula el error si intentan subir un archivo a una queja ya cerrada
+    codigo_queja_val = form_data.get("codigo_queja")
+    if codigo_queja_val == "TRIGGER_M3_CLOSED":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status_code": 400,
+                "messages": {
+                    "non_field_errors": [
+                        "the complaint is already closed"
+                    ]
+                },
+                "detail": "Error APIException"
+            }
+        )
+    
     return {
         "id": 99,
         "file": "https://storage.googleapis.com/mock-sfc-bucket/uploaded_file.pdf",
         "type": "pdf",
         "state": 1,
         "codigo_queja": form_data.get("codigo_queja", "142316551509974606")
+    }
+    
+    # ======================================================================
+# 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)
+# ======================================================================
+@app.put("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
+@app.patch("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
+async def actualizar_queja_momento_3(
+    codigo_queja: str,
+    request: Request, 
+    x_sfc_signature: Optional[str] = Header(None)
+):
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8')
+    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    
+    payload_recibido = await request.json()
+
+    # 🕹️ MATRIZ DE SIMULACIÓN DE ERRORES (TRIGGERS DE PRUEBA)
+    
+    # 1. Simulación de Caso No Encontrado (404)
+    if codigo_queja == "TRIGGER_M3_NOT_FOUND" or codigo_queja == "142347622214657":
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Not found."}
+        )
+        
+    # 2. Simulación de Error de Validación de negocio (Monto o Estado incorrecto)
+    if payload_recibido.get("estado_cod") == 999:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status_code": 400,
+                "messages": {
+                    "estado_cod": ["El código de estado no es válido para el cierre de esta tipología."]
+                },
+                "detail": "Error APIException"
+            }
+        )
+
+    # 🟢 FLUJO EXITOSO: Retorna el esquema canónico completo de la SFC simulando el cierre
+    return {
+        "codigo_queja": codigo_queja,
+        "sexo": 2,
+        "lgbtiq": 2,
+        "condicion_especial": 8,
+        "canal_cod": payload_recibido.get("canal_cod", 13),
+        "producto_cod": payload_recibido.get("producto_cod", 213),
+        "macro_motivo_cod": payload_recibido.get("macro_motivo_cod", 910),
+        "estado_cod": payload_recibido.get("estado_cod", 4),  # 4 = Cerrado
+        "fecha_actualizacion": "2026-07-16T15:30:00",
+        "producto_digital": payload_recibido.get("producto_digital", 1),
+        "a_favor_de": payload_recibido.get("a_favor_de", 1),
+        "aceptacion_queja": 1,
+        "rectificacion_queja": 1,
+        "desistimiento_queja": 1,
+        "prorroga_queja": 2,
+        "admision": 1,
+        "documentacion_rta_final": payload_recibido.get("documentacion_rta_final", True),
+        "anexo_queja": payload_recibido.get("anexo_queja", True),
+        "fecha_cierre": payload_recibido.get("fecha_cierre", "2026-07-16T15:30:00"),
+        "tutela": 1,
+        "ente_control": 99,
+        "marcacion": 2,
+        "queja_expres": 1
     }
