@@ -153,7 +153,34 @@ class SfcAuthManager(httpx.Auth):
         signature = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
         request.headers["X-SFC-Signature"] = signature
 
-        yield request
+        response = yield request
+        
+        if response.status_code == 401:
+            logger.warning("[SfcAuthManager] SFC rechazó la petición con 401. Iniciando flujo de recuperación...")
+            
+            # Borramos el token de acceso local inválido para obligar la renovación
+            self.access_token = None
+            
+            try:
+                # get_valid_token() intentará hacer refresh. Si el refresh falla con 401,
+                # levantará excepción y se irá directo a ejecutar _login().
+                nuevo_token = await self.get_valid_token()
+                
+                # Actualizamos las cabeceras con las credenciales frescas
+                request.headers["Authorization"] = f"Bearer {nuevo_token}"
+                
+                # Re-calculamos la firma por seguridad
+                nueva_firma = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
+                request.headers["X-SFC-Signature"] = nueva_firma
+                
+                logger.info("[SfcAuthManager] Recuperación exitosa. Reintentando la petición con credenciales nuevas.")
+                
+                # Volvemos a despachar la petición
+                response = yield request
+                
+            except Exception as e:
+                logger.error(f"[SfcAuthManager] Falló la recuperación automática de credenciales: {str(e)}")
+                # Si de verdad todo falla, dejamos que el 401 original suba al cliente
 
     def _parse_multipart_fields(self, request: httpx.Request) -> Dict[str, Any]:
         """
