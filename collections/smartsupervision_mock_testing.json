@@ -1,0 +1,186 @@
+{
+	"info": {
+		"_postman_id": "7a94b4d6-db77-4cfc-b8e2-9b6f84fae234",
+		"name": "Global66 - Integración Smartsupervisión (Stateless)",
+		"description": "Colección completa para testear el flujo de integración local de punta a punta apuntando al puerto 8000.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Momento 1: Descarga (SFC -> CRM)",
+			"item": [
+				{
+					"name": "Sincronizar Quejas (SFC -> CRM)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/quejas/sync/momento-1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"quejas",
+								"sync",
+								"momento-1"
+							]
+						},
+						"description": "Dispara el orquestador stateless de descarga. Éste consultará al Mock SFC en el 8080, simulará la descarga S3, enviará el ACK y te retornará exactamente los 29 campos traducidos al CRM local."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Momento 2: Envío de Quejas (CRM -> SFC)",
+			"item": [
+				{
+					"name": "Enviar Queja Nueva",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": 209,\n    \"Categorias_COL__c\": 209,\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"id_type__c\": 1,\n    \"id_number__c\": \"1040011014\",\n    \"tipo_de_persona__c\": \"Natural\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": 3,\n    \"admision_col__c\": 2,\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/quejas/sync/momento-2",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"quejas",
+								"sync",
+								"momento-2"
+							]
+						},
+						"description": "Envía una queja al microservicio en nomenclatura CRM. El microservicio inyectará automáticamente tipo_entidad y entidad_cod, generará el ID largo SFC, subirá los adjuntos y lo transmitirá a la SFC simulada."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Momento 3: Gestión y Cierre (CRM -> SFC)",
+			"item": [
+				{
+					"name": "Endpoint 1: Actualización General",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"estado_cod\": 2,\n    \"canal__c\": \"Internet\",\n    \"Product__c\": 209,\n    \"Categorias_COL__c\": 209,\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"archivos_s3\": []\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/quejas/sync/momento-3/actualizacion",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"quejas",
+								"sync",
+								"momento-3",
+								"actualizacion"
+							]
+						},
+						"description": "Actualiza atributos genéricos del trámite. Valida estrictamente que estado_cod NO sea 4 (Cierre) ni permite adjuntos con sufijos de cierre/fraude."
+					},
+					"response": []
+				},
+				{
+					"name": "Endpoint 2: Reporte de Fraude",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"Product__c\": 110,\n    \"Categorias_COL__c\": 110,\n    \"estado_cod\": 3,\n    \"tipo_fraude\": 1,\n    \"modalidad_fraude\": 2,\n    \"monto_reclamado\": 500000.0,\n    \"monto_reconocido\": 0.0,\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/quejas/sync/momento-3/fraude",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"quejas",
+								"sync",
+								"momento-3",
+								"fraude"
+							]
+						},
+						"description": "Reporta fraude por primera vez. El microservicio descargará el archivo de S3, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el fraude validado."
+					},
+					"response": []
+				},
+				{
+					"name": "Endpoint 3: Cierre Definitivo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"estado_cod\": 4,\n    \"a_favor_de\": 1,\n    \"aceptacion_queja\": 1,\n    \"rectificacion_queja\": 2,\n    \"desistimiento_queja\": 2,\n    \"prorroga_queja\": 2,\n    \"documentacion_rta_final\": true,\n    \"fecha_cierre\": \"2026-07-16\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/quejas/sync/momento-3/cierre",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"quejas",
+								"sync",
+								"momento-3",
+								"cierre"
+							]
+						},
+						"description": "Ejecuta el cierre de la queja. Valida que el estado_cod sea 4, renombrará de manera automática tu archivo a 'carta_resolucion_RESP_FINAL_SFC.pdf' para cumplir con las exigencias del ente gubernamental."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}

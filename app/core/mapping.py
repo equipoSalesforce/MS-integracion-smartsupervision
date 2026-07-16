@@ -4,6 +4,7 @@ import re
 import unicodedata
 from datetime import datetime, date
 from typing import Dict, Any, Optional
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class SfcSalesforceMapper:
         13: "Internet", 14: "Oficinas", 15: "POS administrados", 16: "POS no propios",
         17: "POS propios", 18: "Sistema de acceso remoto para clientes (RAS)", 19: "Sistema de Audio Respuesta (IVR)"
     }
+    
     CANAL_SF_TO_SFC = {v.lower(): k for k, v in CANAL_SFC_TO_SF.items()}
 
     ENTE_SFC_TO_SF = {1: "Procuraduría", 2: "Contraloría", 3: "Defensoría del pueblo", 4: "Personerías", 99: "Otros"}
@@ -52,8 +54,6 @@ class SfcSalesforceMapper:
     # Solo los 29 campos exactos que la SFC envía cuando nace una queja.
     # ======================================================================
     MAPPING_MOMENTO_1_SFC_TO_CRM = {
-        "tipo_entidad": "tipo_entidad",
-        "entidad_cod": "entidad_cod",
         "fecha_creacion": "CreatedDate",
         "codigo_queja": "Smart_Code__c",
         "codigo_pais": "codigo_pais__c",
@@ -204,15 +204,18 @@ class SfcSalesforceMapper:
         return crm_data
 
     @classmethod
-    def db_entity_to_sfc_payload(cls, entity: Any) -> Dict[str, Any]:
+    def crm_entity_to_sfc_payload(cls, entity: Any) -> Dict[str, Any]:
         """
         [MOMENTO 2 y 3] (CRM -> SFC)
         Traduce el JSON/Diccionario que llega de tu CRM a la estructura estricta de la SFC.
         """
         sfc_data = {
             "codigo_pais": "COL",
-            "punto_recepcion": 1
+            "punto_recepcion": 1,
+            "tipo_entidad": settings.SFC_TIPO_ENTIDAD,  # <-- INYECCIÓN DINÁMICA
+            "entidad_cod": settings.SFC_ENTIDAD_COD     # <-- INYECCIÓN DINÁMICA
         }
+        
         for sf_field, sfc_field in cls.MAPPING_CRM_TO_SFC_MASTER.items():
             value = cls._get_sf_field_value(entity, sf_field)
             

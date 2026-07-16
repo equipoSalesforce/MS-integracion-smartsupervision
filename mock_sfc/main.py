@@ -1,0 +1,400 @@
+# mock_sfc/main.py
+import hmac
+import hashlib
+import json
+import logging
+import os
+from typing import Dict, Any, List, Optional
+from fastapi import FastAPI, Header, HTTPException, status, Request, Query
+from fastapi.responses import JSONResponse, Response
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("MockSFC")
+
+app = FastAPI(
+    title="Mock Oficial Smartsupervisión - Superintendencia Financiera de Colombia",
+    description="API de pruebas locales que simula al 100% las respuestas y comportamiento de la SFC",
+    version="1.0.0"
+)
+
+# ======================================================================
+# ⚙️ PARSEO SEGURO DE VARIABLES DE ENTORNO
+# ======================================================================
+SECRET_KEY_TEST = os.getenv("SFC_SECRET_KEY", "global66_sfc_secret_key_testing_2026")
+
+env_verify = os.getenv("VERIFY_SIGNATURES", "false")
+if isinstance(env_verify, str):
+    VERIFY_SIGNATURES = env_verify.lower() in ("true", "1", "yes")
+else:
+    VERIFY_SIGNATURES = bool(env_verify)
+
+logger.info(f"Mock SFC inicializado. ¿Verificación de firmas activa?: {VERIFY_SIGNATURES}")
+
+# ======================================================================
+# 🔐 UTILERÍA: Verificador de Firmas de la SFC
+# ======================================================================
+def verificar_firma_sfc(request: Request, signature_recibida: Optional[str], body_str: str = "") -> bool:
+    if not VERIFY_SIGNATURES:
+        return True
+    if not signature_recibida:
+        raise HTTPException(
+            status_code=400, 
+            detail={"status_code": 400, "message": "missing header X-SFC-Signature"}
+        )
+    
+    key_bytes = bytes(SECRET_KEY_TEST, 'utf-8')
+    
+    if request.method == "GET":
+        url_completa = str(request.url)
+        expected_sig = hmac.new(key_bytes, msg=url_completa.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+    else:
+        expected_sig = hmac.new(key_bytes, msg=body_str.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+        
+    if not hmac.compare_digest(expected_sig, signature_recibida.upper()):
+        raise HTTPException(
+            status_code=400, 
+            detail={"status_code": 400, "message": "Sign verification failed"}
+        )
+    return True
+
+# ======================================================================
+# 🔑 SEGMENTO: Autenticación (Login)[cite: 1, 3]
+# ======================================================================
+@app.post("/api/login/", status_code=status.HTTP_200_OK)
+async def login_mock(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8')
+    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    
+    mock_access_jwt = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoyNTI0NjA4MDAwLCJ1c2VyX2lkIjoxfQ."
+        "mock_signature_field_here_three_segments_ok"
+    )
+    mock_refresh_jwt = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MjUyNDYwODAwMCwidXNlcl9pZCI6MX0."
+        "mock_signature_field_here_three_segments_ok"
+    )
+    
+    return {
+        "access": mock_access_jwt,
+        "refresh": mock_refresh_jwt,
+        "access_token": mock_access_jwt,
+        "refresh_token": mock_refresh_jwt,
+        "Response": {
+            "access": mock_access_jwt,
+            "refresh": mock_refresh_jwt,
+            "access_token": mock_access_jwt,
+            "refresh_token": mock_refresh_jwt
+        }
+    }
+
+# ======================================================================
+# 📥 MOMENTO 1: Sincronización (SFC -> Entidad)[cite: 1]
+# ======================================================================
+
+@app.get("/api/queja/", status_code=status.HTTP_200_OK)
+async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    verificar_firma_sfc(request, x_sfc_signature)
+    
+    return {
+        "count": 3,
+        "pages": 1,
+        "next": None,
+        "previous": None,
+        "results": [
+            # --- CASO 1: Camila Salas (Tiene exactamente 1 archivo adjunto) ---
+            {
+                "tipo_entidad": 1,
+                "entidad_cod": "423",
+                "fecha_creacion": "2026-07-16T08:30:00",
+                "codigo_queja": "142316551509974606",
+                "codigo_pais": "COL",
+                "departamento_cod": "11",
+                "municipio_cod": "11001",
+                "nombres": "Camila Salas Mock",
+                "tipo_id_CF": 1,
+                "numero_id_CF": "1040011014",
+                "telefono": "3007654321",
+                "correo": "camila.salas@mockglobal.com",
+                "tipo_persona": 1,
+                "sexo": 1,
+                "lgbtiq": False,
+                "canal_cod": 13,
+                "condicion_especial": 98,
+                "producto_cod": 209,
+                "producto_nombre": "Global Account Digital",
+                "macro_motivo_cod": 209,
+                "texto_queja": "Petición de prueba local 1: Caso con un solo archivo adjunto.",
+                "anexo_queja": True,  # 👈 Informa que sí tiene archivos
+                "tutela": False,
+                "ente_control": 99,
+                "escalamiento_DCF": False,
+                "replica": False,
+                "argumento_replica": None,
+                "desistimiento_queja": False,
+                "queja_expres": False
+            },
+            # --- CASO 2: Mateo Bermúdez (Sin ningún archivo adjunto) ---
+            {
+                "tipo_entidad": 1,
+                "entidad_cod": "423",
+                "fecha_creacion": "2026-07-16T09:15:00",
+                "codigo_queja": "142316551509974607",
+                "codigo_pais": "COL",
+                "departamento_cod": "05",
+                "municipio_cod": "05001",
+                "nombres": "Mateo Bermudez Mock",
+                "tipo_id_CF": 1,
+                "numero_id_CF": "1050099887",
+                "telefono": "3104567890",
+                "correo": "mateo.bermudez@mockglobal.com",
+                "tipo_persona": 1,
+                "sexo": 1,
+                "lgbtiq": False,
+                "canal_cod": 13,
+                "condicion_especial": 98,
+                "producto_cod": 209,
+                "producto_nombre": "Global Account Digital",
+                "macro_motivo_cod": 209,
+                "texto_queja": "Petición de prueba local 2: Caso sin archivos adjuntos para probar bypassing.",
+                "anexo_queja": False,  # 👈 Informa que no tiene archivos
+                "tutela": False,
+                "ente_control": 99,
+                "escalamiento_DCF": False,
+                "replica": False,
+                "argumento_replica": None,
+                "desistimiento_queja": False,
+                "queja_expres": False
+            },
+            # --- CASO 3: Valentina Gómez (Con múltiples archivos adjuntos concurrentes) ---
+            {
+                "tipo_entidad": 1,
+                "entidad_cod": "423",
+                "fecha_creacion": "2026-07-16T10:00:00",
+                "codigo_queja": "142316551509974608",
+                "codigo_pais": "COL",
+                "departamento_cod": "76",
+                "municipio_cod": "76001",
+                "nombres": "Valentina Gomez Mock",
+                "tipo_id_CF": 1,
+                "numero_id_CF": "1060044332",
+                "telefono": "3127894561",
+                "correo": "valentina.gomez@mockglobal.com",
+                "tipo_persona": 1,
+                "sexo": 2,
+                "lgbtiq": False,
+                "canal_cod": 13,
+                "condicion_especial": 98,
+                "producto_cod": 209,
+                "producto_nombre": "Global Account Digital",
+                "macro_motivo_cod": 209,
+                "texto_queja": "Petición de prueba local 3: Caso pesado con múltiples archivos de soporte adjuntos.",
+                "anexo_queja": True,  # 👈 Informa que sí tiene archivos
+                "tutela": False,
+                "ente_control": 99,
+                "escalamiento_DCF": False,
+                "replica": False,
+                "argumento_replica": None,
+                "desistimiento_queja": False,
+                "queja_expres": False
+            }
+        ]
+    }
+
+@app.post("/api/complaint/ack", status_code=status.HTTP_200_OK)
+async def confirmacion_ack_momento_1(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8')
+    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    
+    return {
+        "message": "update code",
+        "pqrs_error": []
+    }
+
+# mock_sfc/main.py (Endpoint GET /api/storage/)
+
+@app.get("/api/storage/", status_code=status.HTTP_200_OK)
+async def listado_archivos_momento_1(
+    request: Request, 
+    codigo_queja__codigo_queja: str = Query(...), 
+    x_sfc_signature: Optional[str] = Header(None)
+):
+    verificar_firma_sfc(request, x_sfc_signature)
+    
+    results = []
+    
+    # 1. Caso Camila Salas (Tiene 1 adjunto)
+    if codigo_queja__codigo_queja == "142316551509974606":
+        results = [
+            {
+                "id": 13,
+                "file": "https://file-examples.com/wp-content/uploads/2017/10/file-sample_150kB.pdf",
+                "type": "pdf",
+                "state": 1,
+                "codigo_queja": codigo_queja__codigo_queja,
+                "reference": "1"
+            }
+        ]
+        
+    # 2. Caso Mateo Bermúdez (Sin adjuntos, anexo_queja era False)
+    elif codigo_queja__codigo_queja == "142316551509974607":
+        results = []  # Retorna lista vacía
+        
+    # 3. Caso Valentina Gómez (Tiene 2 adjuntos de prueba)
+    elif codigo_queja__codigo_queja == "142316551509974608":
+        results = [
+            {
+                "id": 24,
+                "file": "https://file-examples.com/wp-content/uploads/2017/10/file-sample_150kB.pdf",
+                "type": "pdf",
+                "state": 1,
+                "codigo_queja": codigo_queja__codigo_queja,
+                "reference": "1"
+            },
+            {
+                "id": 25,
+                "file": "https://file-examples.com/wp-content/uploads/2017/10/file_example_PNG_500kB.png",
+                "type": "png",
+                "state": 1,
+                "codigo_queja": codigo_queja__codigo_queja,
+                "reference": "1"
+            }
+        ]
+        
+    # 4. Cualquier otro código de queja no mapeado
+    else:
+        results = []
+
+    return {
+        "count": len(results),
+        "pages": 1,
+        "next": None,
+        "previous": None,
+        "results": results
+    }
+
+# ======================================================================
+# 📤 MOMENTO 2: Envío de Quejas Nuevas con Inyección de Errores
+# ======================================================================
+@app.post("/api/queja/", status_code=status.HTTP_201_CREATED)
+async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8')
+    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    
+    payload_recibido = await request.json()
+    body_data = payload_recibido.get("Body", payload_recibido)
+    
+    # --- MÓDULO DE INTERCEPTACIÓN Y PRUEBA DE ERRORES (MATRIZ SFC) ---
+    nombres_val = body_data.get('nombres', "")
+    print("nombre enviado: ", nombres_val)
+    print("info recibida", payload_recibido)
+    id_number_val = body_data.get("numero_id_CF", "")
+    dept_val = body_data.get("departamento_cod", "")
+    muni_val = body_data.get("municipio_cod", "")
+    
+    # 1. Validación de Nombres Nulos
+    if nombres_val == "TRIGGER_ERR_NAME_NULL":
+        return JSONResponse(
+            status_code=400,
+            content={"nombres": ["Este campo no puede ser nulo."]}
+        )
+    
+    # 2. Validación de Nombres > 50 caracteres[cite: 4]
+    if nombres_val == "TRIGGER_ERR_NAME_LIMIT":
+        return JSONResponse(
+            status_code=400,
+            content={"nombres": ["Asegúrese de que este campo no tenga más de 50 caracteres."]}
+        )
+        
+    # 3. Validación de Tipo ID Inválido o vacío (Clave primaria "0")[cite: 4]
+    if body_data.get("tipo_id_CF") == 0:
+        return JSONResponse(
+            status_code=400,
+            content={"tipo_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
+        )
+        
+    # 4. Validación de Número ID Inválido o vacío (Clave primaria "0")[cite: 4]
+    if id_number_val == "0":
+        return JSONResponse(
+            status_code=400,
+            content={"numero_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
+        )
+
+    # 5. Validación de Departamento Inválido (Clave primaria "00")[cite: 4]
+    if dept_val == "00":
+        return JSONResponse(
+            status_code=400,
+            content={"departamento_cod": ["Clave primaria \"00\" inválida - objeto no existe."]}
+        )
+
+    # 6. Validación de Municipio no coincide con Departamento[cite: 4]
+    if muni_val == "INVALIDO_MUNI":
+        return JSONResponse(
+            status_code=400,
+            content={"municipio_cod": ["El código del municipio no corresponde al departamento asignado."]}
+        )
+
+    # 7. Caso de Queja ya Duplicada en el sistema[cite: 4]
+    if nombres_val == "TRIGGER_ERR_ALREADY_EXISTS":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "queja_entidad_motivo_producto_already_exist": [
+                    "Señor(a) consumidor, en el sistema ya existe una Queja radicada para la entidad con el mismo motivo, producto y canal, con número de radicado [142312345]. Si la queja es diferente o corresponde a otros hechos, verifique el motivo y producto seleccionado para poder continuar con el proceso de radicación."
+                ]
+            }
+        )
+
+    # 8. Simulación de Caída de Servicio de la SFC[cite: 4]
+    if nombres_val == "TRIGGER_ERR_SERVICE_DOWN":
+        return Response(
+            status_code=503,
+            content="El servicio no está disponible por el momento. Vuelva a intentarlo mas tarde."
+        )
+
+    # 9. Simulación de Error Crítico Inesperado de la SFC[cite: 4]
+    if nombres_val == "TRIGGER_ERR_UNEXPECTED":
+        return Response(
+            status_code=500,
+            content="Error inesperado. Código de Error: 20260716111621_exc"
+        )
+        
+    # Flujo regular de creación exitosa (Eco)[cite: 1]
+    return {
+        "Response": body_data
+    }
+
+# ======================================================================
+# 📂 CONTROL DE ADJUNTOS CON ERROR DE DUPLICADOS[cite: 1, 4]
+# ======================================================================
+@app.post("/api/storage/", status_code=status.HTTP_201_CREATED)
+async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8', errors='ignore')
+    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    
+    # Leemos la petición multipart para buscar nuestro "Trigger"
+    form_data = await request.form()
+    file_obj = form_data.get("file")
+    
+    print("Archivo recibido: ",form_data)
+    
+    # Si el nombre del archivo contiene la palabra TRIGGER, simulamos un archivo duplicado[cite: 4]
+    if file_obj and ("TRIGGER_DUPLICATE" in file_obj.filename):
+        return JSONResponse(
+            status_code=400,
+            content={"file": ["El anexo ya existe, con el ID [8998896]."]}
+        )
+        
+    logger.info("Recibido archivo multipart/form-data de forma correcta en el Mock.")
+    return {
+        "id": 99,
+        "file": "https://storage.googleapis.com/mock-sfc-bucket/uploaded_file.pdf",
+        "type": "pdf",
+        "state": 1,
+        "codigo_queja": form_data.get("codigo_queja", "142316551509974606")
+    }

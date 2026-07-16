@@ -5,6 +5,9 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
+from app.core.logging_config import setup_logging
+
+setup_logging()
 
 # Inicialización del Logger de la aplicación
 logger = logging.getLogger(__name__)

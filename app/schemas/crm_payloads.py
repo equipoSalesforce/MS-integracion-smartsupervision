@@ -13,8 +13,6 @@ class QuejaMapeadaCrmResponse(BaseModel):
     traducidos a la nomenclatura del CRM local.
     """
     #TODO: Manejar estos dos datos como constantes, consultarlos luego
-    tipo_entidad: int
-    entidad_cod: str
     CreatedDate: str = Field(..., description="fecha_creacion traducida a ISO")
     Smart_Code__c: str = Field(..., description="codigo_queja traducido")
     codigo_pais__c: str = Field(..., description="codigo_pais traducido")

@@ -1,38 +1,62 @@
 # app/core/config.py
-import os
-from typing import Optional, List
-from pydantic_settings import BaseSettings
-from pydantic import AnyHttpUrl
+from typing import List, Any
+from pydantic import BeforeValidator, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Annotated
+
+def parse_cors(v: Any) -> List[str]:
+    if isinstance(v, str) and not v.startswith("["):
+        return [i.strip() for i in v.split(",")]
+    elif isinstance(v, (list, str)):
+        return v
+    raise ValueError(v)
 
 class Settings(BaseSettings):
-    # Configuración del Microservicio
-    PROJECT_NAME: str = "sfc-smartsupervision-integration"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore"
+    )
+
+    # --- Configuración Base ---
+    PROJECT_NAME: str = "MS-integracion-smartsupervision"
+    ENVIRONMENT: str = "local"
     API_V1_STR: str = "/api/v1"
-    ENVIRONMENT: str = "development"  # development, qa, production
+    
+    # --- Configuración CORS ---
+    BACKEND_CORS_ORIGINS: Annotated[
+        List[str], BeforeValidator(parse_cors)
+    ] = Field(default=["*"])
 
-    # Orígenes permitidos para CORS (por ejemplo, la IP/Dominio de tu CRM local)
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]
-    
-    # Configuración de la API de la SFC (SmartSupervisión)
-    SFC_API_BASE_URL: str
-    SFC_USERNAME: str
-    SFC_PASSWORD: str
-    SFC_SECRET_KEY: str
-    
-    # AWS S3 Configuration
-    AWS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_SECRET_ACCESS_KEY: Optional[str] = None
-    AWS_REGION: str = "us-east-1"
+    # --- Configuración AWS S3 ---
     AWS_S3_BUCKET: str = "mi-bucket-smartsupervision"
+    AWS_ACCESS_KEY_ID: str = "test_key"
+    AWS_SECRET_ACCESS_KEY: str = "test_secret"
 
-    class Config:
-        # Pydantic buscará el archivo .env en la raíz del proyecto
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        
-    @classmethod
-    def model_rebuild(cls, **kwargs):
-        super().model_rebuild(**kwargs)
+    # --- Constantes de Entidad para la SFC ---
+    SFC_TIPO_ENTIDAD: int = 1
+    SFC_ENTIDAD_COD: str = "423"
+
+    # --- Integración con Smart Supervisión (SFC) ---
+    SFC_URL_BASE: str = Field(
+        default="http://127.0.0.1:8080/",
+        description="URL base alias para configuraciones de infraestructura"
+    )
+    SFC_USERNAME: str = Field(
+        default="admin",
+        description="Usuario de autenticación asignado por la SFC"
+    )
+    SFC_PASSWORD: str = Field(
+        default="123456789",
+        description="Contraseña de autenticación asignada por la SFC"
+    )
+    SFC_SECRET_KEY: str = Field(
+        default="global66_sfc_secret_key_testing_2026",
+        description="Llave secreta de firma criptográfica HMAC-SHA256"
+    )
+    SFC_VERIFY_SIGNATURES: bool = Field(
+        default=False,
+        description="Interruptor para activar o desactivar la verificación y generación de firmas HMAC en el cliente"
+    )
 
 settings = Settings()

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class SfcAuthManager(httpx.Auth):
     def __init__(self, signature_context: SfcSignatureContext):
         self.signature_context = signature_context
-        self.base_url = settings.SFC_API_BASE_URL.rstrip('/')
+        self.base_url = settings.SFC_URL_BASE.rstrip('/')
         
         self.access_token: Optional[str] = None
         self.refresh_token: Optional[str] = None

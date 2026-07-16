@@ -1,3 +1,4 @@
+# app/integrations/sfc_interceptor.py
 import httpx
 import json
 from typing import Generator
@@ -16,47 +17,34 @@ class SfcRequestInterceptor(httpx.Auth):
         raise NotImplementedError("Utilizar el flujo asíncrono (async_auth_flow) para FastAPI.")
 
     async def async_auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
-        # 1. Inyectamos headers globales requeridos por la SFC[cite: 1]
+        # 1. Inyectamos headers globales requeridos por la SFC
         request.headers["Cache-Control"] = "no-cache"
-        request.headers["Accept"] = "application/json"
         request.headers["Accept-Language"] = "es"
 
-        # Si es la petición de Login, no inyectamos firma ni token (evita bucle infinito)[cite: 1, 3]
+        # Si es la petición de Login, no inyectamos firma ni token (evita bucle infinito)
         if "/api/login/" in str(request.url):
+            request.headers["Accept"] = "application/json"  # Login espera JSON[cite: 2]
             yield request
             return
 
-        # 2. Inyectamos el Bearer Token (el gestor hace login o refresh si expiró)[cite: 2]
-        token = await self.auth_manager.get_valid_token()
-        request.headers["Authorization"] = f"Bearer {token}"
+        # 2. Inyectamos el Bearer Token
+        token = await self.auth_manager.get_valid_token()[cite: 2]
+        request.headers["Authorization"] = f"Bearer {token}"[cite: 2]
 
-        # 3. Detectamos si es carga de archivos (Multipart)[cite: 1, 2, 3]
+        # 3. Metadatos y firmas para JSON
         is_file_upload = False
         payload = {}
         method = request.method.upper()
 
         if method in ["POST", "PUT", "PATCH"]:
-            content_type = request.headers.get("content-type", "")
-            
-            if "multipart/form-data" in content_type:
-                is_file_upload = True
-                # Reconstruimos los metadatos necesarios para la firma de archivos[cite: 1, 2]
-                # Nota: HTTPX procesa multipart codificando los campos en request.stream.
-                # Para no parsear binarios complejos, podemos enviar temporalmente los campos clave en headers personalizados
-                # creados en el cliente SFC, los cuales leemos aquí y luego eliminamos.
-                payload = {
-                    "codigo_queja": request.headers.get("X-Meta-Codigo-Queja"),
-                    "type": request.headers.get("X-Meta-Type")
-                }
-                # Limpiamos los headers temporales para que no lleguen a la SFC
-                request.headers.pop("X-Meta-Codigo-Queja", None)
-                request.headers.pop("X-Meta-Type", None)
-            else:
-                # Si es JSON común, leemos el stream de la petición
-                body_bytes = request.read()
-                payload = json.loads(body_bytes.decode('utf-8')) if body_bytes else {}
+            request.headers["Accept"] = "application/json"
+            body_bytes = await request.read()  # Lee el cuerpo JSON de forma segura
+            payload = json.loads(body_bytes.decode('utf-8')) if body_bytes else {}
+        else:
+            # Peticiones GET normales (como obtener listado de quejas)[cite: 2]
+            request.headers["Accept"] = "application/json"
 
-        # 4. Calculamos y estampamos la firma digital[cite: 1, 2]
+        # 4. Calculamos y estampamos la firma digital
         signature = self.signature_context.get_signature(
             method=method,
             url=str(request.url),

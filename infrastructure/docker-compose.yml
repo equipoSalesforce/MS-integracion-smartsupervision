@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  # --- MICROSERVICIO REAL DE INTEGRACIÓN ---
+  app:
+    build:
+      context: ../                          
+      dockerfile: infrastructure/Dockerfile  
+      target: final
+    container_name: smartsupervision-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/code                           
+    environment:
+      - ENVIRONMENT=development
+      - SFC_URL_BASE=http://mock-sfc:8080/
+      - SFC_VERIFY_SIGNATURES=true #Param para revisar firmas
+      - SFC_TIPO_ENTIDAD=1
+      - SFC_ENTIDAD_COD=423
+      - AWS_S3_BUCKET=mi-bucket-smartsupervision
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - mock-sfc
+
+  # --- MOCK OFICIAL DE LA SFC ---
+  mock-sfc:
+    build:
+      context: ../                          
+      dockerfile: infrastructure/Dockerfile
+      target: final
+    container_name: mock-sfc
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../:/code                           
+    environment:
+      - VERIFY_SIGNATURES=false
+    command: uvicorn mock_sfc.main:app --host 0.0.0.0 --port 8080 --reload
