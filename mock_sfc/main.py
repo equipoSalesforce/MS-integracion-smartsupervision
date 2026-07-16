@@ -419,6 +419,9 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
     # ======================================================================
 # 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)
 # ======================================================================
+# ======================================================================
+# 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)[cite: 2]
+# ======================================================================
 @app.put("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
 @app.patch("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
 async def actualizar_queja_momento_3(
@@ -431,10 +434,13 @@ async def actualizar_queja_momento_3(
     verificar_firma_sfc(request, x_sfc_signature, body_str)
     
     payload_recibido = await request.json()
+    
+    # 🎯 CORRECCIÓN 1: Extraemos del contenedor "Body" enviado por el microservicio[cite: 2]
+    body_data = payload_recibido.get("Body", payload_recibido)
 
     # 🕹️ MATRIZ DE SIMULACIÓN DE ERRORES (TRIGGERS DE PRUEBA)
     
-    # 1. Simulación de Caso No Encontrado (404)
+    # 1. Simulación de Caso No Encontrado (404)[cite: 1]
     if codigo_queja == "TRIGGER_M3_NOT_FOUND" or codigo_queja == "142347622214657":
         return JSONResponse(
             status_code=404,
@@ -442,7 +448,7 @@ async def actualizar_queja_momento_3(
         )
         
     # 2. Simulación de Error de Validación de negocio (Monto o Estado incorrecto)
-    if payload_recibido.get("estado_cod") == 999:
+    if body_data.get("estado_cod") == 999:
         return JSONResponse(
             status_code=400,
             content={
@@ -454,29 +460,57 @@ async def actualizar_queja_momento_3(
             }
         )
 
-    # 🟢 FLUJO EXITOSO: Retorna el esquema canónico completo de la SFC simulando el cierre
+    # 🚨 ADICIÓN REGULATORIA 1: Simular rechazo por falta de documento de Cierre (Regla SFC)[cite: 2]
+    if body_data.get("estado_cod") == 4 and codigo_queja == "TRIGGER_ERR_M3_NO_DOC_CIERRE":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status_code": 400,
+                "messages": {
+                    "non_field_errors": ["Se detectó la intención de cierre (estado_cod: 4) pero no se ha cargado previamente un archivo válido con el afijo obligatorio RESP_FINAL_SFC.[cite: 2]"]
+                },
+                "detail": "Error APIException"
+            }
+        )
+
+    # 🚨 ADICIÓN REGULATORIA 2: Simular rechazo por falta de documento de Fraude (Regla SFC)[cite: 2]
+    if body_data.get("tipo_fraude") and codigo_queja == "TRIGGER_ERR_M3_NO_DOC_FRAUDE":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status_code": 400,
+                "messages": {
+                    "non_field_errors": ["Se detectó gestión de fraude pero no se ha cargado previamente la investigación correspondiente con el afijo obligatorio INV_FRAUDE_SFC.[cite: 2]"]
+                },
+                "detail": "Error APIException"
+            }
+        )
+
+    # 🟢 CORRECCIÓN 2: Flujo Exitoso envuelto en la raíz "Response" tal cual exige la SFC[cite: 2]
     return {
-        "codigo_queja": codigo_queja,
-        "sexo": 2,
-        "lgbtiq": 2,
-        "condicion_especial": 8,
-        "canal_cod": payload_recibido.get("canal_cod", 13),
-        "producto_cod": payload_recibido.get("producto_cod", 213),
-        "macro_motivo_cod": payload_recibido.get("macro_motivo_cod", 910),
-        "estado_cod": payload_recibido.get("estado_cod", 4),  # 4 = Cerrado
-        "fecha_actualizacion": "2026-07-16T15:30:00",
-        "producto_digital": payload_recibido.get("producto_digital", 1),
-        "a_favor_de": payload_recibido.get("a_favor_de", 1),
-        "aceptacion_queja": 1,
-        "rectificacion_queja": 1,
-        "desistimiento_queja": 1,
-        "prorroga_queja": 2,
-        "admision": 1,
-        "documentacion_rta_final": payload_recibido.get("documentacion_rta_final", True),
-        "anexo_queja": payload_recibido.get("anexo_queja", True),
-        "fecha_cierre": payload_recibido.get("fecha_cierre", "2026-07-16T15:30:00"),
-        "tutela": 1,
-        "ente_control": 99,
-        "marcacion": 2,
-        "queja_expres": 1
+        "Response": {
+            "codigo_queja": codigo_queja,
+            "sexo": 2,
+            "lgbtiq": 2,
+            "condicion_especial": 8,
+            "canal_cod": body_data.get("canal_cod", 13),
+            "producto_cod": body_data.get("producto_cod", 213),
+            "macro_motivo_cod": body_data.get("macro_motivo_cod", 910),
+            "estado_cod": body_data.get("estado_cod", 4),
+            "fecha_actualizacion": "2026-07-16T15:30:00",
+            "producto_digital": body_data.get("producto_digital", 1),
+            "a_favor_de": body_data.get("a_favor_de", 1),
+            "aceptacion_queja": 1,
+            "rectificacion_queja": 1,
+            "desistimiento_queja": 1,
+            "prorroga_queja": 2,
+            "admision": 1,
+            "documentacion_rta_final": body_data.get("documentacion_rta_final", True),
+            "anexo_queja": body_data.get("anexo_queja", True),
+            "fecha_cierre": body_data.get("fecha_cierre", "2026-07-16T15:30:00"),
+            "tutela": 1,
+            "ente_control": 99,
+            "marcacion": 2,
+            "queja_expres": 1
+        }
     }

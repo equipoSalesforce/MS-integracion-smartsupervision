@@ -1,0 +1,188 @@
+# tests/test_momento_3_sync.py
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import date
+from fastapi import status
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.api.dependencies import get_sfc_client, get_s3_client
+from app.services.momento_3_sync import Momento3SincronizacionService
+from app.core.exceptions import SfcIntegrationException
+
+class TestMomento3UnitAndIntegration(unittest.TestCase):
+
+    def setUp(self):
+        # 🪐 Mocks de Infraestructura Externa
+        self.sfc_client_mock = MagicMock()
+        self.s3_client_mock = MagicMock()
+        
+        # Inyección de Dependencias nativa para los tests de Integración (Stateless)
+        app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
+        app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
+        
+        self.client = TestClient(app)
+        self.smart_code_test = "16551509974609"
+        self.sfc_id_largo_test = f"1423{self.smart_code_test}"
+
+        # 📄 Payload Dummie que simulará la salida de tu SfcSalesforceMapper
+        self.mock_mapper_response = {
+            "canal_cod": 13,
+            "producto_cod": 209,
+            "macro_motivo_cod": 209,
+        }
+
+    def tearDown(self):
+        # Limpieza crucial del diccionario de overrides
+        app.dependency_overrides.clear()
+
+    # ======================================================================
+    # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINTS & PYDANTIC)
+    # ======================================================================
+
+    def test_endpoint_cierre_fallo_pydantic_sin_archivos(self):
+        """Verifica que el endpoint de cierre rechace la petición si no se envían adjuntos."""
+        payload_invalido = {
+            "Smart_Code__c": self.smart_code_test,
+            "canal__c": "Internet",
+            "ClosedDate": "2026-07-16",
+            "a_favor_de__c": 1,
+            "archivos_s3": []  # 🚨 LISTA VACÍA: Gatilla el ValueError de tu validador
+        }
+        
+        response = self.client.put("/api/v1/quejas/sync/momento-3/cierre", json=payload_invalido)
+        
+        # FastAPI intercepta automáticamente los ValueError de Pydantic y responde 422
+        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        self.assertIn("No se envió un documento de cierre del caso", response.text)
+
+    def test_endpoint_fraude_fallo_pydantic_ambiguedad_archivos(self):
+        """Verifica el rechazo si vienen múltiples archivos pero no se especifica el principal."""
+        payload_ambiguo = {
+            "Smart_Code__c": self.smart_code_test,
+            "estado_cod__c": 2,
+            "tipo_fraude__c": 1,
+            "modalidad_fraude__c": 3,
+            "monto_reclamado__c": 50000.0,
+            "monto_reconocido__c": 0.0,
+            "nombre_archivo_fraude": None,  # 🚨 AMBIGÜEDAD: No dice cuál es el dictamen
+            "archivos_s3": [
+                {"nombre_archivo": "soporte1.pdf", "s3_key": "k1", "bucket": "b1"},
+                {"nombre_archivo": "soporte2.xlsx", "s3_key": "k2", "bucket": "b1"}
+            ]
+        }
+        
+        response = self.client.put("/api/v1/quejas/sync/momento-3/fraude", json=payload_ambiguo)
+        
+        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        self.assertIn("no se encuentra dentro del listado de archivos_s3", response.text)
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    def test_endpoint_tramite_exito_stateless(self, mock_mapper):
+        """Prueba de punta a punta de una actualización rutinaria sin adjuntos."""
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "updated"})
+
+        payload_tramite = {
+            "Smart_Code__c": self.smart_code_test,
+            "canal__c": "Internet",
+            "Product__c": 209,
+            "Categorias_COL__c": 209,
+            "estado_cod__c": 2,
+            "producto_digital__c": 1,
+            "admision_col__c": 1,
+            "archivos_s3": []
+        }
+
+        response = self.client.put("/api/v1/quejas/sync/momento-3/tramite", json=payload_tramite)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.sfc_client_mock.put_actualizar_queja.assert_called_once()
+
+    # ======================================================================
+    # 🧪 SUITE 2: PRUEBAS UNITARIAS (LÓGICA CORE DEL SERVICIO & S3)
+    # ======================================================================
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_servicio_cierre_autoasignacion_y_renombrado_un_solo_archivo(self, mock_mapper):
+        """Verifica que si viene un solo archivo, se autoasigne y renombre con RESP_FINAL_SFC."""
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        
+        # Simulamos las respuestas de red asíncronas de la SFC y AWS S3
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 99})
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "closed"})
+        
+        # Mock de las llamadas de descarga de S3 en hilos
+        self.s3_client_mock.head_object = MagicMock(return_value={"ContentLength": 1024})
+        mock_body = MagicMock()
+        mock_body.read = MagicMock(return_value=b"bytes_pdf_cierre")
+        self.s3_client_mock.get_object = MagicMock(return_value={"Body": mock_body})
+
+        # Instanciamos el servicio pasándole los mocks inyectados
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+        
+        # Construimos el objeto Pydantic de entrada imitando la petición HTTP exitosa
+        from app.schemas.crm_payloads import Momento3CierreCrmInput
+        input_pydantic = Momento3CierreCrmInput(
+            Smart_Code__c=self.smart_code_test,
+            ClosedDate=date(2026, 7, 16),
+            a_favor_de__c=1,
+            nombre_archivo_final=None, # 🚀 Lo dejamos en None para probar la deducción automática
+            archivos_s3=[
+                {"nombre_archivo": "resolución_final.pdf", "s3_key": "path/resolucion.pdf", "bucket": "global-bucket"}
+            ]
+        )
+
+        # Ejecutamos el pipeline operativo
+        resultado = await servicio.ejecutar_cierre_definitivo(payload=input_pydantic)
+
+        # --- ASERCIONES DE CONTROL RESTRICATIVO ---
+        self.assertEqual(resultado["status"], "success")
+        
+        # 1. Validar el Orden Estricto: Primero se despacha el anexo
+        self.sfc_client_mock.post_adjunto_queja.assert_called_once()
+        kwargs_archivo = self.sfc_client_mock.post_adjunto_queja.call_args[1]
+        
+        # 🎯 LA MAGIA: El microservicio debió transmutar el nombre original agregándole el afijo regulatorio
+        self.assertEqual(kwargs_archivo["file_name"], "resolución_final_RESP_FINAL_SFC.pdf")
+        self.assertEqual(kwargs_archivo["sfc_codigo_queja"], self.sfc_id_largo_test)
+
+        # 2. Validar Segundo Paso: Envío del Formulario JSON final
+        self.sfc_client_mock.put_actualizar_queja.assert_called_once()
+        payload_formulario_sfc = self.sfc_client_mock.put_actualizar_queja.call_args[1]["payload"]
+        
+        self.assertEqual(payload_formulario_sfc["estado_cod"], 4) # Confirmamos Estado Cerrado
+        self.assertEqual(payload_formulario_sfc["fecha_cierre"], "2026-07-16")
+        self.assertTrue(payload_formulario_sfc["anexo_queja"])
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_servicio_aislamiento_de_fallas_sfc_exception(self, mock_mapper):
+        """Verifica que si la SFC rechaza la transacción, la excepción controlada suba intacta."""
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        
+        # Simulamos que el endpoint de la SFC levanta nuestro error traducido personalizado
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                status_code=400,
+                error_type="VALIDATION_ERROR",
+                sfc_field="estado_cod",
+                raw_message="El código de estado no es válido para esta tipología",
+                crm_action="Validar flujo de estados en Salesforce"
+            )
+        )
+
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=None)
+        
+        from app.schemas.crm_payloads import Momento3TramiteCrmInput
+        input_tramite = Momento3TramiteCrmInput(
+            Smart_Code__c=self.smart_code_test,
+            estado_cod__c=99,
+            archivos_s3=[]
+        )
+
+        # Comprobamos con la aserción de unittest que la excepción explote limpiamente hacia arriba
+        with self.assertRaises(SfcIntegrationException):
+            await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
+
+if __name__ == "__main__":
+    unittest.main()

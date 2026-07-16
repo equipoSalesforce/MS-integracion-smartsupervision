@@ -1,215 +1,151 @@
-# app/services/momento_3_sync.py
+# app/services/momento_2_sync.py
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, List
 
 from app.integrations.sfc_client import SfcClient
+from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
 from app.core.config import settings
-from app.core.exceptions import SfcIntegrationException
-from app.core.mapping import SfcSalesforceMapper  # 🎯 Importación del Mapper Universal
-from app.schemas.sfc_payloads import SfcActualizarQuejaPayload  # 🎯 Importación del Esquema SFC M3
-from app.schemas.crm_payloads import (
-    Momento3TramiteCrmInput,
-    Momento3FraudeCrmInput,
-    Momento3CierreCrmInput
-)
+from app.core.mapping import SfcSalesforceMapper
+from app.core.exceptions import SfcIntegrationException  # 👈 Importación requerida para control de flujo
 
 logger = logging.getLogger(__name__)
 
-class Momento3SincronizacionService:
-    def __init__(self, sfc_client: SfcClient, s3_client=None):
+class Momento2SincronizacionService:
+    def __init__(self, sfc_client: SfcClient, s3_client=None):     
         self.sfc_client = sfc_client
         self.s3_client = s3_client
-        # Valores regulatorios por defecto de la entidad (Global66)
-        # TODO: aplicar que lo tomen de los parametros de env o settings
-        self.tipo_entidad = 1
-        self.entidad_cod = "423"
 
-    async def ejecutar_actualizacion_tramite(self, payload: Momento3TramiteCrmInput) -> Dict[str, Any]:
-        """Orquesta la actualización rutinaria de estados intermedios del caso."""
-        return await self._orquestar_pipeline_momento_3(
-            payload=payload,
-            estado_cod=payload.estado_cod__c,
-            extra_fields={
-                "producto_digital": payload.producto_digital__c,
-                "admision": payload.admision_col__c
-            }
-        )
+    async def ejecutar_envio_momento_2(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Orquesta el flujo del Momento 2 de forma Stateless (sin base de datos).
+        Recibe el payload completo del CRM, lo mapea y transmite a la SFC.
+        """
+        smart_code = payload.get("Smart_Code__c")
+        if not smart_code:
+            return {"status": "error", "message": "Falta el campo obligatorio 'Smart_Code__c' en el payload."}
 
-    async def ejecutar_gestion_fraude(self, payload: Momento3FraudeCrmInput) -> Dict[str, Any]:
-        """Orquesta la actualización de mitigación y reporte de Fraude."""
-        return await self._orquestar_pipeline_momento_3(
-            payload=payload,
-            estado_cod=payload.estado_cod__c,
-            target_file_name=payload.nombre_archivo_fraude,
-            afijo_regulatorio="INV_FRAUDE_SFC",
-            extra_fields={
-                "tipo_fraude": payload.tipo_fraude__c,
-                "modalidad_fraude": payload.modalidad_fraude__c,
-                "monto_reclamado": payload.monto_reclamado__c,
-                "monto_reconocido": payload.monto_reconocido__c
-            }
-        )
-
-    async def ejecutar_cierre_definitivo(self, payload: Momento3CierreCrmInput) -> Dict[str, Any]:
-        """Orquesta la clausura definitiva de la queja ante la SFC (Estado 4)."""
-        return await self._orquestar_pipeline_momento_3(
-            payload=payload,
-            estado_cod=4,
-            target_file_name=payload.nombre_archivo_final,
-            afijo_regulatorio="RESP_FINAL_SFC",
-            extra_fields={
-                "fecha_cierre": payload.ClosedDate.isoformat(),
-                "a_favor_de": payload.a_favor_de__c,
-                "aceptacion_queja": 1 if payload.Aceptacion__c else 2,
-                "rectificacion_queja": 1 if payload.Rectificacion__c else 2,
-                "prorroga_queja": 1 if payload.Prorroga__c else 2,
-                "documentacion_rta_final": True
-            }
-        )
-
-    # ======================================================================
-    # ⚙️ MOTOR PRIVADO DE ORQUESTACIÓN ASÍNCRONA (MOMENTO 3)
-    # ======================================================================
-    async def _orquestar_pipeline_momento_3(
-        self, 
-        payload: Any, 
-        estado_cod: int, 
-        target_file_name: Optional[str] = None, 
-        afijo_regulatorio: Optional[str] = None,
-        extra_fields: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        smart_code = payload.Smart_Code__c
-        sfc_id_largo = f"{self.tipo_entidad}{self.entidad_cod}{smart_code}"
-        
-        logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado: {estado_cod})")
+        logger.info(f"[Momento 2] Iniciando pipeline de despacho síncrono para el caso: {smart_code}")
 
         try:
-            # 🚨 REGLA DE ORO SFC: Primero se suben todos los archivos al Storage
-            if payload.archivos_s3:
-                logger.info(f"[Momento 3] Detectados {len(payload.archivos_s3)} anexos. Iniciando carga previa...")
-                await self._procesar_y_enviar_adjuntos_m3(
-                    archivos=payload.archivos_s3,
-                    sfc_code=sfc_id_largo,
-                    target_file_name=target_file_name,
-                    afijo_regulatorio=afijo_regulatorio
+            # 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
+            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(payload)
+
+            # 2. Regla de Negocio: ID Compuesto regulatorio
+            #TODO: corregir para que lo tomen del parametro
+            tipo_entidad = payload.get("tipo_entidad", 1) or 1
+            entidad_cod = payload.get("entidad_cod", "423") or "423"
+            sfc_id_largo = f"{tipo_entidad}{entidad_cod}{smart_code}"
+            sfc_raw_payload["codigo_queja"] = sfc_id_largo
+
+            # 3. Validación de salida utilizando el esquema SFC
+            payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
+
+            # 4. Envío de metadatos limpios (SfcClient se encargará de envolver en "Body")
+            logger.info(f"[Momento 2] Enviando queja a la SFC con código regulatorio: {sfc_id_largo}")
+            await self.sfc_client.post_nueva_queja(payload_validado.model_dump())  # 👈 Enviamos el dict plano
+            
+            # 5. Pipeline de archivos (S3 -> SFC)
+            archivos_s3 = payload.get("archivos_s3", [])
+            logger.info(f"[Momento 2] Recibidos {len(archivos_s3)} archivos para enviar.")
+            
+            if payload_validado.anexo_queja and not archivos_s3:
+                logger.warning(
+                    f"[Momento 2] La queja {smart_code} marca 'anexo_queja' como Verdadero, "
+                    f"pero la lista 'archivos_s3' llegó vacía desde el CRM."
                 )
 
-            # 🛠️ 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
-            # Convertimos el modelo Pydantic de entrada a dict para procesarlo con tu mapper relacional
-            crm_dict = payload.model_dump()
-            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
-
-            # 🛠️ 2. Inyección de Reglas de Negocio y Metadatos de Control de M3
-            sfc_raw_payload["codigo_queja"] = sfc_id_largo
-            sfc_raw_payload["estado_cod"] = estado_cod
-            sfc_raw_payload["anexo_queja"] = len(payload.archivos_s3) > 0
-            sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
-
-            # Fallbacks obligatorios de proforma por si no vienen mapeados desde el CRM
-            sfc_defaults = {
-                "sexo": 2, "lgbtiq": 2, "condicion_especial": 98,
-                "queja_expres": 1, "tutela": 2, "ente_control": 99,
-                "producto_digital": 1, "admision": 1, "desistimiento_queja": 2
-            }
-            for campo, valor_defecto in sfc_defaults.items():
-                if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
-                    sfc_raw_payload[campo] = valor_defecto
-
-            # Inyectamos los campos dinámicos calculados en el hito (Fraude, Trámite o Cierre)
-            if extra_fields:
-                sfc_raw_payload.update(extra_fields)
-
-            # 🛠️ 3. Validación de salida utilizando el esquema estricto de la SFC
-            payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
-
-            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo con el formulario
-            logger.info(f"[Momento 3] Transmitiendo formulario de actualización de estado hacia la SFC...")
-            await self.sfc_client.put_actualizar_queja(
-                sfc_codigo_queja=sfc_id_largo, 
-                payload=payload_validado.model_dump()  # Despachamos el diccionario sanitizado
-            )
+            if archivos_s3:
+                await self._procesar_y_enviar_adjuntos_s3(archivos=archivos_s3, sfc_code=sfc_id_largo)
 
             return {
                 "status": "success",
-                "message": f"Caso {smart_code} actualizado exitosamente en el Momento 3 (Estado {estado_cod})",
+                "message": "Queja y documentos transmitidos correctamente a la SFC de forma síncrona",
                 "codigo_queja_sfc": sfc_id_largo
             }
 
         except SfcIntegrationException:
-            # Permitimos que las excepciones controladas de la SFC viajen directo al Router
+            # 👈 CLAVE: Dejamos subir la excepción de la SFC intacta para que la atrape el Router
             raise
         except Exception as e:
-            logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
-            return {"status": "error", "message": f"Pipeline M3 interrumpido: {str(e)}"}
+            logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")
+            return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
 
-    # ======================================================================
-    # 📂 GESTOR ASÍNCRONO DE ADJUNTOS CON RENOMBRADO EN VUELO
-    # ======================================================================
-    async def _procesar_y_enviar_adjuntos_m3(
-        self, 
-        archivos: List[Any], 
-        sfc_code: str, 
-        target_file_name: Optional[str], 
-        afijo_regulatorio: Optional[str]
-    ):
-        tareas_envio = []
-
-        # 🧪 FALLBACK: Simulación local idéntica a tu Momento 2 si S3 no está activo
+    async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[Dict[str, Any]], sfc_code: str):
+        """Descarga del listado exacto de archivos en S3 y los sube de manera concurrente a la SFC."""
         if not self.s3_client:
             if settings.ENVIRONMENT == "development":
-                logger.info("[LOCAL TEST M3] Generando streams locales con inyección de afijos regulatorios.")
-                for archivo in archivos:
-                    file_name = archivo.nombre_archivo
-                    file_type = file_name.split(".")[-1] if "." in file_name else "pdf"
-                    
-                    if target_file_name and file_name == target_file_name:
-                        nombre_puro = file_name.rsplit(".", 1)[0]
-                        file_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
-                        logger.info(f"[LOCAL TEST M3] Aplicando afijo. Renombrado exitoso a: {file_name}")
+                logger.info(f"[LOCAL TEST] Generando bytes ficticios locales para simular la carga de adjuntos hacia la SFC.")
+                tareas_envio = []
 
-                    file_bytes = b"Contenido de resolucion digital simulado por Global66."
+                for archivo in archivos:
+                    s3_key = archivo.get("s3_key", "")
+                    if not s3_key:
+                        logger.warning("[Momento 2] Se recibió un adjunto sin clave 's3_key' en modo local, se omitirá.")
+                        continue
+                    
+                    # Simulación de descarga: Creamos un stream de bytes dummy en memoria
+                    file_bytes = b"Contenido ficticio simulado localmente por el gateway de Global66."
+                    file_type = s3_key.split(".")[-1] if "." in s3_key else "pdf"
+                    
+                    file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
+
+                    # en el tipo de archivo para que aparezca en la nomenclatura final y el Mock lo detecte.
+
                     tareas_envio.append(self.sfc_client.post_adjunto_queja(
                         sfc_codigo_queja=sfc_code,
                         file_bytes=file_bytes,
                         file_type=file_type,
                         file_name=file_name
                     ))
+
                 if tareas_envio:
+                    logger.info(f"[LOCAL TEST] Transmitiendo de forma concurrente {len(tareas_envio)} anexos simulados al Mock SFC.")
                     await asyncio.gather(*tareas_envio)
+                
                 return
             else:
-                raise ValueError("Error de infraestructura: El cliente S3 no está inicializado en producción.")
+                logger.error(f"Error al conectarse con el cliente de S3")
+                return
 
-        # 🪐 FLUJO DE PRODUCCIÓN DE ADJUNTOS (S3 REAL)
+        tareas_envio = []
+
         for archivo in archivos:
-            s3_key = archivo.s3_key
-            bucket = archivo.bucket
-            original_name = archivo.nombre_archivo
-            file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
+            s3_key = archivo.get("s3_key")
+            bucket = archivo.get("bucket", settings.AWS_S3_BUCKET)
 
-            metadata = await asyncio.to_thread(self.s3_client.head_object, Bucket=bucket, Key=s3_key)
-            if metadata.get("ContentLength", 0) > 30 * 1024 * 1024:
-                raise ValueError(f"El archivo {original_name} supera el límite de 30MB permitido por la SFC.")
+            if not s3_key:
+                logger.warning("[Momento 2] Se recibió un adjunto sin clave 's3_key', se omitirá.")
+                continue
 
-            s3_file = await asyncio.to_thread(self.s3_client.get_object, Bucket=bucket, Key=s3_key)
+            metadata = await asyncio.to_thread(
+                self.s3_client.head_object,
+                Bucket=bucket,
+                Key=s3_key
+            )
+            
+            file_size = metadata.get("ContentLength", 0)
+
+            if file_size > 30 * 1024 * 1024:
+                raise ValueError(f"El archivo {s3_key} supera el límite de 30MB permitido por la SFC.")
+
+            s3_file = await asyncio.to_thread(
+                self.s3_client.get_object,
+                Bucket=bucket,
+                Key=s3_key
+            )
             file_bytes = s3_file["Body"].read()
-
-            if target_file_name and original_name == target_file_name:
-                nombre_puro = original_name.rsplit(".", 1)[0]
-                final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
-                logger.info(f"[Momento 3] Aplicando afijo oficial. Transmutando '{original_name}' a '{final_send_name}'")
-            else:
-                final_send_name = original_name
-
+            file_type = s3_key.split(".")[-1] if "." in s3_key else "pdf"
+            file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
+            
+            
             tareas_envio.append(self.sfc_client.post_adjunto_queja(
                 sfc_codigo_queja=sfc_code,
                 file_bytes=file_bytes,
                 file_type=file_type,
-                file_name=final_send_name
+                file_name=file_name
             ))
 
         if tareas_envio:
-            logger.info(f"[Momento 3] Transmitiendo concurrentemente {len(tareas_envio)} anexos a la SFC.")
+            logger.info(f"[Momento 2] Transmitiendo concurrentemente {len(tareas_envio)} anexos de S3 a la SFC.")
             await asyncio.gather(*tareas_envio)

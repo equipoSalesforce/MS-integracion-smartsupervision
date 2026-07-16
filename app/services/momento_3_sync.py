@@ -2,9 +2,13 @@
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+
 from app.integrations.sfc_client import SfcClient
 from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
+from app.core.mapping import SfcSalesforceMapper  # 🎯 Importación del Mapper Universal
+from app.schemas.sfc_payloads import SfcActualizarQuejaPayload  # 🎯 Importación del Esquema SFC M3
 from app.schemas.crm_payloads import (
     Momento3TramiteCrmInput,
     Momento3FraudeCrmInput,
@@ -18,7 +22,7 @@ class Momento3SincronizacionService:
         self.sfc_client = sfc_client
         self.s3_client = s3_client
         # Valores regulatorios por defecto de la entidad (Global66)
-        # TODO: aplicar que lo tomen de los parametros de env
+        # TODO: aplicar que lo tomen de los parametros de env o settings
         self.tipo_entidad = 1
         self.entidad_cod = "423"
 
@@ -92,31 +96,40 @@ class Momento3SincronizacionService:
                     afijo_regulatorio=afijo_regulatorio
                 )
 
-            # 🧩 Construcción del JSON Canónico del Formulario del Momento 3
-            # Mapeamos campos compartidos básicos o usamos valores de sustitución inteligentes[cite: 2]
-            sfc_payload = {
-                "codigo_queja": sfc_id_largo,
-                "estado_cod": estado_cod,
-                "canal_cod": 13 if payload.canal__c == "Internet" else 13, # Tu lógica de mapeo de texto a código[cite: 2]
-                "producto_cod": payload.Product__c or 209,
-                "macro_motivo_cod": payload.Categorias_COL__c or 209,
-                "anexo_queja": len(payload.archivos_s3) > 0,
-                "sexo": 2,       # Valores canónicos por defecto requeridos por la proforma[cite: 2]
-                "lgbtiq": 2,
-                "condicion_especial": 98,
-                "queja_expres": 1,
-                "tutela": 2,
-                "ente_control": 99
+            # 🛠️ 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
+            # Convertimos el modelo Pydantic de entrada a dict para procesarlo con tu mapper relacional
+            crm_dict = payload.model_dump()
+            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
+
+            # 🛠️ 2. Inyección de Reglas de Negocio y Metadatos de Control de M3
+            sfc_raw_payload["codigo_queja"] = sfc_id_largo
+            sfc_raw_payload["estado_cod"] = estado_cod
+            sfc_raw_payload["anexo_queja"] = len(payload.archivos_s3) > 0
+            sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
+
+            # Fallbacks obligatorios de proforma por si no vienen mapeados desde el CRM
+            sfc_defaults = {
+                "sexo": 2, "lgbtiq": 2, "condicion_especial": 98,
+                "queja_expres": 1, "tutela": 2, "ente_control": 99,
+                "producto_digital": 1, "admision": 1, "desistimiento_queja": 2
             }
+            for campo, valor_defecto in sfc_defaults.items():
+                if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
+                    sfc_raw_payload[campo] = valor_defecto
 
-            # Inyectamos los campos dinámicos del hito (Fraude, Trámite o Cierre)[cite: 2]
+            # Inyectamos los campos dinámicos calculados en el hito (Fraude, Trámite o Cierre)
             if extra_fields:
-                sfc_payload.update(extra_fields)
+                sfc_raw_payload.update(extra_fields)
 
-            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo con el formulario[cite: 2]
+            # 🛠️ 3. Validación de salida utilizando el esquema estricto de la SFC
+            payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
+
+            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo con el formulario
             logger.info(f"[Momento 3] Transmitiendo formulario de actualización de estado hacia la SFC...")
-            # Nota: Asegúrate de tener implementado el método put_actualizar_queja en tu SfcClient[cite: 2]
-            await self.sfc_client.put_actualizar_queja(sfc_codigo_queja=sfc_id_largo, payload=sfc_payload)
+            await self.sfc_client.put_actualizar_queja(
+                sfc_codigo_queja=sfc_id_largo, 
+                payload=payload_validado.model_dump()  # Despachamos el diccionario sanitizado
+            )
 
             return {
                 "status": "success",
@@ -125,7 +138,7 @@ class Momento3SincronizacionService:
             }
 
         except SfcIntegrationException:
-            # Permitimos que las excepciones controladas de la SFC viajen directo al Router[cite: 2]
+            # Permitimos que las excepciones controladas de la SFC viajen directo al Router
             raise
         except Exception as e:
             logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
@@ -151,7 +164,6 @@ class Momento3SincronizacionService:
                     file_name = archivo.nombre_archivo
                     file_type = file_name.split(".")[-1] if "." in file_name else "pdf"
                     
-                    # 🎯 TRANSFORMACIÓN EN CALIENTE: Si es el archivo principal, le inyectamos el afijo obligatorio
                     if target_file_name and file_name == target_file_name:
                         nombre_puro = file_name.rsplit(".", 1)[0]
                         file_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
@@ -177,17 +189,13 @@ class Momento3SincronizacionService:
             original_name = archivo.nombre_archivo
             file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
 
-            # Descarga de metadatos para validar peso (Máx 30MB)
             metadata = await asyncio.to_thread(self.s3_client.head_object, Bucket=bucket, Key=s3_key)
             if metadata.get("ContentLength", 0) > 30 * 1024 * 1024:
-                raise ValueError(f"El archivo {original_name} supera el límite de 30MB permitido por la SFC.[cite: 2]")
+                raise ValueError(f"El archivo {original_name} supera el límite de 30MB permitido por la SFC.")
 
-            # Descarga del binario desde el bucket
             s3_file = await asyncio.to_thread(self.s3_client.get_object, Bucket=bucket, Key=s3_key)
             file_bytes = s3_file["Body"].read()
 
-            # 🎯 TRANSFORMACIÓN EN CALIENTE REGULATORIA (S3 REAL)
-            # Modificamos el parámetro string del nombre que va a la SFC sin alterar físicamente el S3 original
             if target_file_name and original_name == target_file_name:
                 nombre_puro = original_name.rsplit(".", 1)[0]
                 final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
