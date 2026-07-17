@@ -35,7 +35,7 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             
             # --- Clasificación y Control del Caso ---
             "canal__c": "Internet",
-            "punto_recepcion__c": "Manual",               
+            "punto_recepcion": "Manual",               
             "Instancia_de_recepcion__c": "Entidad vigilada", 
             "admision_col__c": "No Aplica",              
             "Status": "New",
@@ -49,7 +49,7 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             # --- Producto y Motivo (Tipificación) ---
             "Product__c": "Cuenta perfil",                
             "smart_Producto_nombre__c": "Ahorro",
-            "Categorias_COL__c": 940                      
+            "Categorias_COL__c": "Transacción no reconocida"         
         }
 
     async def test_envio_exitoso_sin_anexos(self):

@@ -416,9 +416,7 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
         "codigo_queja": form_data.get("codigo_queja", "142316551509974606")
     }
     
-    # ======================================================================
-# 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)
-# ======================================================================
+
 # ======================================================================
 # 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)[cite: 2]
 # ======================================================================
@@ -461,7 +459,7 @@ async def actualizar_queja_momento_3(
         )
 
     # 🚨 ADICIÓN REGULATORIA 1: Simular rechazo por falta de documento de Cierre (Regla SFC)[cite: 2]
-    if body_data.get("estado_cod") == 4 and codigo_queja == "TRIGGER_ERR_M3_NO_DOC_CIERRE":
+    if body_data.get("estado_cod") == 4 and "TRIGGER_ERR_M3_NO_DOC" in codigo_queja:
         return JSONResponse(
             status_code=400,
             content={
@@ -474,7 +472,7 @@ async def actualizar_queja_momento_3(
         )
 
     # 🚨 ADICIÓN REGULATORIA 2: Simular rechazo por falta de documento de Fraude (Regla SFC)[cite: 2]
-    if body_data.get("tipo_fraude") and codigo_queja == "TRIGGER_ERR_M3_NO_DOC_FRAUDE":
+    if body_data.get("tipo_fraude") and "TRIGGER_ERR_M3_NO_DOC" in codigo_queja:
         return JSONResponse(
             status_code=400,
             content={

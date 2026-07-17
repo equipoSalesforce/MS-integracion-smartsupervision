@@ -66,7 +66,7 @@ class TestSfcSalesforceMapper(unittest.TestCase):
             "producto_cod": 209,
             "macro_motivo_cod": 209,
             "texto_queja": "Texto de prueba de la queja de la SFC.",
-            "anexo_queja": False,
+            "anexo_queja": True,
             "tutela": 2,
             "ente_control": 99,
             "escalamiento_DCF": 2,
