@@ -104,7 +104,7 @@ class SfcSalesforceMapper:
     ADMISION_SF_TO_SFC = {v.lower(): k for k, v in ADMISION_SFC_TO_SF.items()}
 
     # Favorabilidad__c / a_favor_de (Case)
-    FAVOR_SFC_TO_SF = {1: "Favorable", 2: "Parcialmente favrable", 3: "No favorable"}
+    FAVOR_SFC_TO_SF = {1: "Favorable", 2: "Parcialmente favorable", 3: "No favorable"}
     FAVOR_SF_TO_SFC = {v.lower(): k for k, v in FAVOR_SFC_TO_SF.items()}
 
     # Aceptacion__c / aceptacion_queja (Case)
@@ -350,9 +350,9 @@ class SfcSalesforceMapper:
         "queja_expres": "Quejas_express__c",
         "codigo_pais": "codigo_pais__c",
         "producto_nombre": "smart_Producto_nombre__c",
-        "escalamiento_DCF": "escalamiento_DCF__c",
+        "escalamiento_DCF": "smart_escalamiento_DCF__c",
         "replica": "replica__c",
-        "argumento_replica": "argumento_replica__c"
+        "argumento_replica": "smart_Argumento_replica__c"
     }
 
     MAPPING_CRM_TO_SFC_MASTER = {
@@ -394,7 +394,9 @@ class SfcSalesforceMapper:
         "Tipo_Fraude__c": "tipo_fraude",
         "Modalidad_Fraude__c": "modalidad_fraude",
         "marcacion__c": "marcacion",
-        "punto_recepcion": "punto_recepcion"
+        "punto_recepcion": "punto_recepcion",
+        "smart_Argumento_replica__c": "argumento_replica",
+        "smart_escalamiento_DCF__c": "escalamiento_DCF",
     }
 
     # ======================================================================
@@ -498,7 +500,7 @@ class SfcSalesforceMapper:
             # 1: New, 2: In progress, 3: Stand by, 4: Closed
             if normalized in ("new", "nuevo"): return 1
             if normalized in ("in progress", "en progreso"): return 2
-            if normalized in ("stand by", "espera"): return 3
+            if normalized in ("stand by", "espera"): return 2
             if normalized in ("closed", "cerrado", "resolved"): return 4
             return 2
 

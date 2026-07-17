@@ -8,7 +8,7 @@ from app.integrations.sfc_client import SfcClient
 from app.services.momento_1_sync import SincronizacionService
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.core.exceptions import SfcIntegrationException
-from app.schemas.crm_payloads import QuejaMapeadaCrmResponse
+from app.schemas.crm_payloads import Momento2QuejaCrmInput, QuejaMapeadaCrmResponse
 from app.schemas.crm_payloads import (
     Momento3TramiteCrmInput,
     Momento3FraudeCrmInput,
@@ -70,7 +70,7 @@ async def ejecutar_sync_momento_1(
     summary="Trigger del Momento 2: Despachar queja nueva desde el CRM hacia la SFC",
 )
 async def procesar_envio_queja_crm(
-    payload: Dict[str, Any],
+    payload: Momento2QuejaCrmInput,
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):

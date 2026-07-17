@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any, List
 
 from app.integrations.sfc_client import SfcClient
+from app.schemas.crm_payloads import ArchivoS3Schema, Momento2QuejaCrmInput
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
 from app.core.config import settings
 from app.core.mapping import SfcSalesforceMapper
@@ -16,12 +17,12 @@ class Momento2SincronizacionService:
         self.sfc_client = sfc_client
         self.s3_client = s3_client
 
-    async def ejecutar_envio_momento_2(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def ejecutar_envio_momento_2(self, payload: Momento2QuejaCrmInput) -> Dict[str, Any]:
         """
         Orquesta el flujo del Momento 2 de forma Stateless (sin base de datos).
         Recibe el payload completo del CRM, lo mapea y transmite a la SFC.
         """
-        smart_code = payload.get("Smart_Code__c")
+        smart_code = payload.Smart_Code__c
         if not smart_code:
             return {"status": "error", "message": "Falta el campo obligatorio 'Smart_Code__c' en el payload."}
 
@@ -29,12 +30,11 @@ class Momento2SincronizacionService:
 
         try:
             # 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
-            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(payload)
+            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(payload.model_dump())
 
             # 2. Regla de Negocio: ID Compuesto regulatorio
-            #TODO: corregir para que lo tomen del parametro
-            tipo_entidad = payload.get("tipo_entidad", 1) or 1
-            entidad_cod = payload.get("entidad_cod", "423") or "423"
+            tipo_entidad = settings.SFC_TIPO_ENTIDAD
+            entidad_cod = settings.SFC_ENTIDAD_COD
             sfc_id_largo = f"{tipo_entidad}{entidad_cod}{smart_code}"
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
 
@@ -46,7 +46,7 @@ class Momento2SincronizacionService:
             await self.sfc_client.post_nueva_queja(payload_validado.model_dump())  # 👈 Enviamos el dict plano
             
             # 5. Pipeline de archivos (S3 -> SFC)
-            archivos_s3 = payload.get("archivos_s3", [])
+            archivos_s3 = payload.archivos_s3
             logger.info(f"[Momento 2] Recibidos {len(archivos_s3)} archivos para enviar.")
             
             if payload_validado.anexo_queja and not archivos_s3:
@@ -71,7 +71,7 @@ class Momento2SincronizacionService:
             logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
 
-    async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[Dict[str, Any]], sfc_code: str):
+    async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[ArchivoS3Schema], sfc_code: str):
         """Descarga del listado exacto de archivos en S3 y los sube de manera concurrente a la SFC."""
         if not self.s3_client:
             if settings.ENVIRONMENT == "development":
@@ -79,7 +79,7 @@ class Momento2SincronizacionService:
                 tareas_envio = []
 
                 for archivo in archivos:
-                    s3_key = archivo.get("s3_key", "")
+                    s3_key = archivo.s3_key
                     if not s3_key:
                         logger.warning("[Momento 2] Se recibió un adjunto sin clave 's3_key' en modo local, se omitirá.")
                         continue
@@ -111,9 +111,12 @@ class Momento2SincronizacionService:
         tareas_envio = []
 
         for archivo in archivos:
-            s3_key = archivo.get("s3_key")
-            bucket = archivo.get("bucket", settings.AWS_S3_BUCKET)
-
+            s3_key = archivo.s3_key
+            bucket = archivo.bucket
+            
+            if not bucket:
+                bucket = settings.AWS_S3_BUCKET
+            
             if not s3_key:
                 logger.warning("[Momento 2] Se recibió un adjunto sin clave 's3_key', se omitirá.")
                 continue

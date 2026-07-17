@@ -13,7 +13,6 @@ class SfcQuejaItem(BaseModel):
     fecha_creacion: str
     codigo_queja: str
     codigo_pais: str
-    direccion: str
     departamento_cod: str
     municipio_cod: str
     nombres: str
@@ -34,7 +33,7 @@ class SfcQuejaItem(BaseModel):
     tutela: bool
     ente_control: int
     escalamiento_DCF: bool
-    replica: bool
+    replica: int
     argumento_replica: Optional[str] = None
     desistimiento_queja: bool
     queja_expres: bool

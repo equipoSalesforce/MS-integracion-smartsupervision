@@ -28,62 +28,44 @@ class Momento3SincronizacionService:
 
     async def ejecutar_actualizacion_tramite(self, payload: Momento3TramiteCrmInput) -> Dict[str, Any]:
         """Orquesta la actualización rutinaria de estados intermedios del caso."""
-        return await self._orquestar_pipeline_momento_3(
-            payload=payload,
-            estado_cod=payload.estado_cod__c,
-            extra_fields={
-                "producto_digital": payload.producto_digital__c,
-                "admision": payload.admision_col__c
-            }
-        )
+        return await self._orquestar_pipeline_momento_3(payload=payload)
 
     async def ejecutar_gestion_fraude(self, payload: Momento3FraudeCrmInput) -> Dict[str, Any]:
         """Orquesta la actualización de mitigación y reporte de Fraude."""
         return await self._orquestar_pipeline_momento_3(
             payload=payload,
-            estado_cod=payload.estado_cod__c,
             target_file_name=payload.nombre_archivo_fraude,
-            afijo_regulatorio="INV_FRAUDE_SFC",
-            extra_fields={
-                "tipo_fraude": payload.tipo_fraude__c,
-                "modalidad_fraude": payload.modalidad_fraude__c,
-                "monto_reclamado": payload.monto_reclamado__c,
-                "monto_reconocido": payload.monto_reconocido__c
-            }
+            afijo_regulatorio="INV_FRAUDE_SFC"
         )
 
     async def ejecutar_cierre_definitivo(self, payload: Momento3CierreCrmInput) -> Dict[str, Any]:
         """Orquesta la clausura definitiva de la queja ante la SFC (Estado 4)."""
         return await self._orquestar_pipeline_momento_3(
             payload=payload,
-            estado_cod=4,
             target_file_name=payload.nombre_archivo_final,
-            afijo_regulatorio="RESP_FINAL_SFC",
-            extra_fields={
-                "fecha_cierre": payload.ClosedDate.isoformat(),
-                "a_favor_de": payload.a_favor_de__c,
-                "aceptacion_queja": 1 if payload.Aceptacion__c else 2,
-                "rectificacion_queja": 1 if payload.Rectificacion__c else 2,
-                "prorroga_queja": 1 if payload.Prorroga__c else 2,
-                "documentacion_rta_final": True
-            }
+            afijo_regulatorio="RESP_FINAL_SFC"
         )
 
     # ======================================================================
-    # ⚙️ MOTOR PRIVADO DE ORQUESTACIÓN ASÍNCRONA (MOMENTO 3)
+    # ⚙️ MOTOR PRIVADO DE ORQUESTACIÓN ASÍNCRONA LIMPÌA (MOMENTO 3)
     # ======================================================================
     async def _orquestar_pipeline_momento_3(
         self, 
         payload: Any, 
-        estado_cod: int, 
         target_file_name: Optional[str] = None, 
-        afijo_regulatorio: Optional[str] = None,
-        extra_fields: Optional[Dict[str, Any]] = None
+        afijo_regulatorio: Optional[str] = None
     ) -> Dict[str, Any]:
         smart_code = payload.Smart_Code__c
         sfc_id_largo = f"{self.tipo_entidad}{self.entidad_cod}{smart_code}"
         
-        logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado: {estado_cod})")
+        # 🛠️ 1. Transformación Íntegra con el Mapper Universal (Textos CRM -> Códigos SFC)
+        # El Mapper ahora absorbe de forma automática los hitos específicos (Fechas, Picklists, etc.)
+        crm_dict = payload.model_dump()
+        sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
+        
+        # Extraemos el código de estado ya mapeado para mantener la trazabilidad en logs
+        estado_cod = sfc_raw_payload.get("estado_cod", 2)
+        logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado SFC: {estado_cod})")
 
         try:
             # 🚨 REGLA DE ORO SFC: Primero se suben todos los archivos al Storage
@@ -96,18 +78,12 @@ class Momento3SincronizacionService:
                     afijo_regulatorio=afijo_regulatorio
                 )
 
-            # 🛠️ 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
-            # Convertimos el modelo Pydantic de entrada a dict para procesarlo con tu mapper relacional
-            crm_dict = payload.model_dump()
-            sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
-
-            # 🛠️ 2. Inyección de Reglas de Negocio y Metadatos de Control de M3
+            # 🛠️ 2. Inyección exclusiva de Metadatos Regulatorios de Control Operacional
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
-            sfc_raw_payload["estado_cod"] = estado_cod
             sfc_raw_payload["anexo_queja"] = len(payload.archivos_s3) > 0
             sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
 
-            # Fallbacks obligatorios de proforma por si no vienen mapeados desde el CRM
+            # Fallbacks de contingencia por si no vienen mapeados desde el CRM
             sfc_defaults = {
                 "sexo": 2, "lgbtiq": 2, "condicion_especial": 98,
                 "queja_expres": 1, "tutela": 2, "ente_control": 99,
@@ -117,28 +93,23 @@ class Momento3SincronizacionService:
                 if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
                     sfc_raw_payload[campo] = valor_defecto
 
-            # Inyectamos los campos dinámicos calculados en el hito (Fraude, Trámite o Cierre)
-            if extra_fields:
-                sfc_raw_payload.update(extra_fields)
-
-            # 🛠️ 3. Validación de salida utilizando el esquema estricto de la SFC
+            # 🛠️ 3. Validación estructural final con el esquema estricto de la SFC
             payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
 
-            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo con el formulario
+            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo
             logger.info(f"[Momento 3] Transmitiendo formulario de actualización de estado hacia la SFC...")
             await self.sfc_client.put_actualizar_queja(
                 sfc_codigo_queja=sfc_id_largo, 
-                payload=payload_validado.model_dump()  # Despachamos el diccionario sanitizado
+                payload=payload_validado.model_dump()
             )
 
             return {
                 "status": "success",
-                "message": f"Caso {smart_code} actualizado exitosamente en el Momento 3 (Estado {estado_cod})",
+                "message": f"Caso {smart_code} actualizado exitosamente en el Momento 3 (Estado SFC {estado_cod})",
                 "codigo_queja_sfc": sfc_id_largo
             }
 
         except SfcIntegrationException:
-            # Permitimos que las excepciones controladas de la SFC viajen directo al Router
             raise
         except Exception as e:
             logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
@@ -156,7 +127,6 @@ class Momento3SincronizacionService:
     ):
         tareas_envio = []
 
-        # 🧪 FALLBACK: Simulación local idéntica a tu Momento 2 si S3 no está activo
         if not self.s3_client:
             if settings.ENVIRONMENT == "development":
                 logger.info("[LOCAL TEST M3] Generando streams locales con inyección de afijos regulatorios.")
@@ -182,7 +152,6 @@ class Momento3SincronizacionService:
             else:
                 raise ValueError("Error de infraestructura: El cliente S3 no está inicializado en producción.")
 
-        # 🪐 FLUJO DE PRODUCCIÓN DE ADJUNTOS (S3 REAL)
         for archivo in archivos:
             s3_key = archivo.s3_key
             bucket = archivo.bucket

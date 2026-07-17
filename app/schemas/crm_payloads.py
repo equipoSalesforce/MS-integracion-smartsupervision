@@ -31,20 +31,30 @@ class QuejaMapeadaCrmResponse(BaseModel):
     sc_Condicion_especial__c: str = Field(..., description="condicion_especial traducido a texto")
     Product__c: str = Field(..., description="producto_cod traducido")
     smart_Producto_nombre__c: Optional[str] = Field(None, description="producto_nombre traducido")
-    Categorias_COL__c: int = Field(..., description="macro_motivo_cod traducido")
+    Categorias_COL__c: str = Field(..., description="macro_motivo_cod traducido")
     Description: str = Field(..., description="texto_queja traducido y libre de HTML")
     smart_anexo_queja__c: bool = Field(..., description="anexo_queja traducido")
-    Tutela__c: bool = Field(..., description="tutela traducida")
+    Tutela__c: str = Field(..., description="tutela traducida")
     Ente_de_control__c: str = Field(..., description="ente_control traducido a texto")
-    escalamiento_DCF__c: bool = Field(..., description="escalamiento_DCF traducido")
-    replica__c: bool = Field(..., description="replica traducida")
+    smart_escalamiento_DCF__c: str = Field(..., description="escalamiento_DCF traducido") #Si/No
+    replica__c: str = Field(..., description="replica traducida") #Si/No
     argumento_replica__c: Optional[str] = Field(None, description="argumento_replica traducido")
     Desistimiento__c: str = Field(..., description="desistimiento_queja traducido")
-    Quejas_express__c: bool = Field(..., description="queja_expres traducido")
-    direccion__c: str = Field(..., description="direccion del usuario")
+    Quejas_express__c: str = Field(..., description="queja_expres traducido") #Si/No
 
     # Inyección indispensable de los adjuntos procesados
-    archivos_s3: List[ArchivoS3Schema] = Field(default=[])
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[],
+                                               description= "Colección de metadatos de archivos alojados en S3",
+                                               json_schema_extra={
+                                                    "example": [
+                                                        {
+                                                            "nombre_archivo": "soporte_reclamo.pdf",
+                                                            "s3_key": "quejas/16551509974606/soporte_reclamo.pdf",
+                                                            "bucket": "mi-bucket-smartsupervision"
+                                                        }
+                                                    ]
+                                                }
+                                               )
     
 
 # ======================================================================
@@ -87,14 +97,25 @@ class Momento2QuejaCrmInput(BaseModel):
     smart_anexo_queja__c: bool = Field(..., description="Indica si el caso posee archivos adjuntos")
     Tutela__c: str = Field("No", description="Indica si corresponde a una acción de tutela (Picklist: Si, No)")
     Ente_de_control__c: str = Field("Otros", description="Mapeo de ente regulador involucrado si aplica")
-
+    smart_escalamiento_DCF__c: str = Field(..., description="Indica si hubo escalamiento con la DCF")
+    
     # --- Clasificación de Producto y Motivo (Tipificación Global66) ---
     Product__c: str = Field(..., description="Línea de producto asociada (Picklist: Cuenta perfil, Wallet, etc.)")
     smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre descriptivo del producto digital")
     Categorias_COL__c: str = Field(..., description="Picklist descriptivo del motivo de reclamación CRM")   
     # --- Gestión de Adjuntos en la Nube ---
-    archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de metadatos de archivos alojados en S3")
-
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[],
+                                               description= "Colección de metadatos de archivos alojados en S3",
+                                               json_schema_extra={
+                                                    "example": [
+                                                        {
+                                                            "nombre_archivo": "soporte_reclamo.pdf",
+                                                            "s3_key": "quejas/16551509974606/soporte_reclamo.pdf",
+                                                            "bucket": "mi-bucket-smartsupervision"
+                                                        }
+                                                    ]
+                                                }
+                                               )
 # ======================================================================
 # 🏁 MOMENTO 3: PAYLOADS DE ENTRADA DESDE EL CRM (SALESFORCE)
 # ======================================================================
@@ -105,31 +126,41 @@ class Momento3BaseCrmInput(BaseModel):
     """
     Smart_Code__c: str = Field(..., description="Código único de la queja asignado por la SFC / CRM")
     canal__c: Optional[str] = Field(None, description="Canal de atención mapeado (ej: Internet)")
-    Product__c: Optional[int] = Field(None, description="Código numérico del producto financiero")
-    Categorias_COL__c: Optional[int] = Field(None, description="Código numérico del macro motivo de la queja")
+    Product__c: Optional[str] = Field(None, description="Código del producto financiero")
+    Categorias_COL__c: Optional[str] = Field(None, description="Código del macro motivo de la queja")
     
     # El CRM manda los archivos con sus nombres originales de Salesforce (ej: "respuesta_cliente_v2.pdf")
-    archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Lista de archivos cargados en S3")
-
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[],
+                                               description= "Colección de metadatos de archivos alojados en S3",
+                                               json_schema_extra={
+                                                    "example": [
+                                                        {
+                                                            "nombre_archivo": "soporte_reclamo.pdf",
+                                                            "s3_key": "quejas/16551509974606/soporte_reclamo.pdf",
+                                                            "bucket": "mi-bucket-smartsupervision"
+                                                        }
+                                                    ]
+                                                }
+                                               )
 
 class Momento3TramiteCrmInput(Momento3BaseCrmInput):
     """
     Payload para actualizaciones ordinarias y transiciones de estados intermedios.
     """
-    estado_cod__c: int = Field(..., description="Código del estado actual del trámite (Debe ser diferente a 4)")
-    producto_digital__c: int = Field(1, description="Indica si corresponde a un producto digital")
-    admision_col__c: int = Field(1, description="Estado de admisión del caso")
+    Status: str = Field(..., description="Código del estado actual del trámite (Debe ser diferente a 4)")
+    producto_digital__c: str = Field(..., description="Indica si corresponde a un producto digital")
+    admision_col__c: str = Field(..., description="Estado de admisión del caso")
 
 
 class Momento3FraudeCrmInput(Momento3BaseCrmInput):
     """
     Payload especializado para reportar y actualizar incidentes clasificados como Fraude.
     """
-    estado_cod__c: int = Field(..., description="Estado del trámite durante el proceso de investigación")
-    tipo_fraude__c: int = Field(..., description="Código de clasificación del fraude")
-    modalidad_fraude__c: int = Field(..., description="Código de la modalidad detectada")
-    monto_reclamado__c: float = Field(..., description="Valor total reclamado por el consumidor")
-    monto_reconocido__c: float = Field(..., description="Valor final reconocido/devuelto")
+    Status: str = Field(..., description="Estado del trámite durante el proceso de investigación")
+    tipo_fraude__c: str = Field(..., description="Código de clasificación del fraude")
+    modalidad_fraude__c: str = Field(..., description="Código de la modalidad detectada")
+    card_amount__c: float = Field(..., description="Valor total reclamado por el consumidor")
+    Total_Devuelto_por_Desconocimiento__c: float = Field(..., description="Valor final reconocido/devuelto")
     
     nombre_archivo_fraude: Optional[str] = Field(
         None, 
@@ -169,10 +200,10 @@ class Momento3CierreCrmInput(Momento3BaseCrmInput):
     """
     Payload obligatorio para ejecutar el Cierre Definitivo de la queja.
     """
-    estado_cod__c: Literal[4] = Field(4, description="Código de estado de cierre definitivo fijado en 4")
+    Status: str = Field(4, description="Código de estado de cierre definitivo fijado en 4")
     ClosedDate: date = Field(..., description="Fecha de cierre definitivo (YYYY-MM-DD)")
-    a_favor_de__c: int = Field(..., description="Sentido de la decisión final")
-    Aceptacion__c: bool = Field(True, description="Indica si hubo aceptación de la queja")
+    Favorabilidad__c: str = Field(..., description="Sentido de la decisión final")
+    Aceptacion__c: str = Field(..., description="Indica si hubo aceptación de la queja")
     Rectificacion__c: bool = Field(False, description="Indica si hubo rectificación")
     Prorroga__c: bool = Field(False, description="Indica si la entidad hizo uso de prórroga")
     
