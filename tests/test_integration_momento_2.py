@@ -25,11 +25,10 @@ class TestMomento2Integration(unittest.TestCase):
             "Smart_Code__c": self.smart_code_test,
             "CreatedDate": "2026-07-14T12:00:00",
             "SuppliedName": "Camila Salas",
-            "LastName": "Salas",
-            "id_type__c": 1,
+            "SC_id_type__c": "CC",
             "id_number__c": "1040011014",
             "canal__c": "Internet",
-            "Product__c": 209,
+            "Product__c": "wallet",
             "Categorias_COL__c": 209,
             "Description": "Prueba de queja para validación final en integración.",
             "smart_anexo_queja__c": False,
@@ -48,7 +47,8 @@ class TestMomento2Integration(unittest.TestCase):
             "Aceptacion__c": True,
             "Prorroga__c": False,
             "Rectificacion__c": False,
-            "sinRespuestaFinal?": True
+            "sinRespuestaFinal?": True,
+            "punto_recepcion": "Manual"
         }
 
     def tearDown(self):

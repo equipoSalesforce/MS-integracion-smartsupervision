@@ -20,30 +20,80 @@ class QuejaMapeadaCrmResponse(BaseModel):
     Departamento__c: str = Field(..., description="departamento_cod traducido a texto")
     SC_municipio__c: str = Field(..., description="municipio_cod traducido a texto")
     SuppliedName: str = Field(..., description="nombres traducido")
-    id_type__c: int = Field(..., description="tipo_id_CF traducido")
+    SC_id_type__c: str = Field(..., description="tipo_id_CF traducido")
     id_number__c: str = Field(..., description="numero_id_CF traducido")
     SuppliedPhone: Optional[str] = Field(None, description="telefono traducido")
     SuppliedEmail: Optional[str] = Field(None, description="correo traducido")
     tipo_de_persona__c: str = Field(..., description="tipo_persona traducido a texto")
     sc_genero__c: str = Field(..., description="sexo traducido a texto")
-    lgbtiq__c: bool = Field(..., description="lgbtiq traducido")
+    sc_LGBTIQ__c: str = Field(..., description="lgbtiq traducido")
     canal__c: str = Field(..., description="canal_cod traducido a texto")
     sc_Condicion_especial__c: str = Field(..., description="condicion_especial traducido a texto")
-    Product__c: int = Field(..., description="producto_cod traducido")
+    Product__c: str = Field(..., description="producto_cod traducido")
     smart_Producto_nombre__c: Optional[str] = Field(None, description="producto_nombre traducido")
     Categorias_COL__c: int = Field(..., description="macro_motivo_cod traducido")
     Description: str = Field(..., description="texto_queja traducido y libre de HTML")
     smart_anexo_queja__c: bool = Field(..., description="anexo_queja traducido")
-    Urgent_Case__c: bool = Field(..., description="tutela traducida")
+    Tutela__c: bool = Field(..., description="tutela traducida")
     Ente_de_control__c: str = Field(..., description="ente_control traducido a texto")
     escalamiento_DCF__c: bool = Field(..., description="escalamiento_DCF traducido")
     replica__c: bool = Field(..., description="replica traducida")
     argumento_replica__c: Optional[str] = Field(None, description="argumento_replica traducido")
-    Desistimiento__c: bool = Field(..., description="desistimiento_queja traducido")
+    Desistimiento__c: str = Field(..., description="desistimiento_queja traducido")
     Quejas_express__c: bool = Field(..., description="queja_expres traducido")
+    direccion__c: str = Field(..., description="direccion del usuario")
 
     # Inyección indispensable de los adjuntos procesados
     archivos_s3: List[ArchivoS3Schema] = Field(default=[])
+    
+
+# ======================================================================
+# 🏁 MOMENTO 2: PAYLOADS DE ENTRADA DESDE EL CRM (SALESFORCE)
+# ======================================================================
+class Momento2QuejaCrmInput(BaseModel):
+    """
+    Valida el Request Body enviado por Salesforce (CRM) para iniciar 
+    el pipeline de despacho síncrono del Momento 2 hacia la SFC.
+    """
+    # --- Identificadores y Control de Estado ---
+    Smart_Code__c: str = Field(..., description="Código único de la queja (Smart Code o CaseNumber de respaldo)")
+    CreatedDate: str = Field(..., description="Fecha/Hora de creación del caso en Salesforce (Formato ISO)")
+    Status: Optional[str] = Field("New", description="Estado del caso dentro del CRM")
+
+    # --- Información Demográfica del Consumidor Financiero ---
+    SuppliedName: str = Field(..., description="Nombre completo del cliente afectado")
+    SC_id_type__c: str = Field(..., description="Acrónimo del tipo de identificación del cliente (Picklist: CC, CE, etc.)")
+    id_number__c: str = Field(..., description="Número de identificación del cliente")
+    sc_genero__c: str = Field(..., description="Género del cliente (Picklist: Femenino, Masculino, etc.)")
+    tipo_de_persona__c: str = Field(..., description="Tipo de persona en el CRM (Picklist: B2C, B2B)")
+    sc_LGBTIQ__c: str = Field(..., description="Identificación de comunidad LGBTIQ (Picklist: Si, No)")
+    sc_Condicion_especial__c: str = Field(..., description="Condición de vulnerabilidad del cliente (Picklist o 'No aplica')")
+
+    # --- Datos de Contacto y Ubicación ---
+    SuppliedPhone: Optional[str] = Field(None, description="Teléfono de contacto registrado")
+    SuppliedEmail: Optional[str] = Field(None, description="Correo electrónico de contacto")
+    direccion__c: str = Field(..., description="Dirección física de domicilio del cliente")
+    Departamento__c: str = Field(..., description="Nombre del departamento oficial de residencia (ej: Bogotá D.C.)")
+    SC_municipio__c: str = Field(..., description="Nombre del municipio oficial de residencia (ej: Bogotá D.C.)")
+
+    # --- Origen y Gestión de Recepción ---
+    canal__c: str = Field(..., description="Canal por donde ingresó la queja (Picklist: Internet, Oficinas, etc.)")
+    punto_recepcion: str = Field(..., description="Punto físico o digital de radicación (Picklist: Manual, Web, etc.)")
+    Instancia_de_recepcion__c: str = Field(..., description="Entidad que recibe inicialmente (Picklist: Entidad vigilada, etc.)")
+    admision_col__c: str = Field("No Aplica", description="Estado inicial de admisión de la queja")
+
+    # --- Detalles de la Reclamación ---
+    Description: str = Field(..., description="Cuerpo del texto original del reclamo (Se limpiará HTML en el pipeline)")
+    smart_anexo_queja__c: bool = Field(..., description="Indica si el caso posee archivos adjuntos")
+    Tutela__c: str = Field("No", description="Indica si corresponde a una acción de tutela (Picklist: Si, No)")
+    Ente_de_control__c: str = Field("Otros", description="Mapeo de ente regulador involucrado si aplica")
+
+    # --- Clasificación de Producto y Motivo (Tipificación Global66) ---
+    Product__c: str = Field(..., description="Línea de producto asociada (Picklist: Cuenta perfil, Wallet, etc.)")
+    smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre descriptivo del producto digital")
+    Categorias_COL__c: str = Field(..., description="Picklist descriptivo del motivo de reclamación CRM")   
+    # --- Gestión de Adjuntos en la Nube ---
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de metadatos de archivos alojados en S3")
 
 # ======================================================================
 # 🏁 MOMENTO 3: PAYLOADS DE ENTRADA DESDE EL CRM (SALESFORCE)

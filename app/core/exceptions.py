@@ -13,50 +13,67 @@ class SfcIntegrationException(Exception):
         super().__init__(raw_message)
 
 class SfcErrorTranslator:
-    # Matriz de traducción basada en subcadenas para mapear los mensajes oficiales de la SFC
+    # Matriz de traducción basada en subcadenas para mapear los mensajes oficiales de la SFC[cite: 4]
     MATRIZ_ERRORES_TEXTO = [
-        ("Clave primaria \"0\" inválida", "VALIDATION_ERROR", "Verificar que el dato o ID de la cuenta asociada este diligenciado con los valores correctos."),
-        ("No existe el objeto", "VALIDATION_ERROR", "Cambiar la categoría o código en la pestaña SSV y guardar."),
-        ("no corresponde al departamento asignado", "VALIDATION_ERROR", "Verificar el municipio y departamento de la cuenta asociada."),
-        ("no tenga más de 50 caracteres", "VALIDATION_ERROR", "Verificar que el nombre de la cuenta asociada no tenga más de 50 caracteres."),
-        ("Este campo no puede ser nulo", "VALIDATION_ERROR", "Verificar que el campo requerido en la cuenta asociada este diligenciado."),
-        ("no tenga más de 14 caracteres", "VALIDATION_ERROR", "Verificar que el documento de identidad no supere los 14 caracteres."),
-        ("no tenga más de 1000 caracteres", "VALIDATION_ERROR", "Verificar que la descripción o texto no supere los caracteres permitidos."),
-        ("Compruebe el código o ack de la queja", "STATUS_ERROR", "Marcar el Smart status en la pestaña SSV en none y guardar."),
-        ("documento de respuesta final debe haber sido enviado", "BUSINESS_RULE_ERROR", "Verificar que existe el documento de cierre y que tenga el prefijo/afijo RESP_FINAL_SFC."),
-        ("fijado en True", "BUSINESS_RULE_ERROR", "Verificar que existe el documento de cierre y que tenga el prefijo/afijo RESP_FINAL_SFC."),
-        ("ya existe una Queja radicada para la entidad con el mismo motivo", "ALREADY_EXISTS", "Validar si corresponde al mismo caso. Si son diferentes, cambiar levemente el canal o motivo para diferenciarlo."),
-        ("Debido a que el estado enviado de la Queja es diferente de (4) Cerrado", "BUSINESS_RULE_ERROR", "No hacer nada en el microservicio. El caso ya se encuentra cerrado en la SFC."),
-        ("La Queja se encuentra con estado Cerrado", "BUSINESS_RULE_ERROR", "No es posible actualizar metadatos generales; solo se permiten operaciones de réplica o desistimiento."),
-        ("No se puede actualizar el anexo debido a que la Queja se encuentra cerrada", "BUSINESS_RULE_ERROR", "Operación rechazada por la SFC debido a que el radicado ya está en estado de cierre."),
-        ("debe ser mayor que la fecha de creación", "VALIDATION_ERROR", "Corregir las fechas ingresadas en el CRM y guardar nuevamente en estado resolved."),
-        ("La fecha debe ser diferente a la fecha ya registrada", "VALIDATION_ERROR", "Forzar un cambio de minutos o fecha diferente e intentar guardar de nuevo."),
-        ("La denuncia tiene una fecha de cierre de más de dos meses", "BUSINESS_RULE_ERROR", "La SFC bloqueó la edición por inactividad de más de 2 meses en estado cerrado."),
-        ("El anexo ya existe", "DUPLICATE_FILE", "El archivo ya fue cargado previamente en la SFC de forma exitosa. Guardar nuevamente."),
-        ("El documento ya existe", "DUPLICATE_FILE", "El archivo ya fue cargado previamente en la SFC de forma exitosa. Guardar nuevamente."),
-        # Fallas de infraestructura o timeouts[cite: 4]
-        ("no está disponible por el momento", "INFRASTRUCTURE_ERROR", "Servidor de la SFC caído o en mantenimiento. Volver a intentar más tarde."),
-        ("Error inesperado", "SFC_INTERNAL_ERROR", "Fallo crítico interno en el servidor de la SFC. Volver a guardar más tarde."),
-        ("upstream request timeout", "TIMEOUT_ERROR", "La SFC tardó demasiado en responder (Timeout). Reintentar la operación."),
-        ("Token expiró", "AUTH_ERROR", "Sesión expirada en la SFC. El microservicio renovará los tokens automáticamente, reintente en un momento.")
+        # 1. Validación de claves primarias y campos específicos del formulario (SFC Fields)[cite: 4]
+        ("tipo_id_CF", "VALIDATION_ERROR", "Verificar que el tipo DNI de la cuenta asociada este diligenciado o con los valores correctos.[cite: 4]"),
+        ("departamento_cod", "VALIDATION_ERROR", "Verificar el departamento asociado a la cuenta.[cite: 4]"),
+        ("canal_cod", "VALIDATION_ERROR", "Verificar que el \"canal\" en la pestaña SSV este seleccionado o tenga un valor correcto.[cite: 4]"),
+        ("macro_motivo_cod", "VALIDATION_ERROR", "Cambiar la categoria COL en la pestaña SSV y guardar.[cite: 4]"),
+        ("municipio_cod", "VALIDATION_ERROR", "Verificar el municipio de la cuenta asociada.[cite: 4]"),
+        
+        # 2. Longitudes cruzadas y validaciones condicionales de datos del Consumidor[cite: 4]
+        ("no tenga más de 14 caracteres", "VALIDATION_ERROR", "Verificar que el documento de identidad de la cuenta asociada no tenga mas de 14 caracteres.[cite: 4]"),
+        ("numero_id_CF", "VALIDATION_ERROR", "Verificar que Numero de DNI de la cuenta asociada este diligenciado.[cite: 4]"),
+        ("no tenga más de 50 caracteres", "VALIDATION_ERROR", "Verificar que el nombre de la cuenta asociada no tenga mas de 50 caracteres.[cite: 4]"),
+        ("Este campo no puede ser nulo", "VALIDATION_ERROR", "Verificar que el nombre de la cuenta asociada este diligenciado.[cite: 4]"),
+        ("nombres", "VALIDATION_ERROR", "Verificar que el nombre de la cuenta asociada este diligenciado.[cite: 4]"),
+        ("no tenga más de 1000 caracteres", "VALIDATION_ERROR", "Verificar que la descripcion no supere los caracteres permitidos.[cite: 4]"),
+        ("texto_queja", "VALIDATION_ERROR", "Verificar que la descripcion no supere los caracteres permitidos.[cite: 4]"),
+        
+        # 3. Estados Smart, Restricciones del Momento 3 y Reglas de Cierre[cite: 4]
+        ("Compruebe el código o ack de la queja", "STATUS_ERROR", "Marcar el Smart status en la pestaña SSV en none y guardar.[cite: 4]"),
+        ("documento de respuesta final debe haber sido enviado", "BUSINESS_RULE_ERROR", "Verificar que existe el documento de cierre y que tenga el nombre RESP_FINAL_SFC.[cite: 4]"),
+        ("fijado en True", "BUSINESS_RULE_ERROR", "Verificar que existe el documento de cierre y que tenga el nombre RESP_FINAL_SFC.[cite: 4]"),
+        ("ya cuenta con un documento de respuesta final", "BUSINESS_RULE_ERROR", "No hacer nada porque ya esta cerrada en SSV.[cite: 4]"),
+        ("La Queja se encuentra con estado Cerrado", "BUSINESS_RULE_ERROR", "No hacer nada porque ya esta cerrada en SSV.[cite: 4]"),
+        ("No se puede actualizar el anexo debido a que la Queja se encuentra cerrada", "BUSINESS_RULE_ERROR", "No hacer nada porque ya esta cerrada en SSV.[cite: 4]"),
+        ("estado_cod", "BUSINESS_RULE_ERROR", "Verificar el estado del caso.[cite: 4]"),
+        
+        # 4. Control de Fechas, Vigencias y Archivos Duplicados[cite: 4]
+        ("debe ser mayor que la fecha de creación", "VALIDATION_ERROR", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("La fecha debe ser diferente a la fecha ya registrada", "VALIDATION_ERROR", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("La denuncia tiene una fecha de cierre de más de dos meses", "BUSINESS_RULE_ERROR", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("fecha_actualizacion", "VALIDATION_ERROR", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("fecha_cierre", "VALIDATION_ERROR", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("El anexo ya existe", "DUPLICATE_FILE", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("El documento ya existe", "DUPLICATE_FILE", "Guardar nuevamente en resolved.[cite: 4]"),
+        ("file", "DUPLICATE_FILE", "Guardar nuevamente en resolved.[cite: 4]"),
+        
+        # 5. Casos Especiales de Radicación Existente y Fallas de Infraestructura Base[cite: 4]
+        ("ya existe una Queja radicada para la entidad con el mismo motivo", "ALREADY_EXISTS", "Validar que el caso que referencian en el mensaje donde estan los signos de interrogación no corresponda a la misma información del caso actual. Si son casos diferentes cambiar el canal para que se entienda que son casos diferentes y volver a guardar.[cite: 4]"),
+        ("no está disponible por el momento", "INFRASTRUCTURE_ERROR", "Volver a guardar.[cite: 4]"),
+        ("Error inesperado", "SFC_INTERNAL_ERROR", "Volver a guardar.[cite: 4]"),
+        ("upstream request timeout", "TIMEOUT_ERROR", "Volver a guardar.[cite: 4]"),
+        ("Token expiró", "AUTH_ERROR", "Volver a guardar.[cite: 4]")
     ]
 
     @classmethod
     def procesar_y_lanzar(cls, status_code: int, response_text: str):
-        """Analiza el body devuelto por la SFC (JSON o String) y lanza SfcIntegrationException[cite: 4]."""
+        """Analiza el body devuelto por la SFC (JSON o String) y lanza SfcIntegrationException."""
         sfc_field = None
         raw_message = response_text
         error_type = "UNKNOWN_SFC_ERROR"
         crm_action = "Error no mapeado por la SFC. Por favor revisar los logs del payload."
 
-        # 1. Intentar parsear si la SFC respondió con un JSON estructurado de campos[cite: 4]
+        # 1. Intentar parsear si la SFC respondió con un JSON de campos estructurado
         try:
             data = json.loads(response_text)
             if isinstance(data, dict):
-                # Caso especial: JSON con detail directo[cite: 4]
+                # Caso especial: JSON con detail directo o error 404 de recurso
                 if "detail" in data:
                     raw_message = str(data["detail"])
-                # Caso común: {"campo": ["mensaje de error"]}[cite: 4]
+                # Caso común: {"campo": ["mensaje de error"]}
                 else:
                     for key, value in data.items():
                         sfc_field = key
@@ -66,10 +83,10 @@ class SfcErrorTranslator:
                             raw_message = str(value)
                         break
         except Exception:
-            # Si no es JSON, es un texto plano (infraestructura/timeout)[cite: 4]
+            # Si no es JSON, es un texto plano (infraestructura/timeout)
             pass
 
-        # 2. Buscar coincidencias en nuestra matriz semántica[cite: 4]
+        # 2. Buscar coincidencias en nuestra matriz semántica
         for subcadena, tipo, accion in cls.MATRIZ_ERRORES_TEXTO:
             if subcadena.lower() in raw_message.lower() or (sfc_field and subcadena.lower() in sfc_field.lower()):
                 error_type = tipo

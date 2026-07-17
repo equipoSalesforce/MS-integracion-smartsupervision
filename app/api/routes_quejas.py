@@ -67,7 +67,7 @@ async def ejecutar_sync_momento_1(
 @router.post(
     "/sync/momento-2",
     status_code=status.HTTP_200_OK,
-    summary="Trigger del Momento 2: Despachar queja nueva desde el CRM hacia la SFC"
+    summary="Trigger del Momento 2: Despachar queja nueva desde el CRM hacia la SFC",
 )
 async def procesar_envio_queja_crm(
     payload: Dict[str, Any],

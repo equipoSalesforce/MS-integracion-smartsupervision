@@ -71,7 +71,8 @@ class TestCronIntegration(unittest.TestCase):
                         "replica": False,
                         "argumento_replica": None,
                         "desistimiento_queja": False,
-                        "queja_expres": False
+                        "queja_expres": False,
+                        "direccion": "direccion 123"
                     },
                     {
                         "codigo_queja": "22222222222",
@@ -102,7 +103,8 @@ class TestCronIntegration(unittest.TestCase):
                         "replica": False,
                         "argumento_replica": None,
                         "desistimiento_queja": False,
-                        "queja_expres": False
+                        "queja_expres": False,
+                        "direccion": "direccion 123"
                     }
                 ]
             }
@@ -148,7 +150,7 @@ class TestCronIntegration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[0]["canal__c"], "Internet")
         self.assertEqual(quejas_mapeadas[0]["Ente_de_control__c"], "Procuraduría")
         self.assertEqual(quejas_mapeadas[0]["sc_Condicion_especial__c"], "Mujer embarazada")
-        self.assertEqual(quejas_mapeadas[0]["tipo_de_persona__c"], "Jurídica")
+        self.assertEqual(quejas_mapeadas[0]["tipo_de_persona__c"], "B2B")
         self.assertEqual(len(quejas_mapeadas[0]["archivos_s3"]), 1)  # ¡Ahora sí pasará exitosamente!
 
         # Registro 2 (Traducido)
@@ -157,7 +159,7 @@ class TestCronIntegration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[1]["canal__c"], "Oficinas")
         self.assertEqual(quejas_mapeadas[1]["Ente_de_control__c"], "Contraloría")
         self.assertEqual(quejas_mapeadas[1]["sc_Condicion_especial__c"], "Adulto mayor")
-        self.assertEqual(quejas_mapeadas[1]["tipo_de_persona__c"], "Natural")
+        self.assertEqual(quejas_mapeadas[1]["tipo_de_persona__c"], "B2C")
         self.assertEqual(len(quejas_mapeadas[1]["archivos_s3"]), 0)  # No tiene adjuntos
 
 if __name__ == "__main__":

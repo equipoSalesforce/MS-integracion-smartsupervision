@@ -17,29 +17,39 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         self.mock_datos_consolidados = {
             "Smart_Code__c": self.smart_code,
             "CreatedDate": "2026-07-14T12:00:00",
+            
             "SuppliedName": "Camila Salas",
-            "LastName": "Salas",
-            "id_type__c": 1,
+            "SC_id_type__c": "CC",                        #
             "id_number__c": "1040011014",
+            "sc_genero__c": "Femenino",
+            "tipo_de_persona__c": "B2C",                  
+            "sc_LGBTIQ__c": "No",
+            "sc_Condicion_especial__c": "No aplica",
+            
+            # --- Datos de Contacto y Ubicación ---
             "SuppliedPhone": "3001234567",
             "SuppliedEmail": "camila@test.com",
-            "canal__c": "Internet",
-            "Product__c": 209,
-            "smart_Producto_nombre__c": "Producto A",
-            "Categorias_COL__c": 209,
-            "Description": "Prueba de queja",
-            "smart_anexo_queja__c": False,
-            "Urgent_Case__c": False,
-            "Ente_de_control__c": "Otros",
-            "Instancia_de_recepcion__c": 1,
-            "sc_genero__c": "Femenino",
-            "sc_Condicion_especial__c": "No aplica",
-            "tipo_de_persona__c": "Natural",
-            "tipo_entidad": 1,
-            "entidad_cod": "423",
+            "direccion__c": "Calle 93 # 11-11",          
+            "Departamento__c": "Bogotá D.C.",             
             "SC_municipio__c": "Bogotá D.C.",
-            "Departamento__c": "Bogotá",
-            "admision_col__c": 1
+            
+            # --- Clasificación y Control del Caso ---
+            "canal__c": "Internet",
+            "punto_recepcion__c": "Manual",               
+            "Instancia_de_recepcion__c": "Entidad vigilada", 
+            "admision_col__c": "No Aplica",              
+            "Status": "New",
+            
+            # --- Detalles de la Queja ---
+            "Description": "Prueba de queja",
+            "smart_anexo_queja__c": False,                 #
+            "Tutela__c": "No",
+            "Ente_de_control__c": "Otros",
+            
+            # --- Producto y Motivo (Tipificación) ---
+            "Product__c": "Cuenta perfil",                
+            "smart_Producto_nombre__c": "Ahorro",
+            "Categorias_COL__c": 940                      
         }
 
     async def test_envio_exitoso_sin_anexos(self):

@@ -13,6 +13,7 @@ class SfcQuejaItem(BaseModel):
     fecha_creacion: str
     codigo_queja: str
     codigo_pais: str
+    direccion: str
     departamento_cod: str
     municipio_cod: str
     nombres: str
