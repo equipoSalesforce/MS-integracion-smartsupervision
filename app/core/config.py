@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = "test_secret"
 
     # --- Constantes de Entidad para la SFC ---
+    #TODO: consultar cuales son los valores reales
     SFC_TIPO_ENTIDAD: int = 1
     SFC_ENTIDAD_COD: str = "423"
 
