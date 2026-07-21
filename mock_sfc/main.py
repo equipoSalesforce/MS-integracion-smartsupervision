@@ -120,7 +120,7 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "correo": "camila.salas@mockglobal.com",
                 "tipo_persona": 1,
                 "sexo": 1,
-                "lgbtiq": False,
+                "lgbtiq": 2,
                 "canal_cod": 13,
                 "condicion_especial": 98,
                 "producto_cod": 209,
@@ -128,13 +128,13 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "macro_motivo_cod": 209,
                 "texto_queja": "Petición de prueba local 1: Caso con un solo archivo adjunto.",
                 "anexo_queja": True,  # 👈 Informa que sí tiene archivos
-                "tutela": False,
+                "tutela": 2,
                 "ente_control": 99,
-                "escalamiento_DCF": False,
-                "replica": False,
+                "escalamiento_DCF": 2,
+                "replica": 2,
                 "argumento_replica": None,
-                "desistimiento_queja": False,
-                "queja_expres": False,
+                "desistimiento_queja": 2,
+                "queja_expres": 2,
                 "direccion": "carrera 1"
             },
             # --- CASO 2: Mateo Bermúdez (Sin ningún archivo adjunto) ---
@@ -153,7 +153,7 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "correo": "mateo.bermudez@mockglobal.com",
                 "tipo_persona": 1,
                 "sexo": 1,
-                "lgbtiq": False,
+                "lgbtiq": 2,
                 "canal_cod": 13,
                 "condicion_especial": 98,
                 "producto_cod": 209,
@@ -163,11 +163,11 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "anexo_queja": False,  # 👈 Informa que no tiene archivos
                 "tutela": False,
                 "ente_control": 99,
-                "escalamiento_DCF": False,
-                "replica": False,
+                "escalamiento_DCF": 2,
+                "replica": 2,
                 "argumento_replica": None,
-                "desistimiento_queja": False,
-                "queja_expres": False,
+                "desistimiento_queja": 2,
+                "queja_expres": 2,
                 "direccion": "carrera 1"
             },
             # --- CASO 3: Valentina Gómez (Con múltiples archivos adjuntos concurrentes) ---
