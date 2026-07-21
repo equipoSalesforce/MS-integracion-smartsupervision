@@ -69,8 +69,8 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "Categorias_COL__c": "Transacción no reconocida",
             "tipo_fraude__c": "Interno",                  
             "modalidad_fraude__c": "Vulneración de cuenta o producto", 
-            "monto_reclamado__c": 50000.0,                
-            "monto_reconocido__c": 0.0,                   
+            "card_amount__c": 50000.0,                
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,                   
             "nombre_archivo_fraude": None,                # 🚨 AMBIGÜEDAD
             "archivos_s3": [
                 {"nombre_archivo": "soporte1.pdf", "s3_key": "k1", "bucket": "b1"},
