@@ -6,19 +6,13 @@ from typing import List, Dict, Any
 from app.api.dependencies import (
     get_sfc_client, 
     get_s3_client, 
-    verificar_api_key_crm  # 👈 Importamos la validación de seguridad
+    verificar_api_key_crm  # 🛡️ Protección de cabecera X-API-Key
 )
 from app.integrations.sfc_client import SfcClient
 from app.services.momento_1_sync import SincronizacionService
-from app.services.momento_2_sync import Momento2SincronizacionService
+from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.core.exceptions import SfcIntegrationException
-from app.schemas.crm_payloads import Momento2QuejaCrmInput, QuejaMapeadaCrmResponse
-from app.schemas.crm_payloads import (
-    Momento3TramiteCrmInput,
-    Momento3FraudeCrmInput,
-    Momento3CierreCrmInput
-)
-from app.services.momento_3_sync import Momento3SincronizacionService
+from app.schemas.crm_payloads import QuejaMapeadaCrmResponse, QuejaUnificadaCrmInput
 
 # 🛡️ Aplicamos la verificación de API Key a nivel global para todo el Router
 router = APIRouter(dependencies=[Depends(verificar_api_key_crm)])
@@ -63,40 +57,42 @@ async def ejecutar_sync_momento_1(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al sincronizar quejas de la SFC: {str(e)}"
         )
-        
+
 
 # ======================================================================
-# 📤 MOMENTO 2: Envío de Quejas Nuevas (CRM -> SFC)
+# 📤 ENDPOINT UNIFICADO DE DESPACHO (CRM -> SFC) [MOMENTO 2 & MOMENTO 3]
 # ======================================================================
 @router.post(
-    "/sync/momento-2",
+    "/sync/despacho",
     status_code=status.HTTP_200_OK,
-    summary="Trigger del Momento 2: Despachar queja nueva desde el CRM hacia la SFC",
+    summary="Trigger Unificado de Despacho: Creación (M2), Trámite, Fraude o Cierre (M3)",
 )
-async def procesar_envio_queja_crm(
-    payload: Momento2QuejaCrmInput,
+async def despachar_queja_crm(
+    payload: QuejaUnificadaCrmInput,
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):
     """
-    Endpoint síncrono consumido por el CRM local para despachar una queja recién creada.
+    Endpoint síncrono unificado consumido por el CRM para procesar tanto 
+    el despacho inicial de una queja nueva (Momento 2) como sus actualizaciones 
+    operativas, hitos de fraude o clausura definitiva (Momento 3).
     """
-    logger.info("Petición del CRM local para procesar envío del caso al Momento 2.")
-    service = Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
+    logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c}")
+    orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
     
     try:
-        resultado = await service.ejecutar_envio_momento_2(payload=payload)
+        resultado = await orquestador.procesar_despacho(payload=payload)
         
         if resultado.get("status") == "error":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=resultado.get("message", "Error en el procesamiento o envío de datos a la SFC")
+                detail=resultado.get("message", "Error durante el despacho o actualización del caso ante la SFC")
             )
             
         return resultado
 
     except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en Momento 2: {exc.raw_message}")
+        logger.warning(f"Error controlado de la SFC durante el despacho: {exc.raw_message}")
         raise HTTPException(
             status_code=exc.status_code,
             detail={
@@ -110,134 +106,8 @@ async def procesar_envio_queja_crm(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Fallo crítico al despachar el caso en el Momento 2: {str(e)}")
+        logger.error(f"Fallo crítico en orquestador de despacho para caso {payload.Smart_Code__c}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del microservicio al enviar datos a la Superintendencia: {str(e)}"
-        )
-
-# ======================================================================
-# 🏁 MOMENTO 3: Gestión, Fraudes y Cierre Definitivo (CRM -> SFC)
-# ======================================================================
-
-@router.put(
-    "/sync/momento-3/tramite",
-    status_code=status.HTTP_200_OK,
-    summary="Trigger del Momento 3: Actualizar trámite o estados intermedios de la queja"
-)
-async def actualizar_tramite_crm(
-    payload: Momento3TramiteCrmInput,
-    sfc_client: SfcClient = Depends(get_sfc_client),
-    s3_client = Depends(get_s3_client)
-):
-    """
-    Endpoint síncronizado mediante PUT para el cambio de variables operativas 
-    o transiciones de estados intermedios del caso antes de su resolución.
-    """
-    logger.info(f"Petición de actualización de trámite para el caso: {payload.Smart_Code__c}")
-    service = Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
-    
-    try:
-        resultado = await service.ejecutar_actualizacion_tramite(payload=payload)
-        return resultado
-
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en M3 (Trámite): {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
-    except Exception as e:
-        logger.error(f"Fallo crítico al actualizar trámite en el Momento 3: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del microservicio al actualizar trámite: {str(e)}"
-        )
-
-
-@router.put(
-    "/sync/momento-3/fraude",
-    status_code=status.HTTP_200_OK,
-    summary="Trigger del Momento 3: Reportar o actualizar investigación de Fraude"
-)
-async def actualizar_fraude_crm(
-    payload: Momento3FraudeCrmInput,
-    sfc_client: SfcClient = Depends(get_sfc_client),
-    s3_client = Depends(get_s3_client)
-):
-    """
-    Endpoint dedicado para hitos de Fraude. Pydantic garantiza de forma estricta 
-    que se provea al menos un anexo de soporte para inyectarle el afijo INV_FRAUDE_SFC.
-    """
-    logger.info(f"Petición de actualización de Fraude para el caso: {payload.Smart_Code__c}")
-    service = Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
-    
-    try:
-        resultado = await service.ejecutar_gestion_fraude(payload=payload)
-        return resultado
-
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en M3 (Fraude): {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
-    except Exception as e:
-        logger.error(f"Fallo crítico al reportar fraude en el Momento 3: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del microservicio al reportar fraude: {str(e)}"
-        )
-
-
-@router.put(
-    "/sync/momento-3/cierre",
-    status_code=status.HTTP_200_OK,
-    summary="Trigger del Momento 3: Ejecutar Clausura y Cierre definitivo del caso (Estado 4)"
-)
-async def cerrar_caso_crm(
-    payload: Momento3CierreCrmInput,
-    sfc_client: SfcClient = Depends(get_sfc_client),
-    s3_client = Depends(get_s3_client)
-):
-    """
-    Endpoint crítico para congelar la queja (Estado 4). Pydantic valida preventivamente 
-    que exista la resolución para asignarle la nomenclatura RESP_FINAL_SFC de forma automática.
-    """
-    logger.info(f"Petición de Clausura definitiva enviada para el caso: {payload.Smart_Code__c}")
-    service = Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
-    
-    try:
-        resultado = await service.ejecutar_cierre_definitivo(payload=payload)
-        return resultado
-
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en M3 (Cierre): {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
-    except Exception as e:
-        logger.error(f"Fallo crítico al procesar cierre del caso en el Momento 3: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del microservicio al congelar la queja: {str(e)}"
+            detail=f"Error interno del microservicio al despachar el caso a la Superintendencia: {str(e)}"
         )

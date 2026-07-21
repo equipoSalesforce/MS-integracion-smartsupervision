@@ -6,10 +6,11 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.config import settings  # 👈 Importación requerida para la API Key
+from app.core.config import settings  # 👈 Importación para la API Key
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.momento_3_sync import Momento3SincronizacionService
 from app.core.exceptions import SfcIntegrationException
+from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 
 class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
@@ -18,60 +19,86 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock = MagicMock()
         self.s3_client_mock = MagicMock()
         
-        # Inyección de Dependencias nativa para los tests de Integración (Stateless)
+        # Inyección de Dependencias nativa para los tests de Integración
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
         
-        # 🎯 INYECCIÓN DE API KEY: Permite al cliente pasar la barrera de seguridad en las llamadas HTTP
+        # 🎯 INYECCIÓN DE API KEY: Permite pasar la validación de seguridad
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
         self.smart_code_test = "16551509974609"
         self.sfc_id_largo_test = f"1423{self.smart_code_test}"
 
-        # 📄 Base de proforma simulada para la SFC (Equivalente al catálogo de salida del Mapper)
+        # 📄 Base de proforma simulada para la SFC
         self.mock_mapper_response = {
             "canal_cod": 13,          # "Internet" -> 13
-            "producto_cod": 207,       # "Cuenta perfil" -> Wildcard canónico 207
+            "producto_cod": 207,       # "Cuenta perfil" -> Wildcard 207
             "macro_motivo_cod": 940,   # "Transacción no reconocida" -> 940
+        }
+
+        # 📦 Base de datos obligatoria para construir payloads válidos con QuejaUnificadaCrmInput
+        self.base_crm_payload = {
+            "Smart_Code__c": self.smart_code_test,
+            "CreatedDate": "2026-07-14T12:00:00",
+            "Status": "In Progress",
+            "SuppliedName": "Camila Salas",
+            "SC_id_type__c": "CC",
+            "id_number__c": "1040011014",
+            "sc_genero__c": "Femenino",
+            "tipo_de_persona__c": "B2C",
+            "sc_LGBTIQ__c": "No",
+            "sc_Condicion_especial__c": "No aplica",
+            "SuppliedPhone": "3001234567",
+            "SuppliedEmail": "camila@test.com",
+            "direccion__c": "Calle 93 # 11-11",
+            "Departamento__c": "Bogotá D.C.",
+            "SC_municipio__c": "Bogotá D.C.",
+            "canal__c": "Internet",
+            "punto_recepcion": "Manual",
+            "Instancia_de_recepcion__c": "Entidad vigilada",
+            "admision_col__c": "Queja o reclamo admitida por el DCF",
+            "Description": "Prueba de caso de seguimiento y cierre.",
+            "smart_anexo_queja__c": False,
+            "Tutela__c": "No",
+            "Ente_de_control__c": "Otros",
+            "smart_escalamiento_DCF__c": "No",
+            "Product__c": "Cuenta perfil",
+            "smart_Producto_nombre__c": "Ahorro",
+            "Categorias_COL__c": "Transacción no reconocida",
+            "archivos_s3": []
         }
 
     def tearDown(self):
         app.dependency_overrides.clear()
 
     # ======================================================================
-    # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINTS & PYDANTIC)
+    # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINT UNIFICADO & PYDANTIC)
     # ======================================================================
 
     def test_endpoint_cierre_fallo_pydantic_sin_archivos(self):
-        """Verifica que el endpoint de cierre rechace la petición si no se envían adjuntos."""
-        payload_invalido = {
-            "Smart_Code__c": self.smart_code_test,
+        """Verifica que el despacho de cierre rechace la petición si no se envían adjuntos."""
+        payload_invalido = self.base_crm_payload.copy()
+        payload_invalido.update({
             "Status": "Closed",                           
-            "canal__c": "Internet",
-            "Product__c": "Cuenta perfil",                
-            "Categorias_COL__c": "Transacción no reconocida", 
             "ClosedDate": "2026-07-16",
             "Favorabilidad__c": "Favorable",              
             "Aceptacion__c": "Si",                        
             "Rectificacion__c": False,                     
             "Prorroga__c": False,                          
             "archivos_s3": []  # 🚨 LISTA VACÍA: Gatilla el ValueError de negocio
-        }
+        })
         
-        response = self.client.put("/api/v1/quejas/sync/momento-3/cierre", json=payload_invalido)
+        response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_invalido)
         
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
         self.assertIn("No se envió un documento de cierre del caso", response.text)
 
     def test_endpoint_fraude_fallo_pydantic_ambiguedad_archivos(self):
-        """Verifica el rechazo si vienen múltiples archivos pero no se especifica el principal."""
-        payload_ambiguo = {
-            "Smart_Code__c": self.smart_code_test,
-            "Status": "In Progress",                      
-            "Product__c": "Cuenta perfil",
-            "Categorias_COL__c": "Transacción no reconocida",
+        """Verifica el rechazo si vienen múltiples archivos en fraude pero no se especifica el principal."""
+        payload_ambiguo = self.base_crm_payload.copy()
+        payload_ambiguo.update({
             "tipo_fraude__c": "Interno",                  
             "modalidad_fraude__c": "Vulneración de cuenta o producto", 
             "card_amount__c": 50000.0,                
@@ -81,12 +108,12 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
                 {"nombre_archivo": "soporte1.pdf", "s3_key": "k1", "bucket": "b1"},
                 {"nombre_archivo": "soporte2.xlsx", "s3_key": "k2", "bucket": "b1"}
             ]
-        }
+        })
         
-        response = self.client.put("/api/v1/quejas/sync/momento-3/fraude", json=payload_ambiguo)
+        response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_ambiguo)
         
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
-        self.assertIn("no se encuentra dentro del listado de archivos_s3", response.text)
+        self.assertIn("Es obligatorio especificar 'nombre_archivo_fraude'", response.text)
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
     def test_endpoint_tramite_exito_stateless(self, mock_mapper):
@@ -97,20 +124,14 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         
         self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "updated"})
 
-        payload_tramite = {
-            "Smart_Code__c": self.smart_code_test,
-            "Status": "In Progress",                      
-            "canal__c": "Internet",
-            "Product__c": "Cuenta perfil",                
-            "Categorias_COL__c": "Transacción no reconocida", 
-            "producto_digital__c": "Si",                  
-            "admision_col__c": "Queja o reclamo admitida por el DCF", 
-            "archivos_s3": []
-        }
+        payload_tramite = self.base_crm_payload.copy()
+        payload_tramite.update({
+            "tipo_operacion": "TRAMITE",
+            "producto_digital__c": "Si"
+        })
 
-        response = self.client.put("/api/v1/quejas/sync/momento-3/tramite", json=payload_tramite)
+        response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_tramite)
         
-        # Control de aserción informativo en caso de fallos
         self.assertEqual(response.status_code, status.HTTP_200_OK, msg=f"Fallo en esquema: {response.text}")
         self.sfc_client_mock.put_actualizar_queja.assert_called_once()
 
@@ -120,7 +141,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
     async def test_servicio_cierre_autoasignacion_y_renombrado_un_solo_archivo(self, mock_mapper):
-        """Verifica que si viene un solo archivo, se autoasigne y renombre con RESP_FINAL_SFC."""
+        """Verifica que si viene un solo archivo en cierre, se autoasigne y renombre con RESP_FINAL_SFC."""
         sfc_mock = self.mock_mapper_response.copy()
         sfc_mock["estado_cod"] = 4                        
         sfc_mock["fecha_cierre"] = "2026-07-16"           
@@ -140,24 +161,22 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
         servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
         
-        from app.schemas.crm_payloads import Momento3CierreCrmInput
-        input_pydantic = Momento3CierreCrmInput(
-            Smart_Code__c=self.smart_code_test,
-            Status="Closed",                      
-            canal__c="Internet",
-            Product__c="Cuenta perfil",                  
-            Categorias_COL__c="Transacción no reconocida", 
-            ClosedDate=date(2026, 7, 16),
-            Favorabilidad__c="Favorable",     
-            a_favor_de__c=1,
-            Aceptacion__c="Si",                   
-            Rectificacion__c=False,
-            Prorroga__c=False,
-            nombre_archivo_final=None, 
-            archivos_s3=[
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({
+            "Status": "Closed",
+            "ClosedDate": date(2026, 7, 16),
+            "Favorabilidad__c": "Favorable",
+            "a_favor_de__c": 1,
+            "Aceptacion__c": "Si",
+            "Rectificacion__c": False,
+            "Prorroga__c": False,
+            "nombre_archivo_final": None,
+            "archivos_s3": [
                 {"nombre_archivo": "resolución_final.pdf", "s3_key": "path/resolucion.pdf", "bucket": "global-bucket"}
             ]
-        )
+        })
+        
+        input_pydantic = QuejaUnificadaCrmInput(**payload_dict)
 
         resultado = await servicio.ejecutar_cierre_definitivo(payload=input_pydantic)
 
@@ -194,17 +213,12 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
         servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=None)
         
-        from app.schemas.crm_payloads import Momento3TramiteCrmInput
-        input_tramite = Momento3TramiteCrmInput(
-            Smart_Code__c=self.smart_code_test,
-            Status="In Progress",                  
-            canal__c="Internet",
-            Product__c="Cuenta perfil",                  
-            Categorias_COL__c="Transacción no reconocida", 
-            producto_digital__c="Si",
-            admision_col__c="Queja o reclamo admitida por el DCF",
-            archivos_s3=[]
-        )
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({
+            "tipo_operacion": "TRAMITE",
+            "producto_digital__c": "Si"
+        })
+        input_tramite = QuejaUnificadaCrmInput(**payload_dict)
 
         with self.assertRaises(SfcIntegrationException):
             await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
