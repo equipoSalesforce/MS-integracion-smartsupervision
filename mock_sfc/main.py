@@ -160,7 +160,7 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "producto_nombre": "Global Account Digital",
                 "macro_motivo_cod": 209,
                 "texto_queja": "Petición de prueba local 2: Caso sin archivos adjuntos para probar bypassing.",
-                "anexo_queja": False,  # 👈 Informa que no tiene archivos
+                "anexo_queja": False,
                 "tutela": False,
                 "ente_control": 99,
                 "escalamiento_DCF": 2,
