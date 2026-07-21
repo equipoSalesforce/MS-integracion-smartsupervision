@@ -3,7 +3,11 @@ import logging
 from fastapi import APIRouter, Depends, status, HTTPException
 from typing import List, Dict, Any
 
-from app.api.dependencies import get_sfc_client, get_s3_client
+from app.api.dependencies import (
+    get_sfc_client, 
+    get_s3_client, 
+    verificar_api_key_crm  # 👈 Importamos la validación de seguridad
+)
 from app.integrations.sfc_client import SfcClient
 from app.services.momento_1_sync import SincronizacionService
 from app.services.momento_2_sync import Momento2SincronizacionService
@@ -16,7 +20,8 @@ from app.schemas.crm_payloads import (
 )
 from app.services.momento_3_sync import Momento3SincronizacionService
 
-router = APIRouter()
+# 🛡️ Aplicamos la verificación de API Key a nivel global para todo el Router
+router = APIRouter(dependencies=[Depends(verificar_api_key_crm)])
 logger = logging.getLogger(__name__)
 
 # ======================================================================
@@ -41,7 +46,6 @@ async def ejecutar_sync_momento_1(
         return resultado
         
     except SfcIntegrationException as exc:
-        # 🎯 CAPTURA CONTROLADA: Interceptamos errores de la SFC traducidos con acción sugerida
         logger.warning(f"Error controlado de la SFC en Momento 1: {exc.raw_message}")
         raise HTTPException(
             status_code=exc.status_code,
@@ -92,7 +96,6 @@ async def procesar_envio_queja_crm(
         return resultado
 
     except SfcIntegrationException as exc:
-        # 🎯 CAPTURA CONTROLADA: Interceptamos fallas de datos enviadas por el CRM a la SFC (ej. DNI inválido)
         logger.warning(f"Error controlado de la SFC en Momento 2: {exc.raw_message}")
         raise HTTPException(
             status_code=exc.status_code,

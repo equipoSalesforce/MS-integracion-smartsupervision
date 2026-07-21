@@ -6,6 +6,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.config import settings  # 👈 Importación requerida para la API Key
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.momento_3_sync import Momento3SincronizacionService
 from app.core.exceptions import SfcIntegrationException
@@ -22,6 +23,10 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
+        
+        # 🎯 INYECCIÓN DE API KEY: Permite al cliente pasar la barrera de seguridad en las llamadas HTTP
+        self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
+
         self.smart_code_test = "16551509974609"
         self.sfc_id_largo_test = f"1423{self.smart_code_test}"
 
@@ -71,7 +76,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "modalidad_fraude__c": "Vulneración de cuenta o producto", 
             "card_amount__c": 50000.0,                
             "Total_Devuelto_por_Desconocimiento__c": 0.0,                   
-            "nombre_archivo_fraude": None,                # 🚨 AMBIGÜEDAD
+            "nombre_archivo_fraude": None,
             "archivos_s3": [
                 {"nombre_archivo": "soporte1.pdf", "s3_key": "k1", "bucket": "b1"},
                 {"nombre_archivo": "soporte2.xlsx", "s3_key": "k2", "bucket": "b1"}
@@ -98,7 +103,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "canal__c": "Internet",
             "Product__c": "Cuenta perfil",                
             "Categorias_COL__c": "Transacción no reconocida", 
-            "producto_digital__c": "Si",                  # 🎯 CORREGIDO: Cambiado de 1 a "Si" (String Picklist)
+            "producto_digital__c": "Si",                  
             "admision_col__c": "Queja o reclamo admitida por el DCF", 
             "archivos_s3": []
         }

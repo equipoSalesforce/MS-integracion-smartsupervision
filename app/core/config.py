@@ -59,5 +59,14 @@ class Settings(BaseSettings):
         default=False,
         description="Interruptor para activar o desactivar la verificación y generación de firmas HMAC en el cliente"
     )
+    
+    CRM_API_KEY: str = Field(
+        default="g66_sk_test_super_secreto_12345", 
+        description="API Key requerida para que el CRM consuma este MS"
+    )
+    CRM_CORS_ORIGINS: List[str] = Field(
+        default=["*"], 
+        description="Orígenes permitidos para CORS"
+    )
 
 settings = Settings()

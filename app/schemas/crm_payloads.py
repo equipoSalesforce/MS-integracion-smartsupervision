@@ -41,6 +41,7 @@ class QuejaMapeadaCrmResponse(BaseModel):
     argumento_replica__c: Optional[str] = Field(None, description="argumento_replica traducido")
     Desistimiento__c: str = Field(..., description="desistimiento_queja traducido")
     Quejas_express__c: str = Field(..., description="queja_expres traducido") #Si/No
+    direccion__c: str = Field(..., description="Dirección física de domicilio del cliente")
 
     # Inyección indispensable de los adjuntos procesados
     archivos_s3: List[ArchivoS3Schema] = Field(default=[],

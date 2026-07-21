@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
 from app.core.logging_config import setup_logging
@@ -37,17 +38,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configuración de CORS (Cross-Origin Resource Sharing)
-if settings.BACKEND_CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# 🌐 Configuración de CORS (Cross-Origin Resource Sharing)
+# Permite peticiones del CRM local o web y habilita la cabecera 'X-API-Key'
+origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS] if settings.BACKEND_CORS_ORIGINS else ["*"]
 
-# --- Endpoint Crítico de AWS ALB Health Check ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*", "X-API-Key"],  # 👈 Aseguramos que permita el header de autenticación
+)
+
+# --- Endpoint Crítico de AWS ALB Health Check (Público / Sin API Key) ---
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
 async def health_check():
     """
@@ -62,6 +65,7 @@ async def health_check():
     }
 
 # --- REGISTRO DE RUTAS ---
+# El router de quejas ya viene protegido por dentro con 'verificar_api_key_crm'
 app.include_router(
     quejas_router,
     prefix=f"{settings.API_V1_STR}/quejas",

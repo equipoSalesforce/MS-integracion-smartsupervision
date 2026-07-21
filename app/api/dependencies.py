@@ -1,12 +1,20 @@
 # app/api/dependencies.py
 import boto3
 import logging
+from fastapi import Security, HTTPException, status
+from fastapi.security.api_key import APIKeyHeader
+
 from app.core.config import settings
 from app.core.security.signatures import SfcSignatureContext
 from app.core.auth import SfcAuthManager
 from app.integrations.sfc_client import SfcClient
 
 logger = logging.getLogger(__name__)
+
+# 🛡️ Definición del esquema de seguridad para Swagger UI y validación de cabeceras
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
 
 def get_s3_client():
     """
@@ -45,3 +53,17 @@ def get_sfc_client() -> SfcClient:
     auth_manager = SfcAuthManager(signature_context)
     
     return SfcClient(interceptor=auth_manager)
+
+
+async def verificar_api_key_crm(api_key: str = Security(api_key_header)) -> str:
+    """
+    Dependencia de seguridad que intercepta cada petición entrante y valida
+    que la API Key enviada en el header 'X-API-Key' coincida con la configurada.
+    """
+    if api_key != settings.CRM_API_KEY:
+        logger.warning(f"Intento de acceso no autorizado con API Key inválida.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Acceso denegado: API Key inválida o no proporcionada.",
+        )
+    return api_key

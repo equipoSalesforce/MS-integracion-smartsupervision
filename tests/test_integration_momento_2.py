@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.config import settings  # 👈 Importación requerida para la API Key
 from app.api.dependencies import get_sfc_client, get_s3_client
 
 class TestMomento2Integration(unittest.TestCase):
@@ -18,7 +19,11 @@ class TestMomento2Integration(unittest.TestCase):
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
-        self.smart_code_test = "16551509974606"  # 🎯 Código CRM limpio sin el prefijo 1423
+        
+        # 🎯 INYECCIÓN DE API KEY: Permite al cliente pasar el header de seguridad de FastAPI
+        self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
+
+        self.smart_code_test = "16551509974606"  # Código CRM limpio sin el prefijo 1423
 
         # 📄 Payload representativo que el CRM le envía directamente al endpoint por HTTP
         self.mock_crm_payload = {

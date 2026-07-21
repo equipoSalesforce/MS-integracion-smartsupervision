@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.main import app
+from app.core.config import settings  # 👈 Importamos la configuración para obtener la API Key
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.integrations.sfc_client import SfcClient
 
@@ -19,6 +20,9 @@ class TestCronIntegration(unittest.TestCase):
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
+        
+        # 🎯 INYECCIÓN DE API KEY: Permite al cliente HTTP de pruebas pasar la barrera de seguridad
+        self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
     def tearDown(self):
         app.dependency_overrides.clear()
@@ -128,13 +132,10 @@ class TestCronIntegration(unittest.TestCase):
 
         # Configuración de los retornos asíncronos en los mocks
         self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=mock_quejas_response)
-        
-        # --- CORRECCIÓN CLAVE ---
-        # Ahora el endpoint de adjuntos sí devuelve un archivo simulado para que se ejecute la descarga
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=mock_adjuntos_response)
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
 
-        # Hacemos la petición POST al endpoint
+        # Hacemos la petición POST al endpoint (el cliente incluirá la API Key en los headers)
         response = self.client.post("/api/v1/quejas/sync/momento-1")
         
         # --- VERIFICACIONES SÍNCRONAS ---
@@ -151,7 +152,7 @@ class TestCronIntegration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[0]["Ente_de_control__c"], "Procuraduría")
         self.assertEqual(quejas_mapeadas[0]["sc_Condicion_especial__c"], "Mujer embarazada")
         self.assertEqual(quejas_mapeadas[0]["tipo_de_persona__c"], "B2B")
-        self.assertEqual(len(quejas_mapeadas[0]["archivos_s3"]), 1)  # ¡Ahora sí pasará exitosamente!
+        self.assertEqual(len(quejas_mapeadas[0]["archivos_s3"]), 1)
 
         # Registro 2 (Traducido)
         self.assertEqual(quejas_mapeadas[1]["Smart_Code__c"], "22222222222")
@@ -160,7 +161,7 @@ class TestCronIntegration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[1]["Ente_de_control__c"], "Contraloría")
         self.assertEqual(quejas_mapeadas[1]["sc_Condicion_especial__c"], "Adulto mayor")
         self.assertEqual(quejas_mapeadas[1]["tipo_de_persona__c"], "B2C")
-        self.assertEqual(len(quejas_mapeadas[1]["archivos_s3"]), 0)  # No tiene adjuntos
+        self.assertEqual(len(quejas_mapeadas[1]["archivos_s3"]), 0)
 
 if __name__ == "__main__":
     unittest.main()
