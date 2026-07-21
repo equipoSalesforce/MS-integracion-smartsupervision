@@ -7,8 +7,8 @@ from datetime import datetime
 from app.integrations.sfc_client import SfcClient
 from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
-from app.core.mapping import SfcSalesforceMapper  # 🎯 Importación del Mapper Universal
-from app.schemas.sfc_payloads import SfcActualizarQuejaPayload  # 🎯 Importación del Esquema SFC M3
+from app.core.mapping import SfcSalesforceMapper 
+from app.schemas.sfc_payloads import SfcActualizarQuejaPayload 
 from app.schemas.crm_payloads import (
     Momento3TramiteCrmInput,
     Momento3FraudeCrmInput,
@@ -23,8 +23,8 @@ class Momento3SincronizacionService:
         self.s3_client = s3_client
         # Valores regulatorios por defecto de la entidad (Global66)
         # TODO: aplicar que lo tomen de los parametros de env o settings
-        self.tipo_entidad = 1
-        self.entidad_cod = "423"
+        self.tipo_entidad = settings.SFC_TIPO_ENTIDAD
+        self.entidad_cod = settings.SFC_ENTIDAD_COD
 
     async def ejecutar_actualizacion_tramite(self, payload: Momento3TramiteCrmInput) -> Dict[str, Any]:
         """Orquesta la actualización rutinaria de estados intermedios del caso."""
@@ -59,7 +59,6 @@ class Momento3SincronizacionService:
         sfc_id_largo = f"{self.tipo_entidad}{self.entidad_cod}{smart_code}"
         
         # 🛠️ 1. Transformación Íntegra con el Mapper Universal (Textos CRM -> Códigos SFC)
-        # El Mapper ahora absorbe de forma automática los hitos específicos (Fechas, Picklists, etc.)
         crm_dict = payload.model_dump()
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
         
@@ -68,7 +67,7 @@ class Momento3SincronizacionService:
         logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado SFC: {estado_cod})")
 
         try:
-            # 🚨 REGLA DE ORO SFC: Primero se suben todos los archivos al Storage
+            # REGLA DE ORO SFC: Primero se suben todos los archivos al Storage
             if payload.archivos_s3:
                 logger.info(f"[Momento 3] Detectados {len(payload.archivos_s3)} anexos. Iniciando carga previa...")
                 await self._procesar_y_enviar_adjuntos_m3(

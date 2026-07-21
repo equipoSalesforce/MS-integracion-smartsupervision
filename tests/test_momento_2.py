@@ -1,5 +1,7 @@
+# tests/test_momento_2.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+from app.schemas.crm_payloads import Momento2QuejaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.integrations.sfc_client import SfcClient
 from app.core.exceptions import SfcIntegrationException
@@ -11,7 +13,7 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock = MagicMock(spec=SfcClient)
         self.s3_client_mock = MagicMock()
         
-        self.smart_code = "142316551509974606"
+        self.smart_code = "16551509974606"
         
         # Diccionario simulado de payload del CRM
         self.mock_datos_consolidados = {
@@ -19,37 +21,40 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             "CreatedDate": "2026-07-14T12:00:00",
             
             "SuppliedName": "Camila Salas",
-            "SC_id_type__c": "CC",                        #
+            "SC_id_type__c": "CC",
             "id_number__c": "1040011014",
             "sc_genero__c": "Femenino",
-            "tipo_de_persona__c": "B2C",                  
+            "tipo_de_persona__c": "B2C",
             "sc_LGBTIQ__c": "No",
             "sc_Condicion_especial__c": "No aplica",
             
             # --- Datos de Contacto y Ubicación ---
             "SuppliedPhone": "3001234567",
             "SuppliedEmail": "camila@test.com",
-            "direccion__c": "Calle 93 # 11-11",          
-            "Departamento__c": "Bogotá D.C.",             
+            "direccion__c": "Calle 93 # 11-11",
+            "Departamento__c": "Bogotá D.C.",
             "SC_municipio__c": "Bogotá D.C.",
             
             # --- Clasificación y Control del Caso ---
             "canal__c": "Internet",
-            "punto_recepcion": "Manual",               
-            "Instancia_de_recepcion__c": "Entidad vigilada", 
-            "admision_col__c": "No Aplica",              
+            "punto_recepcion": "Manual",
+            "Instancia_de_recepcion__c": "Entidad vigilada",
+            "admision_col__c": "No Aplica",
             "Status": "New",
             
             # --- Detalles de la Queja ---
             "Description": "Prueba de queja",
-            "smart_anexo_queja__c": False,                 #
+            "smart_anexo_queja__c": False,
             "Tutela__c": "No",
             "Ente_de_control__c": "Otros",
             
             # --- Producto y Motivo (Tipificación) ---
-            "Product__c": "Cuenta perfil",                
+            "Product__c": "Cuenta perfil",
             "smart_Producto_nombre__c": "Ahorro",
-            "Categorias_COL__c": "Transacción no reconocida"         
+            "Categorias_COL__c": "Transacción no reconocida",
+            
+            "smart_escalamiento_DCF__c": "No",
+            "archivos_s3": []
         }
 
     async def test_envio_exitoso_sin_anexos(self):
@@ -61,7 +66,9 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             s3_client=self.s3_client_mock
         )
         
-        resultado = await service.ejecutar_envio_momento_2(self.mock_datos_consolidados)
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+        
+        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
         
         # Verificaciones
         self.assertEqual(resultado["status"], "success")
@@ -72,7 +79,11 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         datos_con_anexos = self.mock_datos_consolidados.copy()
         datos_con_anexos["smart_anexo_queja__c"] = True
         datos_con_anexos["archivos_s3"] = [
-            {"s3_key": f"{self.smart_code}/soporte1.pdf", "bucket": "mi-bucket-smartsupervision"}
+            {
+                "s3_key": f"{self.smart_code}/soporte1.pdf", 
+                "bucket": "mi-bucket-smartsupervision",
+                "nombre_archivo": "soporte1.pdf"
+            }
         ]
         
         self.sfc_client_mock.post_nueva_queja = AsyncMock(return_value={"status": "created"})
@@ -89,7 +100,9 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             s3_client=self.s3_client_mock
         )
         
-        resultado = await service.ejecutar_envio_momento_2(datos_con_anexos)
+        payload_pydantic = Momento2QuejaCrmInput(**datos_con_anexos)
+        
+        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
         
         # Verificaciones
         self.assertEqual(resultado["status"], "success")
@@ -105,7 +118,9 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             s3_client=self.s3_client_mock
         )
         
-        resultado = await service.ejecutar_envio_momento_2(self.mock_datos_consolidados)
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+        
+        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
         
         # Verificaciones
         self.assertEqual(resultado["status"], "error")
@@ -127,20 +142,24 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             s3_client=self.s3_client_mock
         )
         
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+        
         with self.assertRaises(SfcIntegrationException):
-            await service.ejecutar_envio_momento_2(self.mock_datos_consolidados)
+            await service.ejecutar_envio_momento_2(payload_pydantic)
 
     async def test_missing_smart_code(self):
-        """Valida que retorne un error si falta el campo obligatorio 'Smart_Code__c' en el payload."""
+        """Valida que retorne un error si 'Smart_Code__c' llega como una cadena vacía."""
         payload_invalido = self.mock_datos_consolidados.copy()
-        payload_invalido.pop("Smart_Code__c")
+        payload_invalido["Smart_Code__c"] = ""
         
         service = Momento2SincronizacionService(
             sfc_client=self.sfc_client_mock, 
             s3_client=self.s3_client_mock
         )
         
-        resultado = await service.ejecutar_envio_momento_2(payload_invalido)
+        payload_pydantic = Momento2QuejaCrmInput(**payload_invalido)
+        
+        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
         self.assertEqual(resultado["status"], "error")
         self.assertIn("Falta el campo obligatorio 'Smart_Code__c'", resultado["message"])
 

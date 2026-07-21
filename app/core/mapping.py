@@ -521,7 +521,7 @@ class SfcSalesforceMapper:
     def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         [MOMENTO 1] (SFC ➔ CRM)
-        Toma el JSON de la SFC y lo transforma a la estructura exacta que espera Salesforce.
+        Toma el JSON de la SFC y lo transforma a la estructura exacta que espera el CRM.
         """
         crm_data = {}
         for sfc_key, value in sfc_data.items():
@@ -550,7 +550,7 @@ class SfcSalesforceMapper:
     def crm_entity_to_sfc_payload(cls, entity: Any) -> Dict[str, Any]:
         """
         [MOMENTOS 2 Y 3] (CRM ➔ SFC)
-        Toma la entidad o JSON de Salesforce y calcula el payload canónico empaquetado para la SFC.
+        Toma la entidad o JSON del CRM y calcula el payload canónico empaquetado para la SFC.
         """
         sfc_data = {
             "codigo_pais": "COL",

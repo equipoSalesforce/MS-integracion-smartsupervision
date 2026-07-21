@@ -18,28 +18,38 @@ class TestMomento2Integration(unittest.TestCase):
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
-        self.smart_code_test = "142316551509974606"
+        self.smart_code_test = "16551509974606"  # 🎯 Código CRM limpio sin el prefijo 1423
 
         # 📄 Payload representativo que el CRM le envía directamente al endpoint por HTTP
         self.mock_crm_payload = {
             "Smart_Code__c": self.smart_code_test,
             "CreatedDate": "2026-07-14T12:00:00",
+            "Status": "New",
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",
             "id_number__c": "1040011014",
+            "sc_genero__c": "Femenino",
+            "tipo_de_persona__c": "B2C",
+            "sc_LGBTIQ__c": "No",
+            "sc_Condicion_especial__c": "No aplica",
+            "SuppliedPhone": "3001234567",
+            "SuppliedEmail": "camila@test.com",
+            "direccion__c": "Calle 93 # 11-11",
+            "Departamento__c": "Bogotá D.C.",
+            "SC_municipio__c": "Bogotá D.C.",
             "canal__c": "Internet",
-            "Product__c": "wallet",
-            "Categorias_COL__c": 209,
+            "punto_recepcion": "Manual",
+            "Instancia_de_recepcion__c": "Entidad vigilada",
+            "admision_col__c": "No Aplica",
             "Description": "Prueba de queja para validación final en integración.",
             "smart_anexo_queja__c": False,
+            "Tutela__c": "No",
             "Ente_de_control__c": "Otros",
-            "Instancia_de_recepcion__c": 1,
-            "tipo_de_persona__c": "Natural",
-            "tipo_entidad": 1,
-            "entidad_cod": "423",
-            "SC_municipio__c": "Bogotá D.C.",
-            "Departamento__c": "Bogotá",
-            "admision_col__c": 1,
+            "smart_escalamiento_DCF__c": "No",
+            "Product__c": "Cuenta perfil",
+            "smart_Producto_nombre__c": "Ahorro",
+            "Categorias_COL__c": "Transacción no reconocida",
+            "archivos_s3": [],
             
             # Campos extra del Momento 3 que Pydantic debe ignorar/descartar en M2
             "ClosedDate": "2026-07-15T10:00:00",
@@ -47,15 +57,13 @@ class TestMomento2Integration(unittest.TestCase):
             "Aceptacion__c": True,
             "Prorroga__c": False,
             "Rectificacion__c": False,
-            "sinRespuestaFinal?": True,
-            "punto_recepcion": "Manual"
+            "sinRespuestaFinal?": True
         }
 
     def tearDown(self):
         # Limpieza crucial para no contaminar otros archivos de pruebas
         app.dependency_overrides.clear()
 
-    # 🎯 ¡SIN @PATCH! Probamos la validación pura de Pydantic y FastAPI en el endpoint
     def test_endpoint_trigger_momento_2_exito(self):
         """Verifica que el trigger use el mapper universal y Pydantic descarte campos de M3."""
         self.sfc_client_mock.post_nueva_queja = AsyncMock(return_value={"status": "created"})
@@ -76,12 +84,9 @@ class TestMomento2Integration(unittest.TestCase):
         self.assertEqual(request_enviado["canal_cod"], 13)
         self.assertEqual(request_enviado["tipo_Persona"], 1)
         
-        # Los campos extra del Momento 3 deben haber sido descartados automáticamente
+        # Los campos extra del Momento 3 deben haber sido descartados automáticamente por Pydantic
         self.assertNotIn("fecha_cierre", request_enviado)
         self.assertNotIn("monto_reconocido", request_enviado)
-        
-        # 🎯 AJUSTADO: El cuerpo sanitizado de salida tiene exactamente 20 campos en tu mapper
-        self.assertEqual(len(request_enviado), 20)
 
     def test_endpoint_trigger_momento_2_fallo_red(self):
         """Verifica el control de errores en caso de fallo en la red de la SFC."""

@@ -146,7 +146,7 @@ class TestSfcSalesforceMapper(unittest.TestCase):
         self.assertEqual(resultado_crm["Tutela__c"], "No")                  # 0 -> False
         self.assertEqual(resultado_crm["Desistimiento__c"], "Queja o reclamo no desistida por el CF")                # 0 -> False
         self.assertEqual(resultado_crm["Quejas_express__c"], "No")               # 0 -> False
-        self.assertEqual(resultado_crm["escalamiento_DCF__c"], "No")             # 0 -> False
+        self.assertEqual(resultado_crm["smart_escalamiento_DCF__c"], "No")             # 0 -> False
         self.assertEqual(resultado_crm["replica__c"], "No")                      # 0 -> False
 
         # 5. Validación de Mutación de Fechas (Formato SFC con espacio -> ISO con 'T' para Salesforce)[cite: 1]
