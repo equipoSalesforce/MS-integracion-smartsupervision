@@ -408,6 +408,17 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
             content="Error inesperado. Código de Error: 20260716111621_exc"
         )
         
+    # 10. Error no mapeado por el sistema    
+    if nombres_val == "TRIGGER_ERR_UNMAPPED":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "codigo_desconocido_sfc": [
+                    "Error Regla 999: Fallo de consistencia no documentado en la resolución 2026."
+                ]
+            }
+        )
+        
     # Flujo regular de creación exitosa (Eco)
     return {
         "Response": body_data

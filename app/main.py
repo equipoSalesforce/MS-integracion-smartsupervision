@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
+from app.core.exceptions import SfcErrorTranslator
 from app.core.logging_config import setup_logging
 
 # 🛠️ Nuevos imports para SQLite y el Scheduler
@@ -42,7 +43,13 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler de reintentos para la SFC iniciado exitosamente.")
     except Exception as e:
         logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
-
+    
+    # 3. Cargar matriz de errores en RAM
+    try:
+        SfcErrorTranslator.cargar_matriz_errores()
+    except Exception as e:
+        logger.error(f"Fallo al arrancar la matriz de errores: {str(e)}")
+    
     yield
 
     # --- Lógica de Shutdown (Apagado) ---

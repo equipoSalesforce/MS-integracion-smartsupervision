@@ -4,7 +4,7 @@ import smtplib
 import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List
+from typing import List, Optional
 
 from app.core.config import settings
 
@@ -73,6 +73,71 @@ class EmailAlertService:
             asyncio.to_thread(
                 cls._enviar_smtp_sync,
                 destinatarios=destinatarios,
+                asunto=asunto,
+                cuerpo_html=cuerpo_html
+            )
+        )
+        
+    # app/services/email_service.py (Añadir dentro de la clase EmailAlertService)
+
+    @classmethod
+    async def notificar_error_no_mapeado(
+        cls, 
+        status_code: int, 
+        raw_message: str, 
+        sfc_field: Optional[str] = None, 
+        ambiente: str = settings.ENVIRONMENT
+    ):
+        """
+        Notifica EXCLUSIVAMENTE al desarrollador (posición 0 de ALERT_NOTIFY_EMAILS)
+        cuando la SFC devuelve un mensaje de error no reconocido en errores_sfc.json.
+        """
+        if not settings.ALERT_EMAILS_ENABLED or not settings.ALERT_NOTIFY_EMAILS:
+            return
+
+        # 🎯 Seleccionamos únicamente la posición 0 (Tu correo)
+        destinatario_dev = [settings.ALERT_NOTIFY_EMAILS[0]]
+        asunto = f"⚠️ [NUEVO ERROR NO MAPEADO SFC] HTTP {status_code} [{ambiente.upper()}]"
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #f0ad4e; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">⚠️ Nuevo Error No Mapeado de la SFC</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>Hola Dev, la Superintendencia Financiera devolvió una respuesta que <strong>no coincide con ningún patrón</strong> en <code>errores_sfc.json</code>.</p>
+                    
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; width: 30%;"><strong>Código HTTP:</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><code>{status_code}</code></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Campo SFC (sfc_field):</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><code>{sfc_field or 'N/A (Cuerpo General)'}</code></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Respuesta Raw SFC:</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">
+                                <pre style="background: #272822; color: #f8f8f2; padding: 10px; border-radius: 4px; overflow-x: auto;">{raw_message}</pre>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <div style="margin-top: 15px; background-color: #eef7ff; padding: 12px; border-left: 4px solid #0275d8;">
+                        💡 <strong>Acción recomendada:</strong> Copia la subcadena relevante de este error y agrégala a <code>app/core/errores_sfc.json</code> con su correspondiente diagnóstico para el CRM.
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+
+        # Dispatch asíncrono para no retrasar la respuesta HTTP
+        asyncio.create_task(
+            asyncio.to_thread(
+                cls._enviar_smtp_sync,
+                destinatarios=destinatario_dev,
                 asunto=asunto,
                 cuerpo_html=cuerpo_html
             )

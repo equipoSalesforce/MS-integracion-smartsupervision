@@ -1,0 +1,162 @@
+[
+  {
+    "subcadena": "tipo_id_CF",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el tipo DNI de la cuenta asociada este diligenciado o con los valores correctos."
+  },
+  {
+    "subcadena": "departamento_cod",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar el departamento asociado a la cuenta."
+  },
+  {
+    "subcadena": "canal_cod",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el \"canal\" en la pestaña SSV este seleccionado o tenga un valor correcto."
+  },
+  {
+    "subcadena": "macro_motivo_cod",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Cambiar la categoria COL en la pestaña SSV y guardar."
+  },
+  {
+    "subcadena": "municipio_cod",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar el municipio de la cuenta asociada."
+  },
+  {
+    "subcadena": "no tenga más de 14 caracteres",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el documento de identidad de la cuenta asociada no tenga mas de 14 caracteres."
+  },
+  {
+    "subcadena": "numero_id_CF",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que Numero de DNI de la cuenta asociada este diligenciado."
+  },
+  {
+    "subcadena": "no tenga más de 50 caracteres",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el nombre de la cuenta asociada no tenga mas de 50 caracteres."
+  },
+  {
+    "subcadena": "Este campo no puede ser nulo",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el nombre de la cuenta asociada este diligenciado."
+  },
+  {
+    "subcadena": "nombres",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el nombre de la cuenta asociada este diligenciado."
+  },
+  {
+    "subcadena": "no tenga más de 1000 caracteres",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que la descripcion no supere los caracteres permitidos."
+  },
+  {
+    "subcadena": "texto_queja",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que la descripcion no supere los caracteres permitidos."
+  },
+  {
+    "subcadena": "Compruebe el código o ack de la queja",
+    "tipo": "STATUS_ERROR",
+    "accion": "Marcar el Smart status en la pestaña SSV en none y guardar."
+  },
+  {
+    "subcadena": "documento de respuesta final debe haber sido enviado",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Verificar que existe el documento de cierre y que tenga el nombre RESP_FINAL_SFC."
+  },
+  {
+    "subcadena": "fijado en True",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Verificar que existe el documento de cierre y que tenga el nombre RESP_FINAL_SFC."
+  },
+  {
+    "subcadena": "ya cuenta con un documento de respuesta final",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "No hacer nada porque ya esta cerrada en SSV."
+  },
+  {
+    "subcadena": "La Queja se encuentra con estado Cerrado",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "No hacer nada porque ya esta cerrada en SSV."
+  },
+  {
+    "subcadena": "No se puede actualizar el anexo debido a que la Queja se encuentra cerrada",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "No hacer nada porque ya esta cerrada en SSV."
+  },
+  {
+    "subcadena": "estado_cod",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Verificar el estado del caso."
+  },
+  {
+    "subcadena": "debe ser mayor que la fecha de creación",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "La fecha debe ser diferente a la fecha ya registrada",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "La denuncia tiene una fecha de cierre de más de dos meses",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "fecha_actualizacion",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "fecha_cierre",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "El anexo ya existe",
+    "tipo": "DUPLICATE_FILE",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "El documento ya existe",
+    "tipo": "DUPLICATE_FILE",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "file",
+    "tipo": "DUPLICATE_FILE",
+    "accion": "Guardar nuevamente en resolved."
+  },
+  {
+    "subcadena": "ya existe una Queja radicada para la entidad con el mismo motivo",
+    "tipo": "ALREADY_EXISTS",
+    "accion": "Validar que el caso que referencian en el mensaje donde estan los signos de interrogación no corresponda a la misma información del caso actual. Si son casos diferentes cambiar el canal para que se entienda que son casos diferentes y volver a guardar."
+  },
+  {
+    "subcadena": "no está disponible por el momento",
+    "tipo": "INFRASTRUCTURE_ERROR",
+    "accion": "Volver a guardar."
+  },
+  {
+    "subcadena": "Error inesperado",
+    "tipo": "SFC_INTERNAL_ERROR",
+    "accion": "Volver a guardar."
+  },
+  {
+    "subcadena": "upstream request timeout",
+    "tipo": "TIMEOUT_ERROR",
+    "accion": "Volver a guardar."
+  },
+  {
+    "subcadena": "Token expiró",
+    "tipo": "AUTH_ERROR",
+    "accion": "Volver a guardar."
+  }
+]
