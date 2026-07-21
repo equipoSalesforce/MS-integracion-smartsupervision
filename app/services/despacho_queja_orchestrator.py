@@ -1,6 +1,7 @@
-# app/services/despacho_queja_orchestrator.py
 import logging
 from typing import Dict, Any
+from pydantic import ValidationError
+
 from app.integrations.sfc_client import SfcClient
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
@@ -20,6 +21,19 @@ class DespachoQuejaOrquestador:
         self.s3_client = s3_client
         self.m2_service = Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
         self.m3_service = Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
+
+    async def procesar_despacho_raw_json(self, payload_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Método consumido principalmente por el Scheduler de reintentos.
+        Rehidrata un diccionario/JSON desde SQLite al esquema Pydantic 'QuejaUnificadaCrmInput'
+        y ejecuta el flujo de despacho correspondiente.
+        """
+        try:
+            payload = QuejaUnificadaCrmInput.model_validate(payload_dict)
+            return await self.procesar_despacho(payload=payload)
+        except ValidationError as ve:
+            logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola SQLite: {ve.json()}")
+            raise Exception(f"Estructura inválida en el payload rehidratado de SQLite: {str(ve)}")
 
     async def procesar_despacho(self, payload: QuejaUnificadaCrmInput) -> Dict[str, Any]:
         """

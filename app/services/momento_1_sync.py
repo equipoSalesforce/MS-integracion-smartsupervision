@@ -17,10 +17,10 @@ class SincronizacionService:
 
     async def ejecutar_flujo_completo_momento_1(self) -> List[Dict[str, Any]]:
         """
-        Orquesta de forma secuencial y síncrona en memoria las fases del Momento 1.
-        Retorna la lista final de quejas mapeadas listas para guardar en el CRM.
+        Orquesta de forma secuencial y síncrona en memoria la descarga y subida a S3.
+        Retorna la lista final de quejas mapeadas SIN enviar el ACK a la SFC.
         """
-        logger.info("[Momento 1] Iniciando descarga, almacenamiento en S3 y mapeo en memoria.")
+        logger.info("[Momento 1] Iniciando descarga, almacenamiento en S3 y mapeo en memoria (ACK diferido).")
         
         quejas_finales_crm = []
         url_actual = None
@@ -49,7 +49,7 @@ class SincronizacionService:
     async def _procesar_pagina_quejas(self, raw_quejas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Procesa de forma concurrente un lote de quejas de la SFC.
-        Al finalizar, envía de forma masiva el reporte de confirmación (ACK Batch) de las exitosas.
+        Ya NO envía el ACK automáticamente.
         """
         tareas = []
         for queja_sfc in raw_quejas:
@@ -59,22 +59,29 @@ class SincronizacionService:
         resultados = await asyncio.gather(*tareas)
 
         # Filtramos únicamente las quejas que se procesaron con éxito (no retornaron None)
-        quejas_exitosas = [q for q in resultados if q is not None]
-        if not quejas_exitosas:
-            return []
+        return [q for q in resultados if q is not None]
 
-        # Recopilamos los códigos reales para enviar el ACK a la SFC
-        ids_exitosos = [q["Smart_Code__c"] for q in quejas_exitosas if "Smart_Code__c" in q]
+    async def confirmar_recepcion_ack(self, ids_quejas: List[str]) -> Dict[str, Any]:
+        """
+        Recibe la lista de IDs de quejas confirmadas por el CRM local
+        y transmite la confirmación (ACK Batch) de manera manual a la SFC.
+        """
+        if not ids_quejas:
+            return {
+                "status": "warning",
+                "message": "No se proporcionaron IDs para confirmar ACK.",
+                "confirmados": 0
+            }
 
-        if ids_exitosos:
-            try:
-                logger.info(f"[Momento 1] Enviando ACK Batch para {len(ids_exitosos)} quejas a la SFC.")
-                await self.sfc_client.send_ack_batch(ids_exitosos)
-            except Exception as e:
-                # Si falla el ACK, registramos el error pero permitimos retornar los datos.
-                logger.error(f"[Momento 1] Fallo no bloqueante al reportar ACK a la SFC: {str(e)}")
+        logger.info(f"[Momento 1 ACK] Enviando confirmación ACK Batch para {len(ids_quejas)} quejas a la SFC.")
+        await self.sfc_client.send_ack_batch(ids_quejas)
 
-        return quejas_exitosas
+        return {
+            "status": "success",
+            "message": f"ACK confirmado exitosamente ante la SFC para {len(ids_quejas)} quejas.",
+            "confirmados": len(ids_quejas),
+            "ids_procesados": ids_quejas
+        }
 
     async def _procesar_queja_individual(self, queja_sfc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -110,7 +117,6 @@ class SincronizacionService:
 
             except Exception as e:
                 logger.error(f"Fallo al procesar adjuntos para la queja {codigo_queja}. Se omitirá este ciclo: {str(e)}")
-                # Retornar None causa que no se envíe ACK de esta queja y se reintente luego
                 return None
 
         # 3. Traducimos el payload completo usando el Mapper Universal

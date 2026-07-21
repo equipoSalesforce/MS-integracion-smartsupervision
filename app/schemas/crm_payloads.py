@@ -1,5 +1,7 @@
 # app/schemas/crm_payloads.py
-from pydantic import BaseModel, Field, model_validator
+import re
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Literal
 from datetime import date
 
@@ -64,10 +66,19 @@ class Momento2QuejaCrmInput(BaseModel):
 
     # Información Demográfica
     SuppliedName: str = Field(..., description="Nombre completo del cliente")
-    SC_id_type__c: str = Field(..., description="Tipo de identificación")
-    id_number__c: str = Field(..., description="Número de identificación")
+    SC_id_type__c: Literal["CC", 
+        "CE", 
+        "RUT", 
+        "DNI",
+        "PASS", 
+        "Carné diplomático", 
+        "Sociedad extranjera sin NIT", 
+        "PEP",
+        "NUIP", 
+        "PPT"] = Field(..., description="Tipo de identificación")
+    id_number__c: str = Field(..., max_length=15, description="Número de identificación")
     sc_genero__c: str = Field(..., description="Género")
-    tipo_de_persona__c: str = Field(..., description="Tipo de persona (B2C, B2B)")
+    tipo_de_persona__c: Literal["B2C", "B2B"] = Field(..., description="Tipo de persona (B2C, B2B)")
     sc_LGBTIQ__c: str = Field(..., description="Comunidad LGBTIQ (Si/No)")
     sc_Condicion_especial__c: str = Field(..., description="Condición de vulnerabilidad")
 
@@ -85,7 +96,7 @@ class Momento2QuejaCrmInput(BaseModel):
     admision_col__c: str = Field("No Aplica", description="Estado inicial de admisión")
 
     # Detalles de la Reclamación
-    Description: str = Field(..., description="Descripción original del reclamo")
+    Description: str = Field(..., max_length=4500 , description="Descripción original del reclamo")
     smart_anexo_queja__c: bool = Field(..., description="Indica si posee archivos adjuntos")
     Tutela__c: str = Field("No", description="Acción de tutela (Si/No)")
     Ente_de_control__c: str = Field("Otros", description="Ente regulador involucrado")
@@ -98,6 +109,30 @@ class Momento2QuejaCrmInput(BaseModel):
     
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
+    
+    @field_validator("Smart_Code__c", mode="before")
+    @classmethod
+    def limpiar_espacios_y_caracteres(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+    
+    @field_validator("id_number__c", mode="before")
+    @classmethod
+    def limpiar_id_solo_numeros(cls, v: str) -> str:
+        if isinstance(v, str):
+            # r"\D" significa "cualquier cosa que NO sea un dígito numérico".
+            # Lo reemplazamos por "" (nada).
+            # Ejemplo: "P-123.456 A" -> "123456"
+            return re.sub(r"\D", "", v)
+        return v
+    
+    @field_validator("Smart_Code__c", "id_number__c", mode="before")
+    @classmethod
+    def limpiar_espacios_y_caracteres(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
 
 # ======================================================================
@@ -198,3 +233,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                     )
 
         return self
+
+class ConfirmacionAckInput(BaseModel):
+    ids_quejas: List[str] = Field(
+        ..., 
+        min_length=1, 
+        description="Lista de IDs / Smart_Codes de las quejas persistidas exitosamente en el CRM."
+    )

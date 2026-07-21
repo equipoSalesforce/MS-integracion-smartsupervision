@@ -1,4 +1,3 @@
-# app/core/config.py
 from typing import List, Any
 from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,5 +67,41 @@ class Settings(BaseSettings):
         default=["*"], 
         description="Orígenes permitidos para CORS"
     )
+
+    # --- 🛠️ Configuración de Cola Local (SQLite + APScheduler) ---
+    SQLITE_DB_URL: str = Field(
+        default="sqlite+aiosqlite:///./cola_local.db",
+        description="Cadena de conexión asíncrona para la base de datos SQLite local"
+    )
+    QUEUE_RETRY_INTERVAL_MINUTES: int = Field(
+        default=5,
+        description="Frecuencia en minutos con la que el scheduler busca reintentar casos pendientes"
+    )
+    QUEUE_MAX_RETRIES: int = Field(
+        default=10,
+        description="Número máximo de reintentos antes de congelar un registro como FALLIDO_DEFINITIVO"
+    )
+    QUEUE_ENABLED: bool = Field(
+        default=True,
+        description="Permite habilitar o deshabilitar la ejecución automática del Scheduler de reintentos"
+    )
+    
+    QUEUE_RETENTION_DAYS: int = Field(
+        default=7,
+        description="Días de retención para registros EXITOSOS en SQLite antes de ser purgados"
+    )
+    
+    # -- Configuración de SMTP para avisar por correo de problemas técnicos -- #
+    
+    SMTP_HOST: str = Field(default="smtp.gmail.com", description="Servidor SMTP (ej. smtp.gmail.com o smtp.office365.com)")
+    SMTP_PORT: int = Field(default=587, description="Puerto TLS estándar (587) o SSL (465)")
+    SMTP_USER: str = Field(default="juan.camargo@global66.com", description="Correo remitente del bot")
+    SMTP_PASSWORD: str = Field(default="xxxx xxxx xxxx xxxx", description="Contraseña de aplicación de 16 caracteres")
+    
+    ALERT_NOTIFY_EMAILS: List[str] = Field(
+        default=["juan.camargo@global66.com", "tl.correo@global66.com"],
+        description="Lista de correos de ingeniería a notificar en fallas de infraestructura"
+    )
+    ALERT_EMAILS_ENABLED: bool = Field(default=True, description="Switch para activar/desactivar alertas por e-mail")
 
 settings = Settings()

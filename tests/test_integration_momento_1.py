@@ -1,4 +1,3 @@
-# tests/test_integration_momento_1.py
 import unittest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,7 +7,7 @@ from app.core.config import settings  # 👈 Importamos la configuración para o
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.integrations.sfc_client import SfcClient
 
-class TestCronIntegration(unittest.TestCase):
+class TestMomento1Integration(unittest.TestCase):
 
     def setUp(self):
         # Mock del cliente SFC y S3
@@ -28,11 +27,12 @@ class TestCronIntegration(unittest.TestCase):
         app.dependency_overrides.clear()
 
     @patch("app.services.momento_1_sync.SincronizacionService._descargar_y_subir_a_s3", new_callable=AsyncMock)
-    def test_cron_sync_multiple_quejas_mixed_attachments(self, mock_descarga_s3):
+    def test_cron_sync_multiple_quejas_mixed_attachments_sin_ack_automatico(self, mock_descarga_s3):
         """
-        Prueba el endpoint de integración de punta a punta.
-        Verifica que se consuma la SFC, se suban los archivos y FastAPI devuelva 
-        las quejas perfectamente traducidas al CRM en el HTTP Response Body.
+        Prueba el endpoint de integración de sincronización de punta a punta.
+        Verifica que se consuma la SFC, se suban los archivos a S3 y FastAPI devuelva 
+        las quejas perfectamente traducidas al CRM en el HTTP Response Body, 
+        Garantizando que NO se envíe el ACK de manera automática (ACK diferido).
         """
         # Configuramos que S3 simule retornar datos válidos cuando se ejecute la descarga
         mock_descarga_s3.return_value = {
@@ -135,11 +135,14 @@ class TestCronIntegration(unittest.TestCase):
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=mock_adjuntos_response)
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
 
-        # Hacemos la petición POST al endpoint (el cliente incluirá la API Key en los headers)
+        # Hacemos la petición POST al endpoint de sincronización
         response = self.client.post("/api/v1/quejas/sync/momento-1")
         
         # --- VERIFICACIONES SÍNCRONAS ---
         self.assertEqual(response.status_code, 200)
+        
+        # 🚨 REGLA CRÍTICA: Validamos que NO se haya llamado al ACK de la SFC durante el consumo
+        self.sfc_client_mock.send_ack_batch.assert_not_called()
         
         # Obtenemos la lista directamente del Response Body
         quejas_mapeadas = response.json()
@@ -162,6 +165,38 @@ class TestCronIntegration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[1]["sc_Condicion_especial__c"], "Adulto mayor")
         self.assertEqual(quejas_mapeadas[1]["tipo_de_persona__c"], "B2C")
         self.assertEqual(len(quejas_mapeadas[1]["archivos_s3"]), 0)
+
+    def test_confirmacion_ack_momento_1_exitoso(self):
+        """
+        Prueba de integración del nuevo endpoint de ACK:
+        POST /api/v1/quejas/sync/momento-1/ack
+        Verifica que reciba el arreglo de IDs confirmados por el CRM y comunique el ACK a la SFC.
+        """
+        # Mapeamos la respuesta del mock de la SFC
+        self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={
+            "Response": {
+                "message": "Código actualizado",
+                "pqrs_error": []
+            }
+        })
+
+        ids_a_confirmar = ["11111111111", "22222222222"]
+        payload = {"ids_quejas": ids_a_confirmar}
+
+        # Consumimos el endpoint
+        response = self.client.post("/api/v1/quejas/sync/momento-1/ack", json=payload)
+
+        # Verificaciones HTTP y Payload
+        self.assertEqual(response.status_code, 200)
+        
+        # Verificamos que el cliente HTTP invocara el cliente SFC con los IDs esperados
+        self.sfc_client_mock.send_ack_batch.assert_called_once_with(ids_a_confirmar)
+        
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["confirmados"], 2)
+        self.assertEqual(data["ids_procesados"], ids_a_confirmar)
+
 
 if __name__ == "__main__":
     unittest.main()

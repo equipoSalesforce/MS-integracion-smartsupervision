@@ -1,4 +1,3 @@
-# mock_sfc/main.py
 import hmac
 import hashlib
 import json
@@ -13,12 +12,12 @@ logger = logging.getLogger("MockSFC")
 
 app = FastAPI(
     title="Mock Oficial Smartsupervisión - Superintendencia Financiera de Colombia",
-    description="API de pruebas locales que simula al 100% las respuestas y comportamiento de la SFC",
-    version="1.0.0"
+    description="API de pruebas locales que simula al 100% las respuestas y comportamiento de la SFC (Incluye Módulo de Caos)",
+    version="1.1.0"
 )
 
 # ======================================================================
-# ⚙️ PARSEO SEGURO DE VARIABLES DE ENTORNO
+# ⚙️ PARSEO SEGURO DE VARIABLES DE ENTORNO Y ESTADO GLOBAL
 # ======================================================================
 SECRET_KEY_TEST = os.getenv("SFC_SECRET_KEY", "global66_sfc_secret_key_testing_2026")
 
@@ -28,7 +27,52 @@ if isinstance(env_verify, str):
 else:
     VERIFY_SIGNATURES = bool(env_verify)
 
+# 💥 Variable global para controlar la simulación de caída de la SFC
+SFC_MODO_CAIDO: bool = False
+
 logger.info(f"Mock SFC inicializado. ¿Verificación de firmas activa?: {VERIFY_SIGNATURES}")
+
+
+# ======================================================================
+# 🧪 MÓDULO DE CAOS / CONTRASEÑA DE SIMULACIÓN DE INDISPONIBILIDAD
+# ======================================================================
+def chequear_estado_servidor():
+    """
+    Si el modo de caos está activo, interrumpe inmediatamente cualquier
+    petición devolviendo un 502 Bad Gateway (Servidor caído).
+    """
+    if SFC_MODO_CAIDO:
+        logger.warning("[MOCK SFC] Petición bloqueada por MODO CAOS ACTIVO (Simulando SFC Caída).")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"detail": "Servidor de la Superintendencia Financiera fuera de servicio (502 Bad Gateway simulado)"}
+        )
+
+
+@app.post("/api/mock/simular-caida", status_code=status.HTTP_200_OK, tags=["Mock Chaos Admin"])
+async def toggle_sfc_status(caido: bool = Query(True, description="True para simular caída (502), False para operacion normal")):
+    """
+    Endpoint de administración local para alternar el estado de disponibilidad de la SFC.
+    """
+    global SFC_MODO_CAIDO
+    SFC_MODO_CAIDO = caido
+    estado = "CAÍDA SIMULADA (502 Bad Gateway)" if caido else "OPERANDO NORMALMENTE (200 OK)"
+    logger.info(f"💥 [MOCK SFC CAOS] Estado cambiado manualmente a: {estado}")
+    return {
+        "status": "ok",
+        "modo_caido": SFC_MODO_CAIDO,
+        "message": f"El Mock de la SFC ahora está en estado: {estado}"
+    }
+
+
+@app.get("/api/mock/estado", status_code=status.HTTP_200_OK, tags=["Mock Chaos Admin"])
+async def obtener_estado_mock():
+    """Retorna el estado actual del servidor Mock."""
+    return {
+        "modo_caido": SFC_MODO_CAIDO,
+        "verify_signatures": VERIFY_SIGNATURES
+    }
+
 
 # ======================================================================
 # 🔐 UTILERÍA: Verificador de Firmas de la SFC
@@ -57,11 +101,14 @@ def verificar_firma_sfc(request: Request, signature_recibida: Optional[str], bod
         )
     return True
 
+
 # ======================================================================
-# 🔑 SEGMENTO: Autenticación (Login)[cite: 1, 3]
+# 🔑 SEGMENTO: Autenticación (Login)
 # ======================================================================
-@app.post("/api/login/", status_code=status.HTTP_200_OK)
+@app.post("/api/login/", status_code=status.HTTP_200_OK, tags=["Autenticación"])
 async def login_mock(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    chequear_estado_servidor()
+    
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
     verificar_firma_sfc(request, x_sfc_signature, body_str)
@@ -90,12 +137,13 @@ async def login_mock(request: Request, x_sfc_signature: Optional[str] = Header(N
         }
     }
 
-# ======================================================================
-# 📥 MOMENTO 1: Sincronización (SFC -> Entidad)[cite: 1]
-# ======================================================================
 
-@app.get("/api/queja/", status_code=status.HTTP_200_OK)
+# ======================================================================
+# 📥 MOMENTO 1: Sincronización (SFC -> Entidad)
+# ======================================================================
+@app.get("/api/queja/", status_code=status.HTTP_200_OK, tags=["Momento 1"])
 async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    chequear_estado_servidor()
     verificar_firma_sfc(request, x_sfc_signature)
     
     return {
@@ -127,7 +175,7 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "producto_nombre": "Global Account Digital",
                 "macro_motivo_cod": 209,
                 "texto_queja": "Petición de prueba local 1: Caso con un solo archivo adjunto.",
-                "anexo_queja": True,  # 👈 Informa que sí tiene archivos
+                "anexo_queja": True,
                 "tutela": 2,
                 "ente_control": 99,
                 "escalamiento_DCF": 2,
@@ -193,7 +241,7 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "producto_nombre": "Global Account Digital",
                 "macro_motivo_cod": 209,
                 "texto_queja": "Petición de prueba local 3: Caso pesado con múltiples archivos de soporte adjuntos.",
-                "anexo_queja": True,  # 👈 Informa que sí tiene archivos
+                "anexo_queja": True,
                 "tutela": 2,
                 "ente_control": 99,
                 "escalamiento_DCF": 2,
@@ -206,8 +254,10 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
         ]
     }
 
-@app.post("/api/complaint/ack", status_code=status.HTTP_200_OK)
+
+@app.post("/api/complaint/ack", status_code=status.HTTP_200_OK, tags=["Momento 1"])
 async def confirmacion_ack_momento_1(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
     verificar_firma_sfc(request, x_sfc_signature, body_str)
@@ -217,19 +267,18 @@ async def confirmacion_ack_momento_1(request: Request, x_sfc_signature: Optional
         "pqrs_error": []
     }
 
-# mock_sfc/main.py (Endpoint GET /api/storage/)
 
-@app.get("/api/storage/", status_code=status.HTTP_200_OK)
+@app.get("/api/storage/", status_code=status.HTTP_200_OK, tags=["Adjuntos"])
 async def listado_archivos_momento_1(
     request: Request, 
     codigo_queja__codigo_queja: str = Query(...), 
     x_sfc_signature: Optional[str] = Header(None)
 ):
+    chequear_estado_servidor()
     verificar_firma_sfc(request, x_sfc_signature)
     
     results = []
     
-    # 1. Caso Camila Salas (Tiene 1 adjunto)
     if codigo_queja__codigo_queja == "142316551509974606":
         results = [
             {
@@ -241,12 +290,8 @@ async def listado_archivos_momento_1(
                 "reference": "1"
             }
         ]
-        
-    # 2. Caso Mateo Bermúdez (Sin adjuntos, anexo_queja era False)
     elif codigo_queja__codigo_queja == "142316551509974607":
-        results = []  # Retorna lista vacía
-        
-    # 3. Caso Valentina Gómez (Tiene 2 adjuntos de prueba)
+        results = []
     elif codigo_queja__codigo_queja == "142316551509974608":
         results = [
             {
@@ -266,8 +311,6 @@ async def listado_archivos_momento_1(
                 "reference": "1"
             }
         ]
-        
-    # 4. Cualquier otro código de queja no mapeado
     else:
         results = []
 
@@ -279,11 +322,13 @@ async def listado_archivos_momento_1(
         "results": results
     }
 
+
 # ======================================================================
 # 📤 MOMENTO 2: Envío de Quejas Nuevas con Inyección de Errores
 # ======================================================================
-@app.post("/api/queja/", status_code=status.HTTP_201_CREATED)
+@app.post("/api/queja/", status_code=status.HTTP_201_CREATED, tags=["Momento 2"])
 async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
     verificar_firma_sfc(request, x_sfc_signature, body_str)
@@ -291,10 +336,7 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
     payload_recibido = await request.json()
     body_data = payload_recibido.get("Body", payload_recibido)
     
-    # --- MÓDULO DE INTERCEPTACIÓN Y PRUEBA DE ERRORES (MATRIZ SFC) ---
     nombres_val = body_data.get('nombres', "")
-    print("nombre enviado: ", nombres_val)
-    print("info recibida", payload_recibido)
     id_number_val = body_data.get("numero_id_CF", "")
     dept_val = body_data.get("departamento_cod", "")
     muni_val = body_data.get("municipio_cod", "")
@@ -306,42 +348,42 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
             content={"nombres": ["Este campo no puede ser nulo."]}
         )
     
-    # 2. Validación de Nombres > 50 caracteres[cite: 4]
+    # 2. Validación de Nombres > 50 caracteres
     if nombres_val == "TRIGGER_ERR_NAME_LIMIT":
         return JSONResponse(
             status_code=400,
             content={"nombres": ["Asegúrese de que este campo no tenga más de 50 caracteres."]}
         )
         
-    # 3. Validación de Tipo ID Inválido o vacío (Clave primaria "0")[cite: 4]
+    # 3. Validación de Tipo ID Inválido o vacío (Clave primaria "0")
     if body_data.get("tipo_id_CF") == 0:
         return JSONResponse(
             status_code=400,
             content={"tipo_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
         )
         
-    # 4. Validación de Número ID Inválido o vacío (Clave primaria "0")[cite: 4]
+    # 4. Validación de Número ID Inválido o vacío (Clave primaria "0")
     if id_number_val == "0":
         return JSONResponse(
             status_code=400,
             content={"numero_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
         )
 
-    # 5. Validación de Departamento Inválido (Clave primaria "00")[cite: 4]
+    # 5. Validación de Departamento Inválido (Clave primaria "00")
     if dept_val == "00":
         return JSONResponse(
             status_code=400,
             content={"departamento_cod": ["Clave primaria \"00\" inválida - objeto no existe."]}
         )
 
-    # 6. Validación de Municipio no coincide con Departamento[cite: 4]
+    # 6. Validación de Municipio no coincide con Departamento
     if muni_val == "INVALIDO_MUNI":
         return JSONResponse(
             status_code=400,
             content={"municipio_cod": ["El código del municipio no corresponde al departamento asignado."]}
         )
 
-    # 7. Caso de Queja ya Duplicada en el sistema[cite: 4]
+    # 7. Caso de Queja ya Duplicada en el sistema
     if nombres_val == "TRIGGER_ERR_ALREADY_EXISTS":
         return JSONResponse(
             status_code=400,
@@ -352,41 +394,39 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
             }
         )
 
-    # 8. Simulación de Caída de Servicio de la SFC[cite: 4]
+    # 8. Simulación de Caída de Servicio de la SFC (vía Trigger individual)
     if nombres_val == "TRIGGER_ERR_SERVICE_DOWN":
         return Response(
             status_code=503,
             content="El servicio no está disponible por el momento. Vuelva a intentarlo mas tarde."
         )
 
-    # 9. Simulación de Error Crítico Inesperado de la SFC[cite: 4]
+    # 9. Simulación de Error Crítico Inesperado de la SFC
     if nombres_val == "TRIGGER_ERR_UNEXPECTED":
         return Response(
             status_code=500,
             content="Error inesperado. Código de Error: 20260716111621_exc"
         )
         
-    # Flujo regular de creación exitosa (Eco)[cite: 1]
+    # Flujo regular de creación exitosa (Eco)
     return {
         "Response": body_data
     }
 
+
 # ======================================================================
-# 📂 CONTROL DE ADJUNTOS CON ERROR DE DUPLICADOS[cite: 1, 4]
+# 📂 CONTROL DE ADJUNTOS CON ERROR DE DUPLICADOS
 # ======================================================================
-@app.post("/api/storage/", status_code=status.HTTP_201_CREATED)
+@app.post("/api/storage/", status_code=status.HTTP_201_CREATED, tags=["Adjuntos"])
 async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[str] = Header(None)):
+    chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8', errors='ignore')
     verificar_firma_sfc(request, x_sfc_signature, body_str)
     
-    # Leemos la petición multipart para buscar nuestro "Trigger"
     form_data = await request.form()
     file_obj = form_data.get("file")
     
-    print("Archivo recibido: ",form_data)
-    
-    # Si el nombre del archivo contiene la palabra TRIGGER, simulamos un archivo duplicado[cite: 4]
     if file_obj and ("TRIGGER_DUPLICATE" in file_obj.filename):
         return JSONResponse(
             status_code=400,
@@ -395,7 +435,6 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
         
     logger.info("Recibido archivo multipart/form-data de forma correcta en el Mock.")
     
-    # 🎯 TRIGGER M3: Simula el error si intentan subir un archivo a una queja ya cerrada
     codigo_queja_val = form_data.get("codigo_queja")
     if codigo_queja_val == "TRIGGER_M3_CLOSED":
         return JSONResponse(
@@ -418,37 +457,32 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
         "state": 1,
         "codigo_queja": form_data.get("codigo_queja", "142316551509974606")
     }
-    
+
 
 # ======================================================================
-# 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)[cite: 2]
+# 🏁 MOMENTO 3: Actualización y Cierre de Quejas (SFC <- Entidad)
 # ======================================================================
-@app.put("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
-@app.patch("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK)
+@app.put("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK, tags=["Momento 3"])
+@app.patch("/api/queja/{codigo_queja}/", status_code=status.HTTP_200_OK, tags=["Momento 3"])
 async def actualizar_queja_momento_3(
     codigo_queja: str,
     request: Request, 
     x_sfc_signature: Optional[str] = Header(None)
 ):
+    chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
     verificar_firma_sfc(request, x_sfc_signature, body_str)
     
     payload_recibido = await request.json()
-    
-    # 🎯 CORRECCIÓN 1: Extraemos del contenedor "Body" enviado por el microservicio[cite: 2]
     body_data = payload_recibido.get("Body", payload_recibido)
 
-    # 🕹️ MATRIZ DE SIMULACIÓN DE ERRORES (TRIGGERS DE PRUEBA)
-    
-    # 1. Simulación de Caso No Encontrado (404)[cite: 1]
     if codigo_queja == "TRIGGER_M3_NOT_FOUND" or codigo_queja == "142347622214657":
         return JSONResponse(
             status_code=404,
             content={"detail": "Not found."}
         )
         
-    # 2. Simulación de Error de Validación de negocio (Monto o Estado incorrecto)
     if body_data.get("estado_cod") == 999:
         return JSONResponse(
             status_code=400,
@@ -461,33 +495,30 @@ async def actualizar_queja_momento_3(
             }
         )
 
-    # 🚨 ADICIÓN REGULATORIA 1: Simular rechazo por falta de documento de Cierre (Regla SFC)[cite: 2]
     if body_data.get("estado_cod") == 4 and "TRIGGER_ERR_M3_NO_DOC" in codigo_queja:
         return JSONResponse(
             status_code=400,
             content={
                 "status_code": 400,
                 "messages": {
-                    "non_field_errors": ["Se detectó la intención de cierre (estado_cod: 4) pero no se ha cargado previamente un archivo válido con el afijo obligatorio RESP_FINAL_SFC.[cite: 2]"]
+                    "non_field_errors": ["Se detectó la intención de cierre (estado_cod: 4) pero no se ha cargado previamente un archivo válido con el afijo obligatorio RESP_FINAL_SFC."]
                 },
                 "detail": "Error APIException"
             }
         )
 
-    # 🚨 ADICIÓN REGULATORIA 2: Simular rechazo por falta de documento de Fraude (Regla SFC)[cite: 2]
     if body_data.get("tipo_fraude") and "TRIGGER_ERR_M3_NO_DOC" in codigo_queja:
         return JSONResponse(
             status_code=400,
             content={
                 "status_code": 400,
                 "messages": {
-                    "non_field_errors": ["Se detectó gestión de fraude pero no se ha cargado previamente la investigación correspondiente con el afijo obligatorio INV_FRAUDE_SFC.[cite: 2]"]
+                    "non_field_errors": ["Se detectó gestión de fraude pero no se ha cargado previamente la investigación correspondiente con el afijo obligatorio INV_FRAUDE_SFC."]
                 },
                 "detail": "Error APIException"
             }
         )
 
-    # 🟢 CORRECCIÓN 2: Flujo Exitoso envuelto en la raíz "Response" tal cual exige la SFC[cite: 2]
     return {
         "Response": {
             "codigo_queja": codigo_queja,

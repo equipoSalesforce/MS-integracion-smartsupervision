@@ -42,3 +42,6 @@ Thumbs.db
 tmp/
 *.pdf
 *.docx
+
+#DB local para queue
+cola_local.db
