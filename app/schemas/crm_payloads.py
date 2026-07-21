@@ -110,13 +110,6 @@ class Momento2QuejaCrmInput(BaseModel):
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
     
-    @field_validator("Smart_Code__c", mode="before")
-    @classmethod
-    def limpiar_espacios_y_caracteres(cls, v: str) -> str:
-        if isinstance(v, str):
-            return v.strip()
-        return v
-    
     @field_validator("id_number__c", mode="before")
     @classmethod
     def limpiar_id_solo_numeros(cls, v: str) -> str:
