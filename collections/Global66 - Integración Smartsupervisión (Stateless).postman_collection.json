@@ -1,0 +1,1688 @@
+{
+  "info": {
+    "_postman_id": "95c64869-4f9b-49f0-bce1-f7cdd386bf30",
+    "name": "Global66 - Integración Smartsupervisión (Stateless)",
+    "description": "Colección completa para testear el flujo de integración local de punta a punta apuntando al puerto 8000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "56456564",
+    "_collection_link": "https://go.postman.co/collection/56456564-95c64869-4f9b-49f0-bce1-f7cdd386bf30?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Momento 1: Descarga (SFC -> CRM)",
+      "item": [
+        {
+          "name": "Sincronizar Quejas (SFC -> CRM)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "g66_sk_test_super_secreto_12345"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"ids_quejas\": [\r\n    \"142316551509974606\",\r\n    \"142316551509974607\",\r\n    \"142316551509974608\"\r\n  ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/momento-1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "momento-1"
+              ]
+            },
+            "description": "Dispara el orquestador stateless de descarga. Éste consultará al Mock SFC en el 8080, simulará la descarga S3, enviará el ACK y te retornará exactamente los 29 campos traducidos al CRM local."
+          },
+          "response": [
+            {
+              "name": "Sincronizar Quejas (SFC -> CRM)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-api-key",
+                    "value": "g66_sk_test_super_secreto_12345"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/momento-1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "momento-1"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:02 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "2873"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "[\n  {\n    \"CreatedDate\": \"2026-07-16T08:30:00\",\n    \"Smart_Code__c\": \"142316551509974606\",\n    \"codigo_pais__c\": \"COL\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"SuppliedName\": \"Camila Salas Mock\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"SuppliedPhone\": \"3007654321\",\n    \"SuppliedEmail\": \"camila.salas@mockglobal.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"canal__c\": \"Internet\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Global Account Digital\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"Description\": \"Petición de prueba local 1: Caso con un solo archivo adjunto.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"replica__c\": \"No\",\n    \"argumento_replica__c\": null,\n    \"Desistimiento__c\": \"Queja o reclamo no desistida por el CF\",\n    \"Quejas_express__c\": \"No\",\n    \"direccion__c\": \"carrera 1\",\n    \"archivos_s3\": []\n  },\n  {\n    \"CreatedDate\": \"2026-07-16T09:15:00\",\n    \"Smart_Code__c\": \"142316551509974607\",\n    \"codigo_pais__c\": \"COL\",\n    \"Departamento__c\": \"Antioquia\",\n    \"SC_municipio__c\": \"Medellín\",\n    \"SuppliedName\": \"Mateo Bermudez Mock\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1050099887\",\n    \"SuppliedPhone\": \"3104567890\",\n    \"SuppliedEmail\": \"mateo.bermudez@mockglobal.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"canal__c\": \"Internet\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Global Account Digital\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"Description\": \"Petición de prueba local 2: Caso sin archivos adjuntos para probar bypassing.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"replica__c\": \"No\",\n    \"argumento_replica__c\": null,\n    \"Desistimiento__c\": \"Queja o reclamo no desistida por el CF\",\n    \"Quejas_express__c\": \"No\",\n    \"direccion__c\": \"carrera 1\",\n    \"archivos_s3\": []\n  },\n  {\n    \"CreatedDate\": \"2026-07-16T10:00:00\",\n    \"Smart_Code__c\": \"142316551509974608\",\n    \"codigo_pais__c\": \"COL\",\n    \"Departamento__c\": \"76\",\n    \"SC_municipio__c\": \"76001\",\n    \"SuppliedName\": \"Valentina Gomez Mock\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1060044332\",\n    \"SuppliedPhone\": \"3127894561\",\n    \"SuppliedEmail\": \"valentina.gomez@mockglobal.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"canal__c\": \"Internet\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Global Account Digital\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"Description\": \"Petición de prueba local 3: Caso pesado con múltiples archivos de soporte adjuntos.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"replica__c\": \"No\",\n    \"argumento_replica__c\": null,\n    \"Desistimiento__c\": \"Queja o reclamo no desistida por el CF\",\n    \"Quejas_express__c\": \"No\",\n    \"direccion__c\": \"carrera 1\",\n    \"archivos_s3\": []\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Confirmar recepción quejas ACK",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"ids_quejas\": [\r\n    \"142316551509974606\",\r\n    \"142316551509974607\",\r\n    \"142316551509974608\"\r\n  ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/momento-1/ack",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "momento-1",
+                "ack"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Confirmar recepción quejas ACK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-api-key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"ids_quejas\": [\r\n    \"142316551509974606\",\r\n    \"142316551509974607\",\r\n    \"142316551509974608\"\r\n  ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/momento-1/ack",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "momento-1",
+                    "ack"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 22 Jul 2026 14:08:57 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "185"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"ACK confirmado exitosamente ante la SFC para 3 quejas.\",\n  \"confirmados\": 3,\n  \"ids_procesados\": [\n    \"142316551509974606\",\n    \"142316551509974607\",\n    \"142316551509974608\"\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Momento 2: Envío de Quejas (CRM -> SFC)",
+      "item": [
+        {
+          "name": "Enviar Queja Nueva - Nombre nulo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"TRIGGER_ERR_NAME_NULL\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja al endpoint unificado de despacho configurada con el disparador 'TRIGGER_ERR_NAME_NULL' para validar el manejo de excepciones cuando la SFC detecta inconsistencias en el nombre."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva - Nombre nulo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"SuppliedName\": \"TRIGGER_ERR_NAME_NULL\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:15:32 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "222"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": {\n    \"status\": \"error\",\n    \"error_type\": \"VALIDATION_ERROR\",\n    \"sfc_field\": \"nombres\",\n    \"raw_sfc_message\": \"Este campo no puede ser nulo.\",\n    \"crm_action_friendly\": \"Verificar que el nombre de la cuenta asociada este diligenciado.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Enviar Queja Nueva - Caso duplicado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"TRIGGER_ERR_ALREADY_EXISTS\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Web\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"soporte_reclamo.pdf\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja al endpoint unificado de despacho configurada con el disparador 'TRIGGER_ERR_ALREADY_EXISTS' para simular y validar la respuesta cuando la SFC rechaza un código de queja ya registrado."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva - Caso duplicado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"SuppliedName\": \"TRIGGER_ERR_ALREADY_EXISTS\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Web\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"soporte_reclamo.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:15:38 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "723"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": {\n    \"status\": \"error\",\n    \"error_type\": \"ALREADY_EXISTS\",\n    \"sfc_field\": \"queja_entidad_motivo_producto_already_exist\",\n    \"raw_sfc_message\": \"Señor(a) consumidor, en el sistema ya existe una Queja radicada para la entidad con el mismo motivo, producto y canal, con número de radicado [142312345]. Si la queja es diferente o corresponde a otros hechos, verifique el motivo y producto seleccionado para poder continuar con el proceso de radicación.\",\n    \"crm_action_friendly\": \"Validar que el caso que referencian en el mensaje donde estan los signos de interrogación no corresponda a la misma información del caso actual. Si son casos diferentes cambiar el canal para que se entienda que son casos diferentes y volver a guardar.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Enviar Queja Nueva - Plataforma caida",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"TRIGGER_ERR_SERVICE_DOWN\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"soporte_reclamo.pdf\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja al endpoint unificado de despacho configurada con el disparador de prueba 'TRIGGER_ERR_SERVICE_DOWN' para detonar un error simulado de servicio no disponible en la SFC."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva - Plataforma caida",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"SuppliedName\": \"TRIGGER_ERR_SERVICE_DOWN\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"soporte_reclamo.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 21:03:11 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "289"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"queued\",\n  \"smart_code\": \"16551509974606\",\n  \"message\": \"La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado en la BD local para reintento automático.\",\n  \"error_origen\": \"El servicio no está disponible por el momento. Vuelva a intentarlo mas tarde.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Enviar Queja Nueva - Archivo adjunto duplicado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Web\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/TRIGGER_DUPLICATE_file.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"TRIGGER_DUPLICATE_file.pdf\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja al endpoint unificado de despacho configurada con la clave 'TRIGGER_DUPLICATE_file.pdf' en el adjunto para simular y validar el manejo de excepciones cuando la SFC detecta un archivo con nombre/hash duplicado."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva - Archivo adjunto duplicado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Web\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/TRIGGER_DUPLICATE_file.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"TRIGGER_DUPLICATE_file.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:15:57 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "195"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": {\n    \"status\": \"error\",\n    \"error_type\": \"DUPLICATE_FILE\",\n    \"sfc_field\": \"file\",\n    \"raw_sfc_message\": \"El anexo ya existe, con el ID [8998896].\",\n    \"crm_action_friendly\": \"Guardar nuevamente en resolved.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Enviar Queja Nueva - Error no mapeado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"Status\": \"New\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"TRIGGER_ERR_UNMAPPED\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Superintendencia Financiera de Colombia\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"soporte_reclamo.pdf\",\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja nueva al endpoint unificado de despacho en nomenclatura CRM. El microservicio validará la API Key, inyectará el ID largo SFC, procesará adjuntos de S3 y transmitirá el alta a la SFC."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva - Error no mapeado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"TRIGGER_ERR_UNMAPPED\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Superintendencia Financiera de Colombia\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"soporte_reclamo.pdf\",\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 21:01:51 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "290"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": {\n    \"status\": \"error\",\n    \"error_type\": \"UNKNOWN_SFC_ERROR\",\n    \"sfc_field\": \"codigo_desconocido_sfc\",\n    \"raw_sfc_message\": \"Error Regla 999: Fallo de consistencia no documentado en la resolución 2026.\",\n    \"crm_action_friendly\": \"Error no mapeado por la SFC. Por favor revisar los logs del payload.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Enviar Queja Nueva (Despacho)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"Status\": \"New\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Superintendencia Financiera de Colombia\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"soporte_reclamo.pdf\",\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una queja nueva al endpoint unificado de despacho en nomenclatura CRM. El microservicio validará la API Key, inyectará el ID largo SFC, procesará adjuntos de S3 y transmitirá el alta a la SFC."
+          },
+          "response": [
+            {
+              "name": "Enviar Queja Nueva (Despacho)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Superintendencia Financiera de Colombia\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"soporte_reclamo.pdf\",\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:15:14 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "146"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Momento 3: Gestión y Cierre (CRM -> SFC)",
+      "item": [
+        {
+          "name": "Endpoint 1: Actualización General - Caso no encontrado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Smart_Code__c\": \"47622214657\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Actualización de trámite para caso en seguimiento.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una actualización de trámite al endpoint unificado de despacho. Incluye todos los campos base obligatorios requeridos por el esquema unificado de Pydantic y utiliza el método POST con la X-API-Key."
+          },
+          "response": [
+            {
+              "name": "Endpoint 1: Actualización General - Caso no encontrado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"47622214657\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"TRAMITE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Actualización de trámite para caso en seguimiento.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:08 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "203"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": {\n    \"status\": \"error\",\n    \"error_type\": \"UNKNOWN_SFC_ERROR\",\n    \"sfc_field\": null,\n    \"raw_sfc_message\": \"Not found.\",\n    \"crm_action_friendly\": \"Error no mapeado por la SFC. Por favor revisar los logs del payload.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 1: Actualización General",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Envía una actualización ordinaria de trámite al endpoint unificado de despacho. Incluye todos los campos base obligatorios requeridos por el esquema unificado de Pydantic y utiliza el método POST con la X-API-Key."
+          },
+          "response": [
+            {
+              "name": "Endpoint 1: Actualización General",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"TRAMITE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:16 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 2: Reporte de Fraude",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"nombre_archivo_fraude\": \"informe_tecnico.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"informe_tecnico.pdf\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 2: Reporte de Fraude",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"FRAUDE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"nombre_archivo_fraude\": \"informe_tecnico.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"informe_tecnico.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:21 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 2: Reporte de Fraude - Falta de documento de fraude",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"TRIGGER_ERR_M3_NO_DOC\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de reportar fraude sin adjuntos.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Vishing\",\n    \"card_amount__c\": 12345.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 12345.0,\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Intenta reportar un evento de fraude al endpoint unificado sin enviar el soporte obligatorio de investigación. Valida que el microservicio (Pydantic) rechace la petición con un error 422 indicando la falta del documento INV_FRAUDE_SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 2: Reporte de Fraude - Falta de documento de fraude",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"FRAUDE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de reportar fraude sin adjuntos.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Vishing\",\n    \"card_amount__c\": 12345.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 12345.0,\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:26 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "1155"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": [\n    {\n      \"type\": \"value_error\",\n      \"loc\": [\n        \"body\"\n      ],\n      \"msg\": \"Value error, No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).\",\n      \"input\": {\n        \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n        \"CreatedDate\": \"2026-07-16T12:00:00\",\n        \"Status\": \"In Progress\",\n        \"tipo_operacion\": \"FRAUDE\",\n        \"SuppliedName\": \"Camila Salas\",\n        \"SC_id_type__c\": \"CC\",\n        \"id_number__c\": \"1040011014\",\n        \"sc_genero__c\": \"Femenino\",\n        \"tipo_de_persona__c\": \"B2C\",\n        \"sc_LGBTIQ__c\": \"No\",\n        \"sc_Condicion_especial__c\": \"No aplica\",\n        \"direccion__c\": \"Calle 93 # 11-11\",\n        \"Departamento__c\": \"Bogotá D.C.\",\n        \"SC_municipio__c\": \"Bogotá D.C.\",\n        \"canal__c\": \"Internet\",\n        \"punto_recepcion\": \"Manual\",\n        \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n        \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n        \"Description\": \"Prueba de validación: Intento de reportar fraude sin adjuntos.\",\n        \"smart_anexo_queja__c\": false,\n        \"Tutela__c\": \"No\",\n        \"Ente_de_control__c\": \"Otros\",\n        \"smart_escalamiento_DCF__c\": \"No\",\n        \"Product__c\": \"Cuenta perfil\",\n        \"Categorias_COL__c\": \"Transacción no reconocida\",\n        \"tipo_fraude__c\": \"Interno\",\n        \"modalidad_fraude__c\": \"Vishing\",\n        \"card_amount__c\": 12345,\n        \"Total_Devuelto_por_Desconocimiento__c\": 12345,\n        \"archivos_s3\": []\n      },\n      \"ctx\": {\n        \"error\": {}\n      }\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 3: Cierre Definitivo - Falta de documento de cierre",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de clausura sin cuerpo_respuesta_final.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"\", \n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Intenta ejecutar la clausura definitiva del caso (Estado 4) sin enviar la resolución final. Valida que el esquema unificado en Pydantic rechace la petición con un error 422 notificando la ausencia del documento RESP_FINAL_SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Falta de documento de cierre",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de clausura sin adjuntar resolución final.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:34 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "1143"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"detail\": [\n    {\n      \"type\": \"value_error\",\n      \"loc\": [\n        \"body\"\n      ],\n      \"msg\": \"Value error, No se envió un documento de cierre del caso (RESP_FINAL_SFC).\",\n      \"input\": {\n        \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n        \"CreatedDate\": \"2026-07-16T12:00:00\",\n        \"Status\": \"Closed\",\n        \"tipo_operacion\": \"CIERRE\",\n        \"SuppliedName\": \"Camila Salas\",\n        \"SC_id_type__c\": \"CC\",\n        \"id_number__c\": \"1040011014\",\n        \"sc_genero__c\": \"Femenino\",\n        \"tipo_de_persona__c\": \"B2C\",\n        \"sc_LGBTIQ__c\": \"No\",\n        \"sc_Condicion_especial__c\": \"No aplica\",\n        \"direccion__c\": \"Calle 93 # 11-11\",\n        \"Departamento__c\": \"Bogotá D.C.\",\n        \"SC_municipio__c\": \"Bogotá D.C.\",\n        \"canal__c\": \"Internet\",\n        \"punto_recepcion\": \"Manual\",\n        \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n        \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n        \"Description\": \"Prueba de validación: Intento de clausura sin adjuntar resolución final.\",\n        \"smart_anexo_queja__c\": false,\n        \"Tutela__c\": \"No\",\n        \"Ente_de_control__c\": \"Otros\",\n        \"smart_escalamiento_DCF__c\": \"No\",\n        \"Product__c\": \"Cuenta perfil\",\n        \"Categorias_COL__c\": \"Transacción no reconocida\",\n        \"ClosedDate\": \"2026-07-16\",\n        \"Favorabilidad__c\": \"Favorable\",\n        \"Aceptacion__c\": \"Si\",\n        \"Rectificacion__c\": false,\n        \"Prorroga__c\": false,\n        \"archivos_s3\": []\n      },\n      \"ctx\": {\n        \"error\": {}\n      }\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974615\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Cierre definitivo con hilo de correos anidado y múltiples respuestas.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">De acuerdo Carlos, ya veriqu&eacute; en mi extracto y efectivamente aparece el abono. Muchas gracias por la rapidez!</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mi&eacute;, 22 de jul de 2026 a las 15:30, Servicio al Cliente &lt;<a href=\\\"mailto:soporte@entidadfinanciera.com\\\">soporte@entidadfinanciera.com</a>&gt; escribi&oacute;:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div><p style=\\\"font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;\\\">Estimado Juan Carlos,<br><br>Nos complace informarle que, tras la auditor&iacute;a realizada a su caso de reclamo #987654321, hemos verificado el cobro duplicado de la cuota de manejo por valor de $25.000 COP.<br><br>El dinero ha sido reintegrado exitosamente a su cuenta de ahorros. El n&uacute;mero de comprobante de la transacci&oacute;n de abono es <b>458921</b>.<br><br>Quedamos atentos a cualquier inquietud adicional.<br><br>Atentamente,<br><b>Carlos Mendoza - Atenci&oacute;n al Cliente</b></p><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div style=\\\"border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm\\\"><b>De:</b> Juan Carlos Ram&iacute;rez &lt;juancarlos@email.com&gt;<br><b>Enviado el:</b> mi&eacute;rcoles, 22 de julio de 2026 11:15 AM<br><b>Para:</b> Servicio al Cliente &lt;soporte@entidadfinanciera.com&gt;<br><b>Asunto:</b> RE: Reclamo #987654321 - Cobro duplicado<br></div><br><div>Hola Carlos, sigo a la espera. Llegan 4 d&iacute;as y a&uacute;n no me dan respuesta de los $25.000 COP cobrados de m&aacute;s.</div><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El lun, 20 de jul de 2026 a las 09:10, Servicio al Cliente escribió:<br></div><div>Hola Juan Carlos, su caso fue escalado al &aacute;rea contable. Le daremos respuesta en un plazo m&aacute;ximo de 3 d&iacute;as h&aacute;biles.<br><br>Atentamente,<br>Servicio al Cliente</div></blockquote></blockquote></div><br><div style=\\\"font-size:11px;color:#777777;border-top:1px solid #e0e0e0;padding-top:10px;margin-top:20px;\\\"><p><b>AVISO DE CONFIDENCIALIDAD:</b> Este mensaje de correo electr&oacute;nico y sus anexos contienen informaci&oacute;n confidencial y privilegiada. Si usted no es el destinatario intencional, por favor notifique al remitente de inmediato y elimine este mensaje de su sistema. En cumplimiento del literal a. del art&iacute;culo 7 de la Ley 1328 de 2009 y la Ley 1581 de 2012 de Protecci&oacute;n de Datos Personales.</p><p>You received this message because you are subscribed to the Google Groups &quot;atencion-clientes&quot; group.<br>To unsubscribe from this group send an email to <a href=\\\"mailto:unsubscribe@entidadfinanciera.com\\\">unsubscribe@entidadfinanciera.com</a>.</p></div></blockquote></div><img src=\\\"https://crm.entidadfinanciera.com/tracking/pixel.gif?id=987654321\\\">\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 3: Cierre Definitivo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 3: Cierre Definitivo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 3: Cierre Definitivo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Revisar queue pendientes",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/quejas/queue?estado=PENDIENTE",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "quejas",
+            "queue"
+          ],
+          "query": [
+            {
+              "key": "estado",
+              "value": "PENDIENTE"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    }
+  ]
+}
