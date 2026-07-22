@@ -60,7 +60,7 @@ class DespachoQuejaOrquestador:
             return await self.m3_service.ejecutar_actualizacion_tramite(payload=payload)
 
         # 4. Si el estado es "New" / Alta Inicial -> Momento 2 (Creación)
-        if payload.tipo_operacion == "NUEVA" or payload.Status == "New":
+        if payload.tipo_operacion == "AUTO" or payload.Status == "New":
             logger.info(f"[Orquestador] Detectado despacho de QUEJA NUEVA (M2) para {smart_code}")
             return await self.m2_service.ejecutar_envio_momento_2(payload=payload)
 
