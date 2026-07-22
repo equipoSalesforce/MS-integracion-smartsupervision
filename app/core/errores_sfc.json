@@ -25,9 +25,9 @@
     "accion": "Verificar el municipio de la cuenta asociada."
   },
   {
-    "subcadena": "no tenga más de 14 caracteres",
+    "subcadena": "no tenga más de 15 caracteres",
     "tipo": "VALIDATION_ERROR",
-    "accion": "Verificar que el documento de identidad de la cuenta asociada no tenga mas de 14 caracteres."
+    "accion": "Verificar que el documento de identidad de la cuenta asociada no tenga mas de 15 caracteres."
   },
   {
     "subcadena": "numero_id_CF",
@@ -87,7 +87,7 @@
   {
     "subcadena": "No se puede actualizar el anexo debido a que la Queja se encuentra cerrada",
     "tipo": "BUSINESS_RULE_ERROR",
-    "accion": "No hacer nada porque ya esta cerrada en SSV."
+    "accion": "Verificar el estado del caso"
   },
   {
     "subcadena": "estado_cod",
@@ -97,12 +97,12 @@
   {
     "subcadena": "debe ser mayor que la fecha de creación",
     "tipo": "VALIDATION_ERROR",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "Revisar fecha de cierre enviada."
   },
   {
     "subcadena": "La fecha debe ser diferente a la fecha ya registrada",
     "tipo": "VALIDATION_ERROR",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "Revisar fecha enviada."
   },
   {
     "subcadena": "La denuncia tiene una fecha de cierre de más de dos meses",
@@ -117,22 +117,22 @@
   {
     "subcadena": "fecha_cierre",
     "tipo": "VALIDATION_ERROR",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "Revisar valor de la fecha de cierre"
   },
   {
     "subcadena": "El anexo ya existe",
     "tipo": "DUPLICATE_FILE",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "La queja será enviada sin documento duplicado."
   },
   {
     "subcadena": "El documento ya existe",
     "tipo": "DUPLICATE_FILE",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "La queja será enviada sin documento duplicado."
   },
   {
     "subcadena": "file",
     "tipo": "DUPLICATE_FILE",
-    "accion": "Guardar nuevamente en resolved."
+    "accion": "La queja será enviada sin documento duplicado."
   },
   {
     "subcadena": "ya existe una Queja radicada para la entidad con el mismo motivo",
@@ -142,17 +142,17 @@
   {
     "subcadena": "no está disponible por el momento",
     "tipo": "INFRASTRUCTURE_ERROR",
-    "accion": "Volver a guardar."
+    "accion": "El servidor de la SFC está fuera de servicio, la queja quedó en cola para subir apenas se reestablezca"
   },
   {
     "subcadena": "Error inesperado",
     "tipo": "SFC_INTERNAL_ERROR",
-    "accion": "Volver a guardar."
+    "accion": "Error inesperado notificado a tech, apenas esté solucionado se le notificará"
   },
   {
     "subcadena": "upstream request timeout",
     "tipo": "TIMEOUT_ERROR",
-    "accion": "Volver a guardar."
+    "accion": "El servidor de la SFC está fuera de servicio, la queja quedó en cola para subir apenas se reestablezca"
   },
   {
     "subcadena": "Token expiró",
