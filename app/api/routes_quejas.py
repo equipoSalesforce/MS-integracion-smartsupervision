@@ -164,7 +164,7 @@ async def despachar_queja_crm(
                 content={
                     "status": "queued",
                     "smart_code": payload.Smart_Code__c,
-                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado en la BD local para reintento automático.",
+                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
                     "error_origen": exc.raw_message
                 }
             )
