@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, Header, HTTPException, status, Request, Query
 from fastapi.responses import JSONResponse, Response
@@ -22,6 +23,10 @@ app = FastAPI(
 SECRET_KEY_TEST = os.getenv("SFC_SECRET_KEY", "global66_sfc_secret_key_testing_2026")
 
 REGISTRO_QUEJAS_MOCK: set = set()
+
+# Carpeta para almacenar réplicas locales de los archivos recibidos en el Mock
+MOCK_TEMP_DIR = Path("mock_sfc/temp")
+MOCK_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 env_verify = os.getenv("SFC_VERIFY_SIGNATURES", "true")
 if isinstance(env_verify, str):
@@ -98,7 +103,6 @@ async def verificar_firma_sfc(
 
     # 1. Estrategia GET (Firma de URL)
     if method == "GET":
-        # Usamos request.url o la ruta relativa según el acuerdo de tu cliente
         url_target = str(request.url)
         expected_sig = hmac.new(key_bytes, msg=url_target.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
 
@@ -116,15 +120,12 @@ async def verificar_firma_sfc(
     else:
         try:
             body_json = await request.json()
-            # Serializamos exactamente igual a como lo hace el cliente
             serialized = json.dumps(body_json, ensure_ascii=False)
             expected_sig = hmac.new(key_bytes, msg=serialized.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
         except Exception:
-            # Fallback a body plano si no fuera un JSON válido
             body_bytes = await request.body()
             expected_sig = hmac.new(key_bytes, msg=body_bytes, digestmod=hashlib.sha256).hexdigest().upper()
 
-    # Comparación segura en tiempo constante
     if not hmac.compare_digest(expected_sig, signature_recibida.upper()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
@@ -184,7 +185,6 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
         "next": None,
         "previous": None,
         "results": [
-            # --- CASO 1: Camila Salas (Tiene exactamente 1 archivo adjunto) ---
             {
                 "tipo_entidad": 1,
                 "entidad_cod": "423",
@@ -217,7 +217,6 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "queja_expres": 2,
                 "direccion": "carrera 1"
             },
-            # --- CASO 2: Mateo Bermúdez (Sin ningún archivo adjunto) ---
             {
                 "tipo_entidad": 1,
                 "entidad_cod": "423",
@@ -250,7 +249,6 @@ async def get_quejas_momento_1(request: Request, x_sfc_signature: Optional[str] 
                 "queja_expres": 2,
                 "direccion": "carrera 1"
             },
-            # --- CASO 3: Valentina Gómez (Con múltiples archivos adjuntos concurrentes) ---
             {
                 "tipo_entidad": 1,
                 "entidad_cod": "423",
@@ -310,7 +308,6 @@ async def listado_archivos_momento_1(
     verificar_firma_sfc(request, x_sfc_signature)
     
     results = []
-    
     if codigo_queja__codigo_queja == "142316551509974606":
         results = [
             {
@@ -369,80 +366,69 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
     body_data = payload_recibido.get("Body", payload_recibido)
     
     codigo_queja_val = body_data.get("codigo_queja")
-    
     nombres_val = body_data.get('nombres', "")
     id_number_val = body_data.get("numero_id_CF", "")
     dept_val = body_data.get("departamento_cod", "")
     muni_val = body_data.get("municipio_cod", "")
     
-    # 1. Validación de Nombres Nulos
     if nombres_val == "TRIGGER_ERR_NAME_NULL":
         return JSONResponse(
             status_code=400,
             content={"nombres": ["Este campo no puede ser nulo."]}
         )
     
-    # 2. Validación de Nombres > 50 caracteres
     if nombres_val == "TRIGGER_ERR_NAME_LIMIT":
         return JSONResponse(
             status_code=400,
             content={"nombres": ["Asegúrese de que este campo no tenga más de 50 caracteres."]}
         )
         
-    # 3. Validación de Tipo ID Inválido o vacío (Clave primaria "0")
     if body_data.get("tipo_id_CF") == 0:
         return JSONResponse(
             status_code=400,
             content={"tipo_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
         )
         
-    # 4. Validación de Número ID Inválido o vacío (Clave primaria "0")
     if id_number_val == "0":
         return JSONResponse(
             status_code=400,
             content={"numero_id_CF": ["Clave primaria \"0\" inválida - objeto no existe."]}
         )
 
-    # 5. Validación de Departamento Inválido (Clave primaria "00")
     if dept_val == "00":
         return JSONResponse(
             status_code=400,
             content={"departamento_cod": ["Clave primaria \"00\" inválida - objeto no existe."]}
         )
 
-    # 6. Validación de Municipio no coincide con Departamento
     if muni_val == "INVALIDO_MUNI":
         return JSONResponse(
             status_code=400,
             content={"municipio_cod": ["El código del municipio no corresponde al departamento asignado."]}
         )
 
-    # 7. Caso de Queja ya Duplicada en el sistema
     if nombres_val == "TRIGGER_ERR_ALREADY_EXISTS":
         return JSONResponse(
             status_code=400,
             content={
                 "queja_entidad_motivo_producto_already_exist": [
-                    "Señor(a) consumidor, en el sistema ya existe una Queja radicada para la entidad con el mismo motivo, producto y canal, con número de radicado [142312345]. Si la queja es diferente o corresponde a otros hechos, verifique el motivo y producto seleccionado para poder continuar con el proceso de radicación."
+                    "Señor(a) consumidor, en el sistema ya existe una Queja radicada para la entidad con el mismo motivo, producto y canal, con número de radicado [142312345]."
                 ]
             }
         )
 
-    # 8. Simulación de Caída de Servicio de la SFC (vía Trigger individual)
     if nombres_val == "TRIGGER_ERR_SERVICE_DOWN":
         return Response(
             status_code=503,
             content="El servicio no está disponible por el momento. Vuelva a intentarlo mas tarde."
         )
 
-    # 9. Simulación de Error Crítico Inesperado de la SFC
     if nombres_val == "TRIGGER_ERR_UNEXPECTED":
         return Response(
             status_code=500,
             content="Error inesperado. Código de Error: 20260716111621_exc"
         )
         
-    # 10. Error no mapeado por el sistema    
     if nombres_val == "TRIGGER_ERR_UNMAPPED":
         return JSONResponse(
             status_code=400,
@@ -457,14 +443,13 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
         REGISTRO_QUEJAS_MOCK.add(str(codigo_queja_val))
         logger.info(f"[MOCK BD] Queja registrada exitosamente en BD local: {codigo_queja_val}")
         
-    # Flujo regular de creación exitosa (Eco)
     return {
         "Response": body_data
     }
 
 
 # ======================================================================
-# 📂 CONTROL DE ADJUNTOS CON ERROR DE DUPLICADOS
+# 📂 CONTROL DE ADJUNTOS CON GUARDADO FÍSICO EN MOCK/TEMP
 # ======================================================================
 @app.post("/api/storage/", status_code=status.HTTP_201_CREATED, tags=["Adjuntos"])
 async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[str] = Header(None)):
@@ -473,18 +458,31 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
     await verificar_firma_sfc(request, x_sfc_signature, is_file_upload=True)
     
     form_data = await request.form()
-    
     file_obj = form_data.get("file")
-    
-    if file_obj and ("TRIGGER_DUPLICATE" in file_obj.filename):
-        return JSONResponse(
-            status_code=400,
-            content={"file": ["El anexo ya existe, con el ID [8998896]."]}
-        )
-        
-    logger.info("Recibido archivo multipart/form-data de forma correcta en el Mock.")
-    
     codigo_queja_val = form_data.get("codigo_queja")
+
+    # 🎯 GUARDADO DE ARCHIVOS EN DISCO (mock/temp)
+    if file_obj and hasattr(file_obj, "filename"):
+        filename = file_obj.filename
+
+        if "TRIGGER_DUPLICATE" in filename:
+            return JSONResponse(
+                status_code=400,
+                content={"file": ["El anexo ya existe, con el ID [8998896]."]}
+            )
+
+        try:
+            MOCK_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            file_bytes = await file_obj.read()
+            file_dest_path = MOCK_TEMP_DIR / filename
+            
+            with open(file_dest_path, "wb") as f:
+                f.write(file_bytes)
+                
+            logger.info(f"📂 [MOCK STORAGE] Archivo adjunto guardado exitosamente en disk: {file_dest_path.resolve()}")
+        except Exception as e:
+            logger.error(f"❌ [MOCK STORAGE] Error guardando archivo local en mock/temp: {str(e)}")
+
     if codigo_queja_val == "TRIGGER_M3_CLOSED":
         return JSONResponse(
             status_code=400,
@@ -501,10 +499,10 @@ async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[
     
     return {
         "id": 99,
-        "file": "https://storage.googleapis.com/mock-sfc-bucket/uploaded_file.pdf",
+        "file": f"https://storage.googleapis.com/mock-sfc-bucket/{file_obj.filename if file_obj else 'uploaded.pdf'}",
         "type": "pdf",
         "state": 1,
-        "codigo_queja": form_data.get("codigo_queja", "142316551509974606")
+        "codigo_queja": codigo_queja_val or "142316551509974606"
     }
 
 
@@ -521,7 +519,6 @@ async def actualizar_queja_momento_3(
     chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
-    #await verificar_firma_sfc(request, x_sfc_signature, body_str)
     
     payload_recibido = await request.json()
     body_data = payload_recibido.get("Body", payload_recibido)

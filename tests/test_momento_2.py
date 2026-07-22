@@ -1,10 +1,12 @@
-# tests/test_momento_2.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+from pydantic import ValidationError
+
 from app.schemas.crm_payloads import Momento2QuejaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.integrations.sfc_client import SfcClient
 from app.core.exceptions import SfcIntegrationException
+
 
 class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
 
@@ -147,21 +149,17 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await service.ejecutar_envio_momento_2(payload_pydantic)
 
-    async def test_missing_smart_code(self):
-        """Valida que retorne un error si 'Smart_Code__c' llega como una cadena vacía."""
+    def test_missing_smart_code(self):
+        """Valida que Pydantic rechace la instanciación si faltan 'Smart_Code__c' y 'Case_id'."""
         payload_invalido = self.mock_datos_consolidados.copy()
         payload_invalido["Smart_Code__c"] = ""
+        payload_invalido["Case_id"] = ""
         
-        service = Momento2SincronizacionService(
-            sfc_client=self.sfc_client_mock, 
-            s3_client=self.s3_client_mock
-        )
-        
-        payload_pydantic = Momento2QuejaCrmInput(**payload_invalido)
-        
-        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
-        self.assertEqual(resultado["status"], "error")
-        self.assertIn("Falta el campo obligatorio 'Smart_Code__c'", resultado["message"])
+        with self.assertRaises(ValidationError) as ctx:
+            Momento2QuejaCrmInput(**payload_invalido)
+            
+        self.assertIn("Debe incluir al menos 'Case_id' o 'Smart_Code__c'", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

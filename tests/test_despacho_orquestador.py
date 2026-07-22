@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import date
 
-# 🎯 Corregido nombre del módulo a despacho_queja_orchestrator
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 from app.core.exceptions import SfcIntegrationException
@@ -126,8 +125,8 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
-            "nombre_archivo_final": "resolucion.pdf",
-            "archivos_s3": [{"nombre_archivo": "resolucion.pdf", "s3_key": "q/c.pdf", "bucket": "b1"}]
+            "cuerpo_respuesta_final": "<p>Estimado consumidor, su reclamación ha sido resuelta no favorablemente.</p>",
+            "archivos_s3": []
         })
         payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
 
@@ -155,10 +154,9 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
-            "nombre_archivo_final": "resolucion_cierre.pdf",
+            "cuerpo_respuesta_final": "<p>Notificación final de investigación de fraude y cierre del caso.</p>",
             "archivos_s3": [
-                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"},
-                {"nombre_archivo": "resolucion_cierre.pdf", "s3_key": "q/c.pdf", "bucket": "b1"}
+                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}
             ]
         })
         payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
@@ -190,15 +188,13 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
-            "nombre_archivo_final": "resolucion_cierre.pdf",
+            "cuerpo_respuesta_final": "<p>Respuesta final emitida tras la secuencia de auto-recuperación.</p>",
             "archivos_s3": [
-                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"},
-                {"nombre_archivo": "resolucion_cierre.pdf", "s3_key": "q/c.pdf", "bucket": "b1"}
+                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}
             ]
         })
         payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
 
-        # 🎯 Instanciación con los 5 argumentos posicionales requeridos por la excepción
         mock_404_error = SfcIntegrationException(
             404,                 # status_code
             "NOT_FOUND_ERROR",   # error_type
@@ -224,20 +220,12 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "status": "success", "message": "Caso cerrado definitivamente"
         }
 
-        # Ejecución del despacho
         resultado = await self.orquestador.procesar_despacho(payload)
 
         self.assertEqual(resultado["status"], "success")
-
-        # Asertar que M2 actuó de salvavidas
         self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once_with(payload=payload)
-
-        # Asertar que M3 Fraude se llamó 2 veces (Intento fallido + Reintento exitoso)
         self.assertEqual(self.orquestador.m3_service.ejecutar_gestion_fraude.call_count, 2)
-
-        # Asertar que M3 Cierre se completó al final
         self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_called_once_with(payload=payload)
-
 
     # ======================================================================
     # 🛡️ CASO 7: FALLO EN AUTO-RECUPERACIÓN SI M2 RETORNA ERROR
@@ -250,12 +238,11 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
-            "nombre_archivo_final": "resolucion.pdf",
-            "archivos_s3": [{"nombre_archivo": "resolucion.pdf", "s3_key": "q/c.pdf", "bucket": "b1"}]
+            "cuerpo_respuesta_final": "<p>Notificación de prueba para aborto por fallo en M2.</p>",
+            "archivos_s3": []
         })
         payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
 
-        # 🎯 Instanciación con los 5 argumentos posicionales requeridos por la excepción
         mock_404_error = SfcIntegrationException(
             404,
             "NOT_FOUND_ERROR",
@@ -267,7 +254,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         # Cierre M3 da 404
         self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = mock_404_error
 
-        # Creación M2 falla por validación de red
+        # Creación M2 falla
         self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
             "status": "error", "message": "Pipeline interrumpido: Timeout"
         }

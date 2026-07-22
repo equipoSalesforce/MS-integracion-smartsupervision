@@ -94,43 +94,30 @@ class Momento2QuejaCrmInput(BaseModel):
 
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
-
-    @model_validator(mode="after")
-    def resolver_identificadores_de_queja(self) -> "Momento2QuejaCrmInput":
-        """Garantiza la presencia de al menos un identificador y realiza auto-fallback."""
-        if not self.Case_id and not self.Smart_Code__c:
-            raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload de la petición.")
-
-        if not self.Smart_Code__c and self.Case_id:
-            self.Smart_Code__c = str(self.Case_id).strip()
-
-        if not self.Case_id and self.Smart_Code__c:
-            self.Case_id = str(self.Smart_Code__c).strip()
-
-        return self
     
     @model_validator(mode="after")
     def resolver_y_armar_smart_code(self) -> "Momento2QuejaCrmInput":
         """
+        Garantiza la presencia de al menos un identificador.
         Si recibe Case_id, construye el Smart_Code__c anteponiendo el prefijo regulatorio.
-        Si ya recibe Smart_Code__c, lo respeta.
+        Si ya recibe Smart_Code__c, lo respeta y asegura su prefijo.
         """
         if not self.Case_id and not self.Smart_Code__c:
-            raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload.")
+            raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload de la petición.")
 
-        prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}" # ej: "1423"
+        prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}" # Ej: "1423"
 
         # Caso 1: Solo enviaron Case_id -> Armamos Smart_Code__c con el prefijo
         if not self.Smart_Code__c and self.Case_id:
             raw_id = str(self.Case_id).strip()
             self.Smart_Code__c = f"{prefix}{raw_id}"
 
-        # Caso 2: Enviaron Smart_Code__c -> Nos aseguramos de que tenga el prefijo
+        # Caso 2: Enviaron Smart_Code__c -> Nos aseguramos de que tenga el prefijo regulatorio
         elif self.Smart_Code__c:
             clean_sc = str(self.Smart_Code__c).strip()
             self.Smart_Code__c = clean_sc if clean_sc.startswith(prefix) else f"{prefix}{clean_sc}"
 
-        # Mantener trazabilidad
+        # Garantizamos trazabilidad interna
         if not self.Case_id:
             self.Case_id = self.Smart_Code__c
 
@@ -203,11 +190,11 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     # --- Opcionales Cierre ---
     ClosedDate: Optional[date] = Field(None, description="Fecha de cierre")
     Favorabilidad__c: Optional[str] = Field(None, description="Favorabilidad")
-    a_favor_de__c: Optional[int] = Field(1, description="A favor de")
+    a_favor_de__c: Optional[str] = Field(None, description="A favor de")
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación")
-    Rectificacion__c: Optional[bool] = Field(False, description="Rectificación")
-    Prorroga__c: Optional[bool] = Field(False, description="Prórroga")
-    nombre_archivo_final: Optional[str] = Field(None, description="Archivo RESP_FINAL_SFC")
+    Rectificacion__c: Optional[str] = Field(None, description="Rectificación")
+    Prorroga__c: Optional[str] = Field("No", description="Prórroga")
+    cuerpo_respuesta_final: Optional[str] = Field(None, description="Cuerpo del correo en HTML con la respuesta final al caso")
 
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
@@ -222,17 +209,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         if es_estado_cierre:
             if not self.ClosedDate or not self.Favorabilidad__c or not self.Aceptacion__c:
                 raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'ClosedDate', 'Favorabilidad__c' y 'Aceptacion__c'.")
-            if num_archivos == 0:
-                raise ValueError("No se envió un documento de cierre del caso (RESP_FINAL_SFC).")
-            if not self.nombre_archivo_final:
-                if num_archivos == 1:
-                    self.nombre_archivo_final = self.archivos_s3[0].nombre_archivo
-                else:
-                    raise ValueError(f"Se recibieron {num_archivos} archivos. Es obligatorio especificar 'nombre_archivo_final'.")
-            else:
-                nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
-                if self.nombre_archivo_final not in nombres_en_lista:
-                    raise ValueError(f"El archivo especificado '{self.nombre_archivo_final}' no se encuentra dentro de archivos_s3.")
+            
+            # REGLA DE ORO: Debe venir el contenido del correo para construir el PDF
+            if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
+                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio incluir el contenido del correo en 'cuerpo_respuesta_final'.")
 
         # Validaciones para intenciones de FRAUDE
         if es_evento_fraude:

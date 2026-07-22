@@ -1,4 +1,3 @@
-# tests/test_momento_3_sync.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import date
@@ -6,11 +5,12 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.config import settings  # 👈 Importación para la API Key
+from app.core.config import settings
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.momento_3_sync import Momento3SincronizacionService
 from app.core.exceptions import SfcIntegrationException
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
+
 
 class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
@@ -29,7 +29,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
         self.smart_code_test = "16551509974609"
-        self.sfc_id_largo_test = f"1423{self.smart_code_test}"
+        self.sfc_id_largo_esperado = f"1423{self.smart_code_test}"
 
         # 📄 Base de proforma simulada para la SFC
         self.mock_mapper_response = {
@@ -77,23 +77,24 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
     # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINT UNIFICADO & PYDANTIC)
     # ======================================================================
 
-    def test_endpoint_cierre_fallo_pydantic_sin_archivos(self):
-        """Verifica que el despacho de cierre rechace la petición si no se envían adjuntos."""
+    def test_endpoint_cierre_fallo_pydantic_sin_cuerpo_correo(self):
+        """Verifica que el despacho de cierre rechace la petición si no se envía cuerpo_respuesta_final."""
         payload_invalido = self.base_crm_payload.copy()
         payload_invalido.update({
             "Status": "Closed",                           
             "ClosedDate": "2026-07-16",
             "Favorabilidad__c": "Favorable",              
             "Aceptacion__c": "Si",                        
-            "Rectificacion__c": False,                     
-            "Prorroga__c": False,                          
-            "archivos_s3": []  # 🚨 LISTA VACÍA: Gatilla el ValueError de negocio
+            "Rectificacion__c": "No",                     
+            "Prorroga__c": "No",                          
+            "cuerpo_respuesta_final": "",  # 🚨 TEXTO VACÍO: Gatilla el ValueError de Pydantic
+            "archivos_s3": []
         })
         
         response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_invalido)
         
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
-        self.assertIn("No se envió un documento de cierre del caso", response.text)
+        self.assertIn("cuerpo_respuesta_final", response.text)
 
     def test_endpoint_fraude_fallo_pydantic_ambiguedad_archivos(self):
         """Verifica el rechazo si vienen múltiples archivos en fraude pero no se especifica el principal."""
@@ -126,7 +127,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
         payload_tramite = self.base_crm_payload.copy()
         payload_tramite.update({
-            "tipo_operacion": "TRAMITE",
+            "Status": "In Progress",
             "producto_digital__c": "Si"
         })
 
@@ -136,12 +137,12 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.put_actualizar_queja.assert_called_once()
 
     # ======================================================================
-    # 🧪 SUITE 2: PRUEBAS UNITARIAS (LÓGICA CORE DEL SERVICIO & S3)
+    # 🧪 SUITE 2: PRUEBAS UNITARIAS (LÓGICA CORE DEL SERVICIO & GENERACIÓN DE PDF)
     # ======================================================================
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
-    async def test_servicio_cierre_autoasignacion_y_renombrado_un_solo_archivo(self, mock_mapper):
-        """Verifica que si viene un solo archivo en cierre, se autoasigne y renombre con RESP_FINAL_SFC."""
+    async def test_servicio_cierre_generacion_pdf_respuesta_final(self, mock_mapper):
+        """Verifica la generación del PDF de respuesta final y su transmisión a la SFC en cierre."""
         sfc_mock = self.mock_mapper_response.copy()
         sfc_mock["estado_cod"] = 4                        
         sfc_mock["fecha_cierre"] = "2026-07-16"           
@@ -153,27 +154,20 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         
         self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 99})
         self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "closed"})
-        
-        self.s3_client_mock.head_object = MagicMock(return_value={"ContentLength": 1024})
-        mock_body = MagicMock()
-        mock_body.read = MagicMock(return_value=b"bytes_pdf_cierre")
-        self.s3_client_mock.get_object = MagicMock(return_value={"Body": mock_body})
 
         servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
         
         payload_dict = self.base_crm_payload.copy()
         payload_dict.update({
             "Status": "Closed",
-            "ClosedDate": date(2026, 7, 16),
+            "ClosedDate": "2026-07-16",
             "Favorabilidad__c": "Favorable",
-            "a_favor_de__c": 1,
+            "a_favor_de__c": "1",
             "Aceptacion__c": "Si",
-            "Rectificacion__c": False,
-            "Prorroga__c": False,
-            "nombre_archivo_final": None,
-            "archivos_s3": [
-                {"nombre_archivo": "resolución_final.pdf", "s3_key": "path/resolucion.pdf", "bucket": "global-bucket"}
-            ]
+            "Rectificacion__c": "No",
+            "Prorroga__c": "No",
+            "cuerpo_respuesta_final": "<p>Estimado cliente, su reclamación ha sido resuelta a favor.</p>",
+            "archivos_s3": []
         })
         
         input_pydantic = QuejaUnificadaCrmInput(**payload_dict)
@@ -184,8 +178,9 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.post_adjunto_queja.assert_called_once()
         kwargs_archivo = self.sfc_client_mock.post_adjunto_queja.call_args[1]
         
-        self.assertEqual(kwargs_archivo["file_name"], "resolución_final_RESP_FINAL_SFC.pdf")
-        self.assertEqual(kwargs_archivo["sfc_codigo_queja"], self.sfc_id_largo_test)
+        # Aserta que el PDF generado incluya la convención de afijo oficial
+        self.assertEqual(kwargs_archivo["file_name"], f"Respuesta_Final_{self.sfc_id_largo_esperado}_RESP_FINAL_SFC.pdf")
+        self.assertEqual(kwargs_archivo["sfc_codigo_queja"], self.sfc_id_largo_esperado)
 
         self.sfc_client_mock.put_actualizar_queja.assert_called_once()
         payload_formulario_sfc = self.sfc_client_mock.put_actualizar_queja.call_args[1]["payload"]
@@ -215,13 +210,14 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         
         payload_dict = self.base_crm_payload.copy()
         payload_dict.update({
-            "tipo_operacion": "TRAMITE",
+            "Status": "In Progress",
             "producto_digital__c": "Si"
         })
         input_tramite = QuejaUnificadaCrmInput(**payload_dict)
 
         with self.assertRaises(SfcIntegrationException):
             await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
+
 
 if __name__ == "__main__":
     unittest.main()

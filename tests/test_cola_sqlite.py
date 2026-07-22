@@ -14,11 +14,11 @@ from app.core.exceptions import SfcIntegrationException
 from app.api.dependencies import get_sfc_client, get_s3_client
 
 
-# 🛠️ Clases Mock dinámicas para interceptar cualquier llamada asíncrona a la SFC
 class MockSfcClientSuccess:
     """Simula que cualquier método asíncrono invocado en la SFC responde exitosamente."""
     def __getattr__(self, name):
-        return AsyncMock(return_value={"status": "success", "sfc_code": "SFC-999888777666"})
+        return AsyncMock(return_value={"status": "success", "sfc_code": "1423999888777666"})
+
 
 class MockSfcClientDown:
     """Simula que cualquier método asíncrono invocado en la SFC lanza error de servidor (502)."""
@@ -30,6 +30,7 @@ class MockSfcClientDown:
             sfc_field="general",
             crm_action="Reintentar automáticamente más tarde"
         ))
+
 
 class MockSfcClientTimeout:
     """Simula un fallo de conexión o timeout contra la SFC."""
@@ -56,12 +57,12 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
-        # Payload CRM completo con los 29 campos requeridos por Pydantic
+        self.smart_code_esperado = "1423999888777666"
+
         self.payload_crm_test = {
             "Smart_Code__c": "999888777666",
             "CreatedDate": "2026-07-21T10:00:00",
             "Status": "New",
-            "tipo_operacion": "AUTO",
             "SuppliedName": "Prueba Contingencia Cola",
             "SC_id_type__c": "CC",
             "id_number__c": "123456789",
@@ -88,24 +89,19 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
     async def test_despacho_sfc_caida_encola_correctamente(self):
-        """
-        Escenario A: Cuando la SFC retorna error 502/SFC_DOWN,
-        el endpoint responde 202 Accepted y guarda la queja en SQLite local.
-        """
+        """Escenario A: Error 502/SFC_DOWN guarda en SQLite local."""
         app.dependency_overrides[get_sfc_client] = lambda: MockSfcClientDown()
 
         with patch("app.api.routes_quejas.AsyncSessionLocal", self.async_session_factory):
             response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload_crm_test)
 
-            # Verificaciones de respuesta HTTP
             self.assertEqual(response.status_code, 202)
             data = response.json()
             self.assertEqual(data["status"], "queued")
-            self.assertEqual(data["smart_code"], "999888777666")
+            self.assertEqual(data["smart_code"], self.smart_code_esperado)
 
-            # Verificación de persistencia en SQLite
             async with self.async_session_factory() as session:
-                stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == "999888777666")
+                stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == self.smart_code_esperado)
                 result = await session.execute(stmt)
                 registro = result.scalars().first()
 
@@ -114,18 +110,14 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(registro.intentos, 1)
 
     async def test_job_scheduler_reintenta_y_marca_exitoso(self):
-        """
-        Escenario B: El worker procesa los pendientes y, si la SFC responde OK,
-        marca el registro en SQLite como EXITOSO.
-        """
+        """Escenario B: El worker procesa pendientes y marca EXITOSO si SFC responde OK."""
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         sfc_success_mock = MockSfcClientSuccess()
 
-        # 1. Registrar caso PENDIENTE en SQLite
         async with self.async_session_factory() as session:
             item = ColaDespachoModel(
-                smart_code="999888777666",
-                tipo_operacion="AUTO",
+                smart_code=self.smart_code_esperado,
+                tipo_operacion="AUTO",  # 👈 Se añade tipo_operacion para cumplir la restricción NOT NULL
                 payload_json=self.payload_crm_test,
                 estado="PENDIENTE",
                 intentos=1,
@@ -134,33 +126,28 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
             session.add(item)
             await session.commit()
 
-        # 2. Ejecutar el Job con la SFC simulada exitosa
         with patch("app.workers.scheduler.AsyncSessionLocal", self.async_session_factory), \
              patch("app.workers.scheduler.get_sfc_client", return_value=sfc_success_mock), \
              patch("app.workers.scheduler.get_s3_client", return_value=self.s3_client_mock):
 
             await reintentar_despachos_pendientes_job()
 
-        # 3. Validar estado en SQLite
         async with self.async_session_factory() as session:
-            stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == "999888777666")
+            stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == self.smart_code_esperado)
             result = await session.execute(stmt)
             registro = result.scalars().first()
 
             self.assertEqual(registro.estado, "EXITOSO")
 
     async def test_job_scheduler_falla_incrementa_intentos(self):
-        """
-        Escenario C: Si la SFC sigue caída en el reintento,
-        mantiene el estado PENDIENTE e incrementa la cantidad de intentos.
-        """
+        """Escenario C: Si SFC sigue caída, incrementa intentos."""
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         sfc_timeout_mock = MockSfcClientTimeout()
 
         async with self.async_session_factory() as session:
             item = ColaDespachoModel(
-                smart_code="999888777666",
-                tipo_operacion="AUTO",
+                smart_code=self.smart_code_esperado,
+                tipo_operacion="AUTO",  # 👈 Se añade tipo_operacion para cumplir la restricción NOT NULL
                 payload_json=self.payload_crm_test,
                 estado="PENDIENTE",
                 intentos=1,
@@ -176,7 +163,7 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
             await reintentar_despachos_pendientes_job()
 
         async with self.async_session_factory() as session:
-            stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == "999888777666")
+            stmt = select(ColaDespachoModel).where(ColaDespachoModel.smart_code == self.smart_code_esperado)
             result = await session.execute(stmt)
             registro = result.scalars().first()
 

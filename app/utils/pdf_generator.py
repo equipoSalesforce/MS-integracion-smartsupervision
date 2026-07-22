@@ -1,7 +1,36 @@
 # app/utils/pdf_generator.py
+import textwrap
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject
+
+
+def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 80) -> str:
+    """
+    Aplica word-wrapping automático a cada párrafo del texto para evitar 
+    que las líneas largas se salgan de los márgenes del PDF.
+    """
+    if not texto:
+        return ""
+
+    lineas_formateadas = []
+    
+    # Procesamos párrafo por párrafo para no romper la estructura original
+    for linea in texto.split("\n"):
+        if len(linea.strip()) > max_caracteres_por_linea:
+            # Reorganiza las palabras respetando el ancho máximo
+            linea_envuelta = textwrap.fill(
+                linea, 
+                width=max_caracteres_por_linea, 
+                break_long_words=False,
+                replace_whitespace=False
+            )
+            lineas_formateadas.append(linea_envuelta)
+        else:
+            lineas_formateadas.append(linea)
+
+    return "\n".join(lineas_formateadas)
+
 
 def generar_pdf_respuesta_final(
     caso_nombre: str, 
@@ -10,9 +39,8 @@ def generar_pdf_respuesta_final(
     ruta_salida: str | Path
 ) -> Path:
     """
-    Lee la plantilla PDF interactiva, inyecta los valores correspondientes,
-    aplica protección contra escritura a nivel lógico pero libera las banderas
-    visuales para permitir que el texto sea completamente copiable y seleccionable.
+    Lee la plantilla PDF interactiva, ajusta el ancho de línea del texto,
+    inyecta los valores correspondientes y aplica protección contra escritura.
     """
     ruta_plantilla = Path("app/resources/plantilla_respuesta_final.pdf")
     ruta_output = Path(ruta_salida)
@@ -26,10 +54,13 @@ def generar_pdf_respuesta_final(
     writer = PdfWriter()
     writer.append(reader)
 
+    # 🎯 Aplicamos el ajuste de línea automático al cuerpo del mensaje
+    texto_ajustado = ajustar_ancho_texto(texto_crm, max_caracteres_por_linea=80)
+
     datos_formulario = {
         "caso_nombre": caso_nombre,
         "smart_code": smart_code,
-        "mensaje_cuerpo": texto_crm
+        "mensaje_cuerpo": texto_ajustado
     }
 
     # Inyectamos la información en el formulario
@@ -38,35 +69,25 @@ def generar_pdf_respuesta_final(
         datos_formulario
     )
 
-    # 🎯 CONFIGURACIÓN DE SELECCIONABILIDAD Y SEGURIDAD:
-    
-    # 1. Bloqueo en el Catálogo Global de Campos
+    # 🎯 CONFIGURACIÓN DE SELECCIONABILIDAD Y SEGURIDAD LÓGICA
     if "/AcroForm" in writer._root_object:
         acro = writer._root_object["/AcroForm"].get_object()
         if "/Fields" in acro:
             for field_ref in acro["/Fields"]:
                 field_obj = field_ref.get_object()
-                
-                # Forzamos No-Editable (/Ff = 1) en el nodo raíz del campo
                 if "/T" in field_obj:
                     f_flags = field_obj.get("/Ff", 0)
                     field_obj[NameObject("/Ff")] = NumberObject(f_flags | 1)
-                
-                # Si tiene hijos lógicos, los protegemos también
                 if "/Kids" in field_obj:
                     for kid_ref in field_obj["/Kids"]:
                         k = kid_ref.get_object()
                         f_flags = k.get("/Ff", 0)
                         k[NameObject("/Ff")] = NumberObject(f_flags | 1)
 
-    # 2. Configuración en las Anotaciones Visuales de la Página (Aquí ocurre la magia)
     if "/Annots" in writer.pages[0]:
         for annot in writer.pages[0]["/Annots"]:
             obj = annot.get_object()
-            
-            # Verificamos si es un Widget de formulario
             if obj.get("/Subtype") == "/Widget":
-                # A) Aseguramos que el campo lógico adjunto sea No-Editable
                 if "/Parent" in obj:
                     parent = obj["/Parent"].get_object()
                     p_flags = parent.get("/Ff", 0)
