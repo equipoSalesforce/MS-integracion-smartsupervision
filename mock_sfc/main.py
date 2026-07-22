@@ -21,7 +21,7 @@ app = FastAPI(
 # ======================================================================
 SECRET_KEY_TEST = os.getenv("SFC_SECRET_KEY", "global66_sfc_secret_key_testing_2026")
 
-env_verify = os.getenv("VERIFY_SIGNATURES", "false")
+env_verify = os.getenv("SFC_VERIFY_SIGNATURES", "true")
 if isinstance(env_verify, str):
     VERIFY_SIGNATURES = env_verify.lower() in ("true", "1", "yes")
 else:
@@ -77,28 +77,58 @@ async def obtener_estado_mock():
 # ======================================================================
 # 🔐 UTILERÍA: Verificador de Firmas de la SFC
 # ======================================================================
-def verificar_firma_sfc(request: Request, signature_recibida: Optional[str], body_str: str = "") -> bool:
+async def verificar_firma_sfc(
+    request: Request, 
+    signature_recibida: Optional[str], 
+    is_file_upload: bool = False
+) -> bool:
     if not VERIFY_SIGNATURES:
         return True
+
     if not signature_recibida:
         raise HTTPException(
-            status_code=400, 
+            status_code=status.HTTP_400_BAD_REQUEST, 
             detail={"status_code": 400, "message": "missing header X-SFC-Signature"}
         )
-    
+
     key_bytes = bytes(SECRET_KEY_TEST, 'utf-8')
-    
-    if request.method == "GET":
-        url_completa = str(request.url)
-        expected_sig = hmac.new(key_bytes, msg=url_completa.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+    method = request.method.upper()
+
+    # 1. Estrategia GET (Firma de URL)
+    if method == "GET":
+        # Usamos request.url o la ruta relativa según el acuerdo de tu cliente
+        url_target = str(request.url)
+        expected_sig = hmac.new(key_bytes, msg=url_target.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+
+    # 2. Estrategia Multipart / Archivos (/api/storage/)
+    elif is_file_upload:
+        form = await request.form()
+        filtered_data = {
+            "codigo_queja": form.get("codigo_queja"),
+            "type": form.get("type")
+        }
+        serialized = json.dumps(filtered_data, ensure_ascii=False)
+        expected_sig = hmac.new(key_bytes, msg=serialized.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+
+    # 3. Estrategia JSON Standard (POST, PUT, PATCH)
     else:
-        expected_sig = hmac.new(key_bytes, msg=body_str.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
-        
+        try:
+            body_json = await request.json()
+            # Serializamos exactamente igual a como lo hace el cliente
+            serialized = json.dumps(body_json, ensure_ascii=False)
+            expected_sig = hmac.new(key_bytes, msg=serialized.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+        except Exception:
+            # Fallback a body plano si no fuera un JSON válido
+            body_bytes = await request.body()
+            expected_sig = hmac.new(key_bytes, msg=body_bytes, digestmod=hashlib.sha256).hexdigest().upper()
+
+    # Comparación segura en tiempo constante
     if not hmac.compare_digest(expected_sig, signature_recibida.upper()):
         raise HTTPException(
-            status_code=400, 
+            status_code=status.HTTP_400_BAD_REQUEST, 
             detail={"status_code": 400, "message": "Sign verification failed"}
         )
+
     return True
 
 
@@ -431,11 +461,11 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
 @app.post("/api/storage/", status_code=status.HTTP_201_CREATED, tags=["Adjuntos"])
 async def upload_file_momento_2_y_3(request: Request, x_sfc_signature: Optional[str] = Header(None)):
     chequear_estado_servidor()
-    body_bytes = await request.body()
-    body_str = body_bytes.decode('utf-8', errors='ignore')
-    verificar_firma_sfc(request, x_sfc_signature, body_str)
+
+    await verificar_firma_sfc(request, x_sfc_signature, is_file_upload=True)
     
     form_data = await request.form()
+    
     file_obj = form_data.get("file")
     
     if file_obj and ("TRIGGER_DUPLICATE" in file_obj.filename):
