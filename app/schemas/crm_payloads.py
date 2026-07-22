@@ -1,7 +1,7 @@
 # app/schemas/crm_payloads.py
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator, ValidationInfo
-from typing import List, Optional, Literal
+from typing import List, Optional
 from datetime import date
 
 from app.core.mapping import SfcSalesforceMapper
@@ -91,9 +91,6 @@ class Momento2QuejaCrmInput(BaseModel):
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
 
-    # ------------------------------------------------------------------
-    # 🧼 VALIDACIONES DE LIMPIEZA Y FORMATEO
-    # ------------------------------------------------------------------
     @field_validator("id_number__c", mode="before")
     @classmethod
     def limpiar_id_solo_numeros(cls, v: str) -> str:
@@ -104,9 +101,6 @@ class Momento2QuejaCrmInput(BaseModel):
     def limpiar_espacios_y_caracteres(cls, v: str) -> str:
         return v.strip() if isinstance(v, str) else v
 
-    # ------------------------------------------------------------------
-    # 🛡️ VALIDACIÓN DINÁMICA DE VALORES DE CATÁLOGO DESDE EL MAPPER
-    # ------------------------------------------------------------------
     @field_validator(
         "SC_id_type__c", "sc_genero__c", "tipo_de_persona__c", "sc_LGBTIQ__c",
         "sc_Condicion_especial__c", "canal__c", "punto_recepcion",
@@ -115,7 +109,6 @@ class Momento2QuejaCrmInput(BaseModel):
     )
     @classmethod
     def validar_picklist_contra_mapper(cls, value: str, info: ValidationInfo) -> str:
-        """Valida que el valor ingresado exista en el catálogo oficial en RAM."""
         field_to_catalog = {
             "SC_id_type__c": "tipo_id",
             "sc_genero__c": "genero",
@@ -133,10 +126,8 @@ class Momento2QuejaCrmInput(BaseModel):
         if cat_key:
             allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
             if value not in allowed:
-                # Búsqueda tolerante en minusculas
                 normalized_val = SfcSalesforceMapper._normalize_text(value)
                 allowed_normalized = {SfcSalesforceMapper._normalize_text(a) for a in allowed}
-                
                 if normalized_val not in allowed_normalized:
                     raise ValueError(
                         f"El valor '{value}' no es válido para {info.field_name}. "
@@ -146,12 +137,14 @@ class Momento2QuejaCrmInput(BaseModel):
 
 
 # ======================================================================
-# 🚀 ESQUEMA UNIFICADO DE DESPACHO
+# 🚀 ESQUEMA UNIFICADO DE DESPACHO (SIN TIPO_OPERACION)
 # ======================================================================
 
 class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
-    tipo_operacion: Optional[Literal["AUTO", "TRAMITE", "FRAUDE", "CIERRE"]] = Field("AUTO", description="Tipo de flujo")
-
+    """
+    Payload unificado del CRM. Infiere automáticamente las intenciones de negocio
+    basándose exclusivamente en los campos provistos.
+    """
     # --- Opcionales Trámite ---
     producto_digital__c: Optional[str] = Field("Si", description="Producto digital")
 
@@ -172,14 +165,18 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     nombre_archivo_final: Optional[str] = Field(None, description="Archivo RESP_FINAL_SFC")
 
     @model_validator(mode="after")
-    def validar_reglas_segun_tipo_evento(self) -> "QuejaUnificadaCrmInput":
+    def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
+        """
+        Infiere la intención basándose únicamente en la presencia de variables de Cierre o Fraude.
+        """
         num_archivos = len(self.archivos_s3)
-        es_estado_cierre = self.Status == "Closed" or self.ClosedDate is not None
+        es_estado_cierre = self.Status == "Closed" or self.ClosedDate is not None or self.Favorabilidad__c is not None
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
-        if es_estado_cierre or self.tipo_operacion == "CIERRE":
+        # Validaciones para intenciones de CIERRE
+        if es_estado_cierre:
             if not self.ClosedDate or not self.Favorabilidad__c or not self.Aceptacion__c:
-                raise ValueError("Para ejecutar el Cierre Definitivo (Estado 4) es obligatorio proveer 'ClosedDate', 'Favorabilidad__c' y 'Aceptacion__c'.")
+                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'ClosedDate', 'Favorabilidad__c' y 'Aceptacion__c'.")
             if num_archivos == 0:
                 raise ValueError("No se envió un documento de cierre del caso (RESP_FINAL_SFC).")
             if not self.nombre_archivo_final:
@@ -192,7 +189,8 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                 if self.nombre_archivo_final not in nombres_en_lista:
                     raise ValueError(f"El archivo especificado '{self.nombre_archivo_final}' no se encuentra dentro de archivos_s3.")
 
-        if es_evento_fraude or self.tipo_operacion == "FRAUDE":
+        # Validaciones para intenciones de FRAUDE
+        if es_evento_fraude:
             if num_archivos == 0:
                 raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
             if not self.nombre_archivo_fraude:

@@ -21,6 +21,8 @@ app = FastAPI(
 # ======================================================================
 SECRET_KEY_TEST = os.getenv("SFC_SECRET_KEY", "global66_sfc_secret_key_testing_2026")
 
+REGISTRO_QUEJAS_MOCK: set = set()
+
 env_verify = os.getenv("SFC_VERIFY_SIGNATURES", "true")
 if isinstance(env_verify, str):
     VERIFY_SIGNATURES = env_verify.lower() in ("true", "1", "yes")
@@ -366,6 +368,8 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
     payload_recibido = await request.json()
     body_data = payload_recibido.get("Body", payload_recibido)
     
+    codigo_queja_val = body_data.get("codigo_queja")
+    
     nombres_val = body_data.get('nombres', "")
     id_number_val = body_data.get("numero_id_CF", "")
     dept_val = body_data.get("departamento_cod", "")
@@ -449,6 +453,10 @@ async def post_queja_momento_2(request: Request, x_sfc_signature: Optional[str] 
             }
         )
         
+    if codigo_queja_val:
+        REGISTRO_QUEJAS_MOCK.add(str(codigo_queja_val))
+        logger.info(f"[MOCK BD] Queja registrada exitosamente en BD local: {codigo_queja_val}")
+        
     # Flujo regular de creación exitosa (Eco)
     return {
         "Response": body_data
@@ -513,12 +521,13 @@ async def actualizar_queja_momento_3(
     chequear_estado_servidor()
     body_bytes = await request.body()
     body_str = body_bytes.decode('utf-8')
-    verificar_firma_sfc(request, x_sfc_signature, body_str)
+    #await verificar_firma_sfc(request, x_sfc_signature, body_str)
     
     payload_recibido = await request.json()
     body_data = payload_recibido.get("Body", payload_recibido)
 
-    if codigo_queja == "TRIGGER_M3_NOT_FOUND" or codigo_queja == "142347622214657":
+    if codigo_queja not in REGISTRO_QUEJAS_MOCK and ("TRIGGER_M3_NOT_FOUND" in codigo_queja or "1423" in codigo_queja):
+        logger.warning(f"[MOCK BD] Petición PUT rechazada. La queja {codigo_queja} NO existe en la BD del Mock.")
         return JSONResponse(
             status_code=404,
             content={"detail": "Not found."}

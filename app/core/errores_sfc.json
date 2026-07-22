@@ -158,5 +158,20 @@
     "subcadena": "Token expiró",
     "tipo": "AUTH_ERROR",
     "accion": "Volver a guardar."
+  },
+  {
+    "subcadena": "not found",
+    "tipo": "NOT_FOUND_ERROR",
+    "accion": "La queja no existe en la SFC. El sistema intentará recuperarla automáticamente creando el caso (Momento 2) y reintentando el cierre."
+  },
+  {
+    "subcadena": "no existe",
+    "tipo": "NOT_FOUND_ERROR",
+    "accion": "La queja no existe en la SFC. El sistema intentará recuperarla automáticamente creando el caso (Momento 2) y reintentando el cierre."
+  },
+  {
+    "subcadena": "does not exist",
+    "tipo": "NOT_FOUND_ERROR",
+    "accion": "La queja no existe en la SFC. El sistema intentará recuperarla automáticamente creando el caso (Momento 2) y reintentando el cierre."
   }
 ]

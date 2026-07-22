@@ -104,7 +104,7 @@ class Momento2SincronizacionService:
                     
                     file_bytes = b"Contenido ficticio simulado localmente por el gateway de Global66."
                     file_type = s3_key.split(".")[-1] if "." in s3_key else "pdf"
-                    file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
+                    file_name = archivo.nombre_archivo or (s3_key.split("/")[-1] if "/" in s3_key else s3_key)
 
                     tareas_envio.append(self.sfc_client.post_adjunto_queja(
                         sfc_codigo_queja=sfc_code,
@@ -119,8 +119,7 @@ class Momento2SincronizacionService:
                 
                 return
             else:
-                logger.error("Error de infraestructura: El cliente S3 no está inicializado en producción.")
-                return
+                raise ValueError("Error de infraestructura: El cliente S3 no está inicializado en producción.")
 
         tareas_envio = []
 
@@ -150,7 +149,7 @@ class Momento2SincronizacionService:
             )
             file_bytes = s3_file["Body"].read()
             file_type = s3_key.split(".")[-1] if "." in s3_key else "pdf"
-            file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
+            file_name = archivo.nombre_archivo or (s3_key.split("/")[-1] if "/" in s3_key else s3_key)
             
             tareas_envio.append(self.sfc_client.post_adjunto_queja(
                 sfc_codigo_queja=sfc_code,

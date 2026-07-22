@@ -13,6 +13,7 @@ from app.schemas.crm_payloads import QuejaUnificadaCrmInput, ArchivoS3Schema
 
 logger = logging.getLogger(__name__)
 
+
 class Momento3SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):
         self.sfc_client = sfc_client
@@ -79,7 +80,6 @@ class Momento3SincronizacionService:
         # 🛠️ 1. Transformación Íntegra con el Mapper Universal (Textos CRM -> Códigos SFC)
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
         
-        # Extraemos el código de estado ya mapeado para mantener la trazabilidad en logs
         estado_cod = sfc_raw_payload.get("estado_cod", 2)
         logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado SFC: {estado_cod})")
 
@@ -94,7 +94,7 @@ class Momento3SincronizacionService:
                     afijo_regulatorio=afijo_regulatorio
                 )
 
-            # 🛠️ 2. Inyección exclusiva de Metadatos Regulatorios de Control Operacional
+            # 🛠️ 2. Inyección de Metadatos Regulatorios de Control Operacional
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = len(archivos_s3_raw) > 0
             sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
@@ -126,6 +126,7 @@ class Momento3SincronizacionService:
             }
 
         except SfcIntegrationException:
+            # Re-lanzamos para permitir la auto-recuperación en el Orquestador Unificado
             raise
         except Exception as e:
             logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
@@ -152,9 +153,10 @@ class Momento3SincronizacionService:
                     
                     file_name = nombre_archivo
                     if target_file_name and nombre_archivo == target_file_name:
-                        nombre_puro = nombre_archivo.rsplit(".", 1)[0]
-                        file_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
-                        logger.info(f"[LOCAL TEST M3] Aplicando afijo. Renombrado exitoso a: {file_name}")
+                        if afijo_regulatorio and afijo_regulatorio not in nombre_archivo:
+                            nombre_puro = nombre_archivo.rsplit(".", 1)[0]
+                            file_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
+                        logger.info(f"[LOCAL TEST M3] Aplicando afijo. Nombre de envío: {file_name}")
 
                     file_bytes = b"Contenido de resolucion digital simulado por Global66."
                     tareas_envio.append(self.sfc_client.post_adjunto_queja(
@@ -183,8 +185,11 @@ class Momento3SincronizacionService:
             file_bytes = s3_file["Body"].read()
 
             if target_file_name and original_name == target_file_name:
-                nombre_puro = original_name.rsplit(".", 1)[0]
-                final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
+                if afijo_regulatorio and afijo_regulatorio not in original_name:
+                    nombre_puro = original_name.rsplit(".", 1)[0]
+                    final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
+                else:
+                    final_send_name = original_name
                 logger.info(f"[Momento 3] Aplicando afijo oficial. Transmutando '{original_name}' a '{final_send_name}'")
             else:
                 final_send_name = original_name

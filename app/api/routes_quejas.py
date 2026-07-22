@@ -149,7 +149,7 @@ async def despachar_queja_crm(
                 queue_service = QueueService(session)
                 await queue_service.encolar_despacho(
                     smart_code=payload.Smart_Code__c,
-                    tipo_operacion=payload.tipo_operacion or "AUTO",
+                    tipo_operacion="AUTO",
                     payload_json=payload.model_dump(mode="json"),
                     error_inicial=exc.raw_message or str(exc)
                 )
