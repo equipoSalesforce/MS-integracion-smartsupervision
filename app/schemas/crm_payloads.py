@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import date
 
 from app.core.mapping import SfcSalesforceMapper
+from app.core.config import settings
 
 class ArchivoS3Schema(BaseModel):
     nombre_archivo: str = Field(..., description="Nombre final del archivo guardado")
@@ -50,7 +51,10 @@ class QuejaMapeadaCrmResponse(BaseModel):
 # ======================================================================
 
 class Momento2QuejaCrmInput(BaseModel):
-    Smart_Code__c: str = Field(..., description="Código único de la queja")
+    # 🎯 ID Interno y Smart Code son opcionales individualmente, pero al menos uno debe estar presente
+    Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce")
+    Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision")
+    
     CreatedDate: str = Field(..., description="Fecha/Hora de creación ISO")
     Status: Optional[str] = Field("New", description="Estado del caso dentro del CRM")
 
@@ -91,14 +95,55 @@ class Momento2QuejaCrmInput(BaseModel):
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
 
+    @model_validator(mode="after")
+    def resolver_identificadores_de_queja(self) -> "Momento2QuejaCrmInput":
+        """Garantiza la presencia de al menos un identificador y realiza auto-fallback."""
+        if not self.Case_id and not self.Smart_Code__c:
+            raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload de la petición.")
+
+        if not self.Smart_Code__c and self.Case_id:
+            self.Smart_Code__c = str(self.Case_id).strip()
+
+        if not self.Case_id and self.Smart_Code__c:
+            self.Case_id = str(self.Smart_Code__c).strip()
+
+        return self
+    
+    @model_validator(mode="after")
+    def resolver_y_armar_smart_code(self) -> "Momento2QuejaCrmInput":
+        """
+        Si recibe Case_id, construye el Smart_Code__c anteponiendo el prefijo regulatorio.
+        Si ya recibe Smart_Code__c, lo respeta.
+        """
+        if not self.Case_id and not self.Smart_Code__c:
+            raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload.")
+
+        prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}" # ej: "1423"
+
+        # Caso 1: Solo enviaron Case_id -> Armamos Smart_Code__c con el prefijo
+        if not self.Smart_Code__c and self.Case_id:
+            raw_id = str(self.Case_id).strip()
+            self.Smart_Code__c = f"{prefix}{raw_id}"
+
+        # Caso 2: Enviaron Smart_Code__c -> Nos aseguramos de que tenga el prefijo
+        elif self.Smart_Code__c:
+            clean_sc = str(self.Smart_Code__c).strip()
+            self.Smart_Code__c = clean_sc if clean_sc.startswith(prefix) else f"{prefix}{clean_sc}"
+
+        # Mantener trazabilidad
+        if not self.Case_id:
+            self.Case_id = self.Smart_Code__c
+
+        return self
+
     @field_validator("id_number__c", mode="before")
     @classmethod
     def limpiar_id_solo_numeros(cls, v: str) -> str:
         return re.sub(r"\D", "", v) if isinstance(v, str) else v
 
-    @field_validator("Smart_Code__c", mode="before")
+    @field_validator("Smart_Code__c", "Case_id", mode="before")
     @classmethod
-    def limpiar_espacios_y_caracteres(cls, v: str) -> str:
+    def limpiar_espacios_y_caracteres(cls, v: Optional[str]) -> Optional[str]:
         return v.strip() if isinstance(v, str) else v
 
     @field_validator(

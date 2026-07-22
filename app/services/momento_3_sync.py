@@ -75,7 +75,7 @@ class Momento3SincronizacionService:
             smart_code = payload.Smart_Code__c
             archivos_s3_raw = payload.archivos_s3
 
-        sfc_id_largo = f"{self.tipo_entidad}{self.entidad_cod}{smart_code}"
+        sfc_id_largo = smart_code
         
         # 🛠️ 1. Transformación Íntegra con el Mapper Universal (Textos CRM -> Códigos SFC)
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)

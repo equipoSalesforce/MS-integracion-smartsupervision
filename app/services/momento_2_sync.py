@@ -51,7 +51,7 @@ class Momento2SincronizacionService:
             # 2. Regla de Negocio: ID Compuesto regulatorio
             tipo_entidad = settings.SFC_TIPO_ENTIDAD
             entidad_cod = settings.SFC_ENTIDAD_COD
-            sfc_id_largo = f"{tipo_entidad}{entidad_cod}{smart_code}"
+            sfc_id_largo = payload.Smart_Code__c
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
 
             # 3. Validación de salida utilizando el esquema estricto de la SFC
@@ -80,7 +80,7 @@ class Momento2SincronizacionService:
             return {
                 "status": "success",
                 "message": "Queja y documentos transmitidos correctamente a la SFC de forma síncrona",
-                "codigo_queja_sfc": sfc_id_largo
+                "Smart_Code__c": sfc_id_largo
             }
 
         except SfcIntegrationException:
