@@ -203,8 +203,11 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación de la decisión")
     Rectificacion__c: Optional[str] = Field(None, description="Rectificación")
     Prorroga__c: Optional[str] = Field(None, description="Prórroga solicitada")
-    cuerpo_respuesta_final: Optional[str] = Field(None, description="Cuerpo del correo en HTML con la respuesta final al caso")
-
+    #TODO: Dejar listo el mensaje final real
+    cuerpo_respuesta_final: Optional[str] = Field(
+        "Se emite respuesta formal y cierre definitivo al caso de reclamación conforme a los términos de ley y políticas de la entidad.",
+        description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
+    )
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
@@ -221,8 +224,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
             # REGLA DE ORO: Debe venir el contenido del correo para construir el PDF
             if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
-                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio incluir el contenido del correo en 'cuerpo_respuesta_final'.")
-
+                self.cuerpo_respuesta_final = (
+                    "Se emite respuesta formal y cierre definitivo al caso de reclamación "
+                    "conforme a los términos de ley y políticas de la entidad."
+                )
         # Validaciones para intenciones de FRAUDE
         if es_evento_fraude:
             if num_archivos == 0:
