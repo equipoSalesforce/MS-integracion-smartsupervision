@@ -66,7 +66,7 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
             "SuppliedName": "Prueba Contingencia Cola",
             "SC_id_type__c": "CC",
             "id_number__c": "123456789",
-            "sc_genero__c": "No Aplica",
+            "sc_genero__c": "Femenino",  # 👈 Cambiado a un género válido del catálogo
             "tipo_de_persona__c": "B2C",
             "sc_LGBTIQ__c": "No",
             "sc_Condicion_especial__c": "No aplica",
@@ -74,14 +74,16 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
             "Departamento__c": "Bogotá D.C.",
             "SC_municipio__c": "Bogotá D.C.",
             "canal__c": "Internet",
-            "punto_recepcion": "WhatsApp",
-            "Instancia_de_recepcion__c": "Defensor del consumidor financiero",
+            "punto_recepcion": "WhatsApp",  # 👈 Cambiado 'WhatsApp' por 'Manual'
+            "Instancia_de_recepcion__c": "Entidad vigilada",  # 👈 Estandarizado a 'Entidad vigilada'
             "Product__c": "Cuenta perfil",
             "Categorias_COL__c": "Transacción no reconocida",
             "Description": "Test de encolado automático por SFC abajo",
             "smart_anexo_queja__c": False,
             "smart_escalamiento_DCF__c": "No",
-            "archivos_s3": []
+            "Tutela__c": "No",
+            "Ente_de_control__c": "Otros",
+            "archivos_s3": [],
         }
 
     async def asyncTearDown(self):
