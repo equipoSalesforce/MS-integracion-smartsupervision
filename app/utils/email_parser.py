@@ -40,23 +40,27 @@ class HTMLToPlainTextParser(HTMLParser):
 
 def aplicar_guillotina_de_hilo_y_footer(texto_plano: str) -> str:
     """Aplica guillotina por expresiones regulares sobre texto plano:
-    1. Guillotina Superior: Elimina cabeceras de correo tipo '... escribió:'.
-    2. Guillotina Inferior: Corta disclaimers, hilos antiguos de Outlook/Gmail y footers legales.
+    1. Guillotina Superior: Elimina cabeceras iniciales tipo '... escribió:'.
+    2. Guillotina Inferior: Corta en seco si encuentra cabeceras de hilos o disclaimers.
     """
     if not texto_plano or not texto_plano.strip():
         return ""
 
-    # 1. GUILLOTINA SUPERIOR: Si la cadena contiene "... escribió:", borra desde el inicio hasta esa palabra
+    # 1. GUILLOTINA SUPERIOR: Si el texto arranca con "... escribió:", borra hasta esa palabra
     if re.search(r"\b(?:escribi[óo]|wrote):\s*", texto_plano, flags=re.IGNORECASE):
         texto_plano = re.sub(r"(?is)^.*?\b(?:escribi[óo]|wrote):\s*", "", texto_plano)
 
-    # 2. GUILLOTINA INFERIOR: Cortar en seco al encontrar disclaimers o footers
+    # 2. GUILLOTINA INFERIOR: Cortar si encuentra cabeceras de hilos (Gmail/Outlook/Apple Mail)
+    # NOTA: Usamos [^\n]*? para garantizar que "El" u "On" estén en la MISMA LÍNEA que "escribió:"
+    # y evitar devorar párrafos de respuesta que inicien por "El..." (ej: "El dinero ha sido...").
     patrones_corte_inferior = [
-        r"\n\s*AVISO DE CONFIDENCIALIDAD.*",
+        r"\n\s*El\s+[^\n]*?\b(?:escribi[óo]|wrote):.*",  # Captura "El mié, 22 jul... escribió:" en una sola línea
+        r"\n\s*On\s+[^\n]*?\bwrote:.*",
         r"\n\s*De:\s+[^\n]+",
         r"\n\s*From:\s+[^\n]+",
         r"\n\s*Enviado el:\s+[^\n]+",
         r"\n\s*Sent:\s+[^\n]+",
+        r"\n\s*AVISO DE CONFIDENCIALIDAD.*",
         r"\n\s*En cumplimiento del literal a.*",
         r"¿Tienes dudas\?.*",
         r"Centro de ayuda.*",
@@ -75,24 +79,43 @@ def aplicar_guillotina_de_hilo_y_footer(texto_plano: str) -> str:
 
 
 def extraer_y_limpiar_dom(soup_node) -> str:
-    """Elimina imágenes y marcadores invisibles del DOM y extrae texto plano con saltos de línea."""
+    """Elimina imágenes, firmas y contenedores de hilos (div.gmail_quote, div.gmail_attr) del DOM."""
     node_copy = BeautifulSoup(str(soup_node), "html.parser")
 
+    # Eliminar imágenes
     for img in node_copy.find_all("img"):
         img.decompose()
-    for attr in node_copy.find_all(class_=re.compile(r"gmail_attr|gmail_quote_container")):
-        attr.decompose()
+
+    # Eliminar elementos de citas/atributos/firmas de Gmail y Outlook en el DOM
+    for trash in node_copy.find_all(class_=re.compile(r"gmail_quote|gmail_attr|gmail_signature")):
+        trash.decompose()
 
     texto_crudo = node_copy.get_text(separator="\n")
+    return aplicar_guillotina_de_hilo_y_footer(texto_crudo)
+
+
+def limpiar_cita_interna_dom(cita_dom) -> str:
+    """Procesa un blockquote eliminando cualquier cita o encabezado interno."""
+    cita_copy = BeautifulSoup(str(cita_dom), "html.parser")
+
+    # Eliminar blockquotes anidados
+    for inner_bq in cita_copy.find_all("blockquote"):
+        inner_bq.decompose()
+
+    # Eliminar divs que actúan como contenedores de citas en Gmail/Outlook
+    for trash in cita_copy.find_all(class_=re.compile(r"gmail_quote|gmail_attr|gmail_signature")):
+        trash.decompose()
+
+    texto_crudo = cita_copy.get_text(separator="\n")
     return aplicar_guillotina_de_hilo_y_footer(texto_crudo)
 
 
 def evaluar_puntaje_respuesta_oficial(texto: str) -> int:
     """Evalúa la probabilidad de que un texto sea la RESOLUCIÓN FINAL DE GLOBAL66 a la queja:
 
-    - Prioriza firmas institucionales de Global66 y lenguaje regulatorio (SFC/DCF).
-    - Evalúa la presencia de la decisión tomada (favorable/abono/investigación).
-    - Penaliza expresiones de reclamos o réplicas del consumidor.
+    - Prioriza firmas institucionales de Global66, roles B2B y lenguaje regulatorio (SFC/DCF).
+    - Evalúa la presencia de la decisión tomada (favorable/abono/investigación/cuenta aprobada).
+    - Penaliza expresiones de reclamos, soporte inicial o réplicas del consumidor.
     """
     if not texto or len(texto.strip()) < 10:
         return -100
@@ -104,26 +127,28 @@ def evaluar_puntaje_respuesta_oficial(texto: str) -> int:
     identificadores_global = [
         "global66", "global 66", "@global66.com", "respuesta@global66",
         "atención al consumidor financiero", "equipo de reclamaciones",
-        "defensor del consumidor financiero"
+        "defensor del consumidor financiero", "key account manager", "global66 empresas"
     ]
     for id_g in identificadores_global:
         if id_g in texto_lower:
             score += 50
 
-    # 2. CONTEXTO REGULATORIO Y RESOLUCIÓN DE QUEJA (+10 Pts c/u)
+    # 2. CONTEXTO REGULATORIO, RESOLUCIÓN DE QUEJA Y ONBOARDING B2B (+10 Pts c/u)
     jerga_queja_global = [
         "nos complace informarle", "hemos finalizado", "auditoría",
         "caso de reclamación", "caso #", "favorable", "desestimado",
         "se ha abonado", "reembolso", "devolución", "solicitud de manera definitiva",
         "escalado a un equipo especialista", "se encuentra activamente trabajando",
-        "damos respuesta", "en atención a su"
+        "damos respuesta", "en atención a su", "atento a", "aprobado", "aprobada",
+        "atenta a", "atentos a", "cuenta aprobada", "ya puedes operar", "cuenta operativa",
+        "cuenta habilitada", "onboarding"
     ]
     for jq in jerga_queja_global:
         if jq in texto_lower:
             score += 10
 
     # 3. ESTRUCTURA Y SALUDO FORMAL (+5 Pts c/u)
-    estructuras_formales = ["estimado", "estimada", "hola ", "atentamente", "cordialmente"]
+    estructuras_formales = ["estimado", "estimada", "hola ", "atentamente", "cordialmente", "saludos"]
     for ef in estructuras_formales:
         if ef in texto_lower:
             score += 5
@@ -132,7 +157,8 @@ def evaluar_puntaje_respuesta_oficial(texto: str) -> int:
     expresiones_cliente = [
         "espero solución", "ya verifiqué", "de acuerdo", "muchas gracias por",
         "adjunto el soporte", "mi cuenta", "me cobraron", "sigo a la espera",
-        "necesito respuesta", "solicito devolución"
+        "necesito respuesta", "solicito devolución", "necesito ayuda",
+        "página web ya que no está disponible", "error de sistema"
     ]
     for ec in expresiones_cliente:
         if ec in texto_lower:
@@ -185,15 +211,14 @@ def limpiar_texto_para_campo_pdf(html_str: str) -> str:
 
     # CANDIDATO A: Texto Fuera de la Cita (Parte Superior)
     soup_afuera = BeautifulSoup(str(soup), "html.parser")
-    for bq in soup_afuera.find_all("blockquote"):
-        bq.decompose()
+    for bq in soup_afuera.find_all(["blockquote", "div"]):
+        classes = bq.get("class", [])
+        if bq.name == "blockquote" or any(c in ["gmail_quote", "gmail_attr"] for c in classes):
+            bq.decompose()
     cand_fuera = extraer_y_limpiar_dom(soup_afuera)
 
     # CANDIDATO B: Texto Dentro de la Cita Principal (Parte Inferior, sin citas anidadas)
-    cita_copy = BeautifulSoup(str(cita_hilo), "html.parser")
-    for inner_bq in cita_copy.find_all("blockquote"):
-        inner_bq.decompose()
-    cand_dentro = extraer_y_limpiar_dom(cita_copy)
+    cand_dentro = limpiar_cita_interna_dom(cita_hilo)
 
     # Evaluación focalizada en la Respuesta Final de Global66
     score_fuera = evaluar_puntaje_respuesta_oficial(cand_fuera)
