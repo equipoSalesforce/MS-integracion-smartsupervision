@@ -129,7 +129,7 @@ class SincronizacionService:
         # Enriquecemos la queja mapeada agregando el listado de archivos que quedaron guardados en S3
         queja_traducida["archivos_s3"] = adjuntos_procesados
             
-        if settings.ENVIRONMENT == "local":
+        if settings.ENVIRONMENT == "local" and not adjuntos_procesados and tiene_anexos:
             bucket_local = getattr(settings, "AWS_S3_BUCKET", None) or "global66-sfc-bucket-local"
         
             queja_traducida["archivos_s3"] = [

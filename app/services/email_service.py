@@ -1,19 +1,33 @@
-# app/services/email_service.py
 import logging
 import smtplib
 import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class EmailAlertService:
+
+    @classmethod
+    def _obtener_destinatarios(cls, solo_dev: bool = False) -> List[str]:
+        """Resuelve los destinatarios según el entorno o si la alerta es exclusiva para Dev."""
+        if settings.ENVIRONMENT == "local":
+            return ["juan.camargo@global66.com"]
+        if solo_dev and settings.ALERT_NOTIFY_EMAILS:
+            return [settings.ALERT_NOTIFY_EMAILS[0]]
+        return settings.ALERT_NOTIFY_EMAILS or []
+
     @staticmethod
     def _enviar_smtp_sync(destinatarios: List[str], asunto: str, cuerpo_html: str):
         """Método síncrono que realiza la conexión SMTP pura."""
+        if not destinatarios:
+            logger.warning("⚠️ [Email Alert] No hay destinatarios configurados. Se omite envío.")
+            return
+
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = asunto
@@ -26,22 +40,24 @@ class EmailAlertService:
                 server.starttls()  # Seguridad TLS
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_USER, destinatarios, msg.as_string())
-                
-            logger.info(f"📧 [Email Alert] Alerta de infraestructura enviada exitosamente a: {destinatarios}")
-        except Exception as e:
-            logger.error(f"❌ [Email Alert] Error al enviar correo de alerta SMTP: {str(e)}")
 
+            logger.info(f"📧 [Email Alert] Alerta de infraestructura enviada a: {destinatarios}")
+        except Exception as e:
+            logger.error(f"❌ [Email Alert] Error al enviar correo SMTP: {str(e)}")
+
+    # =========================================================================
+    # 🚨 1. NOTIFICACIÓN DE INDISPONIBILIDAD INICIAL DE INFRAESTRUCTURA
+    # =========================================================================
     @classmethod
-    async def notificar_falla_infraestructura(cls, smart_code: str, error_msg: str, ambiente: str = settings.ENVIRONMENT):
-        """
-        Notifica asíncronamente a ti y a tu TL cuando ocurre una falla de infraestructura 
-        (SFC Caída / 502 / Timeout / Entrada a Cola SQLite).
-        """
+    async def notificar_falla_infraestructura(
+        cls, smart_code: str, error_msg: str, ambiente: str = settings.ENVIRONMENT
+    ):
+        """Notifica asíncronamente cuando ocurre un corte de red/SFC 502 y un caso entra a la cola."""
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
         asunto = f"🚨 [ALERTA INFRA] SFC Caída / Caso encolado: {smart_code} [{ambiente.upper()}]"
-        
+
         cuerpo_html = f"""
         <html>
             <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
@@ -62,42 +78,33 @@ class EmailAlertService:
         </html>
         """
 
-        # 🚀 Ejecutamos el envío en un hilo secundario para no demorar la respuesta de la API
-        
-        destinatarios = settings.ALERT_NOTIFY_EMAILS
-        
-        if settings.ENVIRONMENT == "local":
-            destinatarios = ["juan.camargo@global66.com"]
-        
         asyncio.create_task(
             asyncio.to_thread(
                 cls._enviar_smtp_sync,
-                destinatarios=destinatarios,
+                destinatarios=cls._obtener_destinatarios(),
                 asunto=asunto,
                 cuerpo_html=cuerpo_html
             )
         )
-        
-    # app/services/email_service.py (Añadir dentro de la clase EmailAlertService)
 
+    # =========================================================================
+    # ⚠️ 2. NOTIFICACIÓN DE ERROR NO MAPEADO (SOLO PARA DEV)
+    # =========================================================================
     @classmethod
     async def notificar_error_no_mapeado(
-        cls, 
-        status_code: int, 
-        raw_message: str, 
-        sfc_field: Optional[str] = None, 
+        cls,
+        status_code: int,
+        raw_message: str,
+        sfc_field: Optional[str] = None,
+        smart_code: Optional[str] = None,
         ambiente: str = settings.ENVIRONMENT
     ):
-        """
-        Notifica EXCLUSIVAMENTE al desarrollador (posición 0 de ALERT_NOTIFY_EMAILS)
-        cuando la SFC devuelve un mensaje de error no reconocido en errores_sfc.json.
-        """
-        if not settings.ALERT_EMAILS_ENABLED or not settings.ALERT_NOTIFY_EMAILS:
+        """Notifica EXCLUSIVAMENTE al desarrollador cuando la SFC devuelve un error desconocido."""
+        if not settings.ALERT_EMAILS_ENABLED:
             return
 
-        # 🎯 Seleccionamos únicamente la posición 0 (Tu correo)
-        destinatario_dev = [settings.ALERT_NOTIFY_EMAILS[0]]
-        asunto = f"⚠️ [NUEVO ERROR NO MAPEADO SFC] HTTP {status_code} [{ambiente.upper()}]"
+        destinatario_dev = cls._obtener_destinatarios(solo_dev=True)
+        asunto = f"⚠️ [NUEVO ERROR NO MAPEADO SFC] HTTP {status_code} | Caso: {smart_code or 'N/A'} [{ambiente.upper()}]"
 
         cuerpo_html = f"""
         <html>
@@ -110,7 +117,11 @@ class EmailAlertService:
                     
                     <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; width: 30%;"><strong>Código HTTP:</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; width: 30%;"><strong>Smart Code / Caso:</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong style="color: #0275d8;"><code>{smart_code or 'N/A'}</code></strong></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Código HTTP:</strong></td>
                             <td style="padding: 8px; border: 1px solid #ddd;"><code>{status_code}</code></td>
                         </tr>
                         <tr>
@@ -126,18 +137,172 @@ class EmailAlertService:
                     </table>
 
                     <div style="margin-top: 15px; background-color: #eef7ff; padding: 12px; border-left: 4px solid #0275d8;">
-                        💡 <strong>Acción recomendada:</strong> Copia la subcadena relevante de este error y agrégala a <code>app/core/errores_sfc.json</code> con su correspondiente diagnóstico para el CRM.
+                        💡 <strong>Acción recomendada:</strong> Revisa el payload enviado para el caso <code>{smart_code or 'N/A'}</code>, copia la subcadena relevante de este error y agrégala a <code>app/core/errores_sfc.json</code>.
                     </div>
                 </div>
             </body>
         </html>
         """
 
-        # Dispatch asíncrono para no retrasar la respuesta HTTP
         asyncio.create_task(
             asyncio.to_thread(
                 cls._enviar_smtp_sync,
                 destinatarios=destinatario_dev,
+                asunto=asunto,
+                cuerpo_html=cuerpo_html
+            )
+        )
+
+    # =========================================================================
+    # 📊 3. NOTIFICACIÓN POR UMBRAL DE VOLUMEN (CADA 100 EN COLA)
+    # =========================================================================
+    @classmethod
+    async def notificar_umbral_cola(
+        cls, total_pendientes: int, ambiente: str = settings.ENVIRONMENT
+    ):
+        """Notifica cuando la acumulación de casos retenidos en la cola alcanza múltiplos de 100."""
+        if not settings.ALERT_EMAILS_ENABLED:
+            return
+
+        asunto = f"📊 [ALERTA COLA] Acumulación en Cola: {total_pendientes} casos pendientes [{ambiente.upper()}]"
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #f0ad4e; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">📊 Umbral de Acumulación en Cola Alcanzado</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>La cola de contingencia local de SmartSupervision ha alcanzado un nuevo volumen crítico de acumulados.</p>
+                    <ul>
+                        <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
+                        <li><strong>Casos Pendientes en Cola:</strong> <span style="font-size: 18px; font-weight: bold; color: #d9534f;">{total_pendientes}</span></li>
+                        <li><strong>Estado SFC:</strong> Intermitente / Caída.</li>
+                    </ul>
+                    <p>El worker automático continuará intentando el despacho en segundo plano. Si el servicio de la SFC permanece caído, los casos se mantendrán en custodia segura dentro de la base SQLite local.</p>
+                    <p style="font-size: 12px; color: #777;">Notificación automática por hito de volumen de contingencia.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        asyncio.create_task(
+            asyncio.to_thread(
+                cls._enviar_smtp_sync,
+                destinatarios=cls._obtener_destinatarios(),
+                asunto=asunto,
+                cuerpo_html=cuerpo_html
+            )
+        )
+
+    # =========================================================================
+    # ⏳ 4. DIGEST DE CASOS VENCIDOS O PRÓXIMOS A VENCER (> 12 HORAS)
+    # =========================================================================
+    @classmethod
+    async def notificar_casos_vencimiento_sla(
+        cls, casos_vencidos: List[Dict[str, Any]], ambiente: str = settings.ENVIRONMENT
+    ):
+        """Genera un correo digest con tabla de casos que llevan más de 12 horas en la cola."""
+        if not settings.ALERT_EMAILS_ENABLED or not casos_vencidos:
+            return
+
+        total = len(casos_vencidos)
+        asunto = f"⏳ [ALERTA SLA] {total} Caso(s) con > 12h en Cola de Contingencia [{ambiente.upper()}]"
+
+        filas_tabla = ""
+        for c in casos_vencidos:
+            smart_code = c.get("smart_code", "N/A")
+            fecha_encolado = c.get("fecha_encolado", "N/A")
+            horas_cola = c.get("horas_en_cola", 0)
+            reintentos = c.get("reintentos", 0)
+            ultimo_error = c.get("ultimo_error", "Sin detalle")[:100]
+
+            filas_tabla += f"""
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;"><code>{smart_code}</code></td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{fecha_encolado}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: #d9534f;">{horas_cola:.1f} hrs</td>
+                <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">{reintentos}</td>
+                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{ultimo_error}</td>
+            </tr>
+            """
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #d9534f; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">⏳ Alerta de Envejecimiento de Casos (> 12 Horas)</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>Se han identificado <strong>{total} caso(s)</strong> que superan las 12 horas de retención en la cola local sin haber podido transmitirse a la Superintendencia Financiera.</p>
+                    
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                        <thead>
+                            <tr style="background-color: #f2f2f2; text-align: left;">
+                                <th style="padding: 8px; border: 1px solid #ddd;">Smart Code</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Fecha Encolado</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Tiempo Retenido</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Reintentos</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Último Error</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filas_tabla}
+                        </tbody>
+                    </table>
+
+                    <p style="margin-top: 20px; font-size: 12px; color: #777;">Reporte automático de control de SLA operativo.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        asyncio.create_task(
+            asyncio.to_thread(
+                cls._enviar_smtp_sync,
+                destinatarios=cls._obtener_destinatarios(),
+                asunto=asunto,
+                cuerpo_html=cuerpo_html
+            )
+        )
+
+    # =========================================================================
+    # ✅ 5. CONFIRMACIÓN DE RESTABLECIMIENTO Y RECUPERACIÓN (SFC ONLINE)
+    # =========================================================================
+    @classmethod
+    async def notificar_recuperacion_sfc(
+        cls, total_despachados: int, ambiente: str = settings.ENVIRONMENT
+    ):
+        """Notifica cuando la SFC vuelve a estar online y se ha vaciado la cola retenida."""
+        if not settings.ALERT_EMAILS_ENABLED:
+            return
+
+        asunto = f"✅ [AUTORRECUPERACIÓN] Conexión SFC Restablecida ({total_despachados} casos transmitidos) [{ambiente.upper()}]"
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #5cb85c; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">✅ Servicio SFC Restablecido Exitosamente</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>La comunicación con la <strong>Superintendencia Financiera</strong> se ha restablecido correctamente y la cola de contingencia ha sido procesada.</p>
+                    <ul>
+                        <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
+                        <li><strong>Casos Transmitidos Exitosamente:</strong> <strong style="color: #5cb85c; font-size: 16px;">{total_despachados}</strong></li>
+                        <li><strong>Estado Actual de la Cola:</strong> Vacía / Operación Normal.</li>
+                    </ul>
+                    <p>Todos los acuses de recibo devueltos por la SFC han sido registrados correctamente en la base de datos.</p>
+                    <p style="font-size: 12px; color: #777;">Notificación automática de autorrecuperación de servicio.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        asyncio.create_task(
+            asyncio.to_thread(
+                cls._enviar_smtp_sync,
+                destinatarios=cls._obtener_destinatarios(),
                 asunto=asunto,
                 cuerpo_html=cuerpo_html
             )

@@ -13,8 +13,10 @@ from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
 from app.core.config import settings
 from app.core.mapping import SfcSalesforceMapper
 from app.core.exceptions import SfcIntegrationException
+from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
+
 
 class Momento2SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):     
@@ -25,11 +27,6 @@ class Momento2SincronizacionService:
         self, 
         payload: Union[QuejaUnificadaCrmInput, Momento2QuejaCrmInput, Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """
-        Orquesta el flujo del Momento 2 (Alta / Creación de Queja) de forma Stateless.
-        Recibe el payload completo del CRM, lo mapea y transmite a la SFC.
-        """
-        # 🎯 Extracción polimórfica (Soporta Pydantic o Dict)
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c")
@@ -45,23 +42,15 @@ class Momento2SincronizacionService:
         logger.info(f"[Momento 2] Iniciando pipeline de despacho síncrono para el caso: {smart_code}")
 
         try:
-            # 1. Transformación con el Mapper Universal (Textos CRM -> Códigos SFC)
             sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
-
-            # 2. Regla de Negocio: ID Compuesto regulatorio
-            tipo_entidad = settings.SFC_TIPO_ENTIDAD
-            entidad_cod = settings.SFC_ENTIDAD_COD
-            sfc_id_largo = payload.Smart_Code__c
+            sfc_id_largo = payload.Smart_Code__c if not isinstance(payload, dict) else smart_code
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
 
-            # 3. Validación de salida utilizando el esquema estricto de la SFC
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
-            # 4. Envío de metadatos limpios
             logger.info(f"[Momento 2] Enviando queja a la SFC con código regulatorio: {sfc_id_largo}")
             await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
             
-            # 5. Pipeline de archivos (S3 -> SFC)
             logger.info(f"[Momento 2] Recibidos {len(archivos_s3_raw)} archivos para enviar.")
             
             if payload_validado.anexo_queja and not archivos_s3_raw:
@@ -83,16 +72,23 @@ class Momento2SincronizacionService:
                 "Smart_Code__c": sfc_id_largo
             }
 
-        except SfcIntegrationException:
+        except SfcIntegrationException as exc:
+            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
+                await EmailAlertService.notificar_error_no_mapeado(
+                    status_code=getattr(exc, "status_code", 500),
+                    raw_message=str(exc),
+                    sfc_field=getattr(exc, "sfc_field", None),
+                    smart_code=smart_code
+                )
             raise
+
         except Exception as e:
             logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
 
     async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[ArchivoS3Schema], sfc_code: str):
-        """Descarga del listado exacto de archivos en S3 y los sube de manera concurrente a la SFC."""
         if not self.s3_client:
-            if settings.ENVIRONMENT == "development":
+            if settings.ENVIRONMENT == "development" or settings.ENVIRONMENT == "local":
                 logger.info("[LOCAL TEST] Generando bytes ficticios locales para simular la carga de adjuntos hacia la SFC.")
                 tareas_envio = []
 

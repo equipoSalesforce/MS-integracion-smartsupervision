@@ -1,3 +1,4 @@
+# app/services/momento_3_sync.py
 import asyncio
 import logging
 import tempfile
@@ -10,9 +11,10 @@ from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
 from app.core.mapping import SfcSalesforceMapper 
 from app.schemas.sfc_payloads import SfcActualizarQuejaPayload 
-from app.schemas.crm_payloads import QuejaUnificadaCrmInput, ArchivoS3Schema
+from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 from app.utils.email_parser import extraer_texto_limpio_de_html
 from app.utils.pdf_generator import generar_pdf_respuesta_final
+from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +29,11 @@ class Momento3SincronizacionService:
     async def ejecutar_actualizacion_tramite(
         self, payload: Union[QuejaUnificadaCrmInput, Dict[str, Any], Any]
     ) -> Dict[str, Any]:
-        """Orquesta la actualización rutinaria de estados intermedios del caso."""
         return await self._orquestar_pipeline_momento_3(payload=payload)
 
     async def ejecutar_gestion_fraude(
         self, payload: Union[QuejaUnificadaCrmInput, Dict[str, Any], Any]
     ) -> Dict[str, Any]:
-        """Orquesta la actualización de mitigación y reporte de Fraude."""
         target_file_name = (
             getattr(payload, "nombre_archivo_fraude", None) 
             if not isinstance(payload, dict) 
@@ -48,19 +48,12 @@ class Momento3SincronizacionService:
     async def ejecutar_cierre_definitivo(
         self, payload: Union[QuejaUnificadaCrmInput, Dict[str, Any], Any]
     ) -> Dict[str, Any]:
-        """
-        Orquesta la clausura definitiva de la queja ante la SFC (Estado 4).
-        Genera dinámicamente el PDF de respuesta final desde 'cuerpo_respuesta_final'.
-        """
         return await self._orquestar_pipeline_momento_3(
             payload=payload,
             generar_pdf_cierre=True,
             afijo_regulatorio="RESP_FINAL_SFC"
         )
 
-    # ======================================================================
-    # ⚙️ MOTOR PRIVADO DE ORQUESTACIÓN ASÍNCRONA LIMPIA (MOMENTO 3)
-    # ======================================================================
     async def _orquestar_pipeline_momento_3(
         self, 
         payload: Any, 
@@ -68,7 +61,6 @@ class Momento3SincronizacionService:
         afijo_regulatorio: Optional[str] = None,
         generar_pdf_cierre: bool = False
     ) -> Dict[str, Any]:
-        # 🎯 Extracción polimórfica (Soporta Pydantic o Dict)
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c") or payload.get("Case_id")
@@ -83,17 +75,12 @@ class Momento3SincronizacionService:
             cliente_nombre = getattr(payload, "SuppliedName", "Consumidor Financiero")
 
         sfc_id_largo = smart_code
-        
-        # 🛠️ 1. Transformación Íntegra con el Mapper Universal (Textos CRM -> Códigos SFC)
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
-        
         estado_cod = sfc_raw_payload.get("estado_cod", 2)
+
         logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado SFC: {estado_cod})")
 
         try:
-            # 🛠️ 2. REGLA DE ORO SFC: Primero se suben todos los archivos al Storage
-            
-            # A) Si es Cierre Definitivo, construimos y subimos el PDF en caliente
             pdf_generado_exito = False
             if generar_pdf_cierre and cuerpo_correo:
                 logger.info(f"[Momento 3] Generando PDF de respuesta final a partir de 'cuerpo_respuesta_final'...")
@@ -104,7 +91,6 @@ class Momento3SincronizacionService:
                 )
                 pdf_generado_exito = True
 
-            # B) Si existen anexos adicionales en S3 (o adjuntos de fraude), se suben concurrentemente
             if archivos_s3_raw:
                 logger.info(f"[Momento 3] Detectados {len(archivos_s3_raw)} anexos en S3. Iniciando carga previa...")
                 await self._procesar_y_enviar_adjuntos_m3(
@@ -114,12 +100,10 @@ class Momento3SincronizacionService:
                     afijo_regulatorio=afijo_regulatorio
                 )
 
-            # 🛠️ 3. Inyección de Metadatos Regulatorios de Control Operacional
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = pdf_generado_exito or len(archivos_s3_raw) > 0
             sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
 
-            # Fallbacks de contingencia por si no vienen mapeados desde el CRM
             sfc_defaults = {
                 "sexo": 2, "lgbtiq": 2, "condicion_especial": 98,
                 "queja_expres": 1, "tutela": 2, "ente_control": 99,
@@ -129,10 +113,8 @@ class Momento3SincronizacionService:
                 if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
                     sfc_raw_payload[campo] = valor_defecto
 
-            # 🛠️ 4. Validación estructural final con el esquema estricto de la SFC
             payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
 
-            # 🚨 REGLA DE ORO SFC: Con los archivos arriba, disparamos el PUT definitivo
             logger.info(f"[Momento 3] Transmitiendo formulario de actualización de estado hacia la SFC...")
             await self.sfc_client.put_actualizar_queja(
                 sfc_codigo_queja=sfc_id_largo, 
@@ -145,29 +127,31 @@ class Momento3SincronizacionService:
                 "codigo_queja_sfc": sfc_id_largo
             }
 
-        except SfcIntegrationException:
-            # Re-lanzamos para permitir la auto-recuperación en el Orquestador Unificado
+        except SfcIntegrationException as exc:
+            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
+                await EmailAlertService.notificar_error_no_mapeado(
+                    status_code=getattr(exc, "status_code", 500),
+                    raw_message=str(exc),
+                    sfc_field=getattr(exc, "sfc_field", None),
+                    smart_code=smart_code
+                )
             raise
+
         except Exception as e:
             logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline M3 interrumpido: {str(e)}"}
 
-    # ======================================================================
-    # 🖨️ GENERADOR EN CALIENTE Y TRANSMISOR DEL PDF DE RESPUESTA FINAL
-    # ======================================================================
     async def _generar_y_enviar_pdf_respuesta_final(
         self,
         sfc_code: str,
         cuerpo_correo_html: str,
         cliente_nombre: str
     ):
-        """Limpia el HTML, inyecta los datos en la plantilla PDF y lo transmite a la SFC."""
         texto_limpio = extraer_texto_limpio_de_html(cuerpo_correo_html)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             pdf_path = Path(tmp_dir) / f"Respuesta_Final_{sfc_code}.pdf"
 
-            # Generación asíncrona no bloqueante del PDF en disco temporal
             await asyncio.to_thread(
                 generar_pdf_respuesta_final,
                 caso_nombre=cliente_nombre,
@@ -189,9 +173,6 @@ class Momento3SincronizacionService:
                 file_name=final_pdf_name
             )
 
-    # ======================================================================
-    # 📂 GESTOR ASÍNCRONO DE ADJUNTOS CON RENOMBRADO EN VUELO (DESDE S3)
-    # ======================================================================
     async def _procesar_y_enviar_adjuntos_m3(
         self, 
         archivos: List[Any], 
@@ -202,7 +183,7 @@ class Momento3SincronizacionService:
         tareas_envio = []
 
         if not self.s3_client:
-            if settings.ENVIRONMENT == "development":
+            if settings.ENVIRONMENT == "development" or settings.ENVIRONMENT == "local":
                 logger.info("[LOCAL TEST M3] Generando streams locales con inyección de afijos regulatorios.")
                 for item in archivos:
                     nombre_archivo = item.nombre_archivo if hasattr(item, "nombre_archivo") else item.get("nombre_archivo")
