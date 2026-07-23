@@ -830,6 +830,827 @@
       "name": "Momento 3: Gestión y Cierre (CRM -> SFC)",
       "item": [
         {
+          "name": "Ejemplos cierre",
+          "item": [
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 1",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 2",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974630\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 3",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974615\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Cierre definitivo con hilo de correos anidado y múltiples respuestas.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">De acuerdo Carlos, ya veriqu&eacute; en mi extracto y efectivamente aparece el abono. Muchas gracias por la rapidez!</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mi&eacute;, 22 de jul de 2026 a las 15:30, Servicio al Cliente &lt;<a href=\\\"mailto:soporte@entidadfinanciera.com\\\">soporte@entidadfinanciera.com</a>&gt; escribi&oacute;:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div><p style=\\\"font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;\\\">Estimado Juan Carlos,<br><br>Nos complace informarle que, tras la auditor&iacute;a realizada a su caso de reclamo #987654321, hemos verificado el cobro duplicado de la cuota de manejo por valor de $25.000 COP.<br><br>El dinero ha sido reintegrado exitosamente a su cuenta de ahorros. El n&uacute;mero de comprobante de la transacci&oacute;n de abono es <b>458921</b>.<br><br>Quedamos atentos a cualquier inquietud adicional.<br><br>Atentamente,<br><b>Carlos Mendoza - Atenci&oacute;n al Cliente</b></p><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div style=\\\"border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm\\\"><b>De:</b> Juan Carlos Ram&iacute;rez &lt;juancarlos@email.com&gt;<br><b>Enviado el:</b> mi&eacute;rcoles, 22 de julio de 2026 11:15 AM<br><b>Para:</b> Servicio al Cliente &lt;soporte@entidadfinanciera.com&gt;<br><b>Asunto:</b> RE: Reclamo #987654321 - Cobro duplicado<br></div><br><div>Hola Carlos, sigo a la espera. Llegan 4 d&iacute;as y a&uacute;n no me dan respuesta de los $25.000 COP cobrados de m&aacute;s.</div><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El lun, 20 de jul de 2026 a las 09:10, Servicio al Cliente escribió:<br></div><div>Hola Juan Carlos, su caso fue escalado al &aacute;rea contable. Le daremos respuesta en un plazo m&aacute;ximo de 3 d&iacute;as h&aacute;biles.<br><br>Atentamente,<br>Servicio al Cliente</div></blockquote></blockquote></div><br><div style=\\\"font-size:11px;color:#777777;border-top:1px solid #e0e0e0;padding-top:10px;margin-top:20px;\\\"><p><b>AVISO DE CONFIDENCIALIDAD:</b> Este mensaje de correo electr&oacute;nico y sus anexos contienen informaci&oacute;n confidencial y privilegiada. Si usted no es el destinatario intencional, por favor notifique al remitente de inmediato y elimine este mensaje de su sistema. En cumplimiento del literal a. del art&iacute;culo 7 de la Ley 1328 de 2009 y la Ley 1581 de 2012 de Protecci&oacute;n de Datos Personales.</p><p>You received this message because you are subscribed to the Google Groups &quot;atencion-clientes&quot; group.<br>To unsubscribe from this group send an email to <a href=\\\"mailto:unsubscribe@entidadfinanciera.com\\\">unsubscribe@entidadfinanciera.com</a>.</p></div></blockquote></div><img src=\\\"https://crm.entidadfinanciera.com/tracking/pixel.gif?id=987654321\\\">\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 3",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Case_id\": \"16551509974615\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Cierre definitivo con hilo de correos anidado y múltiples respuestas.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">De acuerdo Carlos, ya veriqu&eacute; en mi extracto y efectivamente aparece el abono. Muchas gracias por la rapidez!</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mi&eacute;, 22 de jul de 2026 a las 15:30, Servicio al Cliente &lt;<a href=\\\"mailto:soporte@entidadfinanciera.com\\\">soporte@entidadfinanciera.com</a>&gt; escribi&oacute;:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div><p style=\\\"font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;\\\">Estimado Juan Carlos,<br><br>Nos complace informarle que, tras la auditor&iacute;a realizada a su caso de reclamo #987654321, hemos verificado el cobro duplicado de la cuota de manejo por valor de $25.000 COP.<br><br>El dinero ha sido reintegrado exitosamente a su cuenta de ahorros. El n&uacute;mero de comprobante de la transacci&oacute;n de abono es <b>458921</b>.<br><br>Quedamos atentos a cualquier inquietud adicional.<br><br>Atentamente,<br><b>Carlos Mendoza - Atenci&oacute;n al Cliente</b></p><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div style=\\\"border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm\\\"><b>De:</b> Juan Carlos Ram&iacute;rez &lt;juancarlos@email.com&gt;<br><b>Enviado el:</b> mi&eacute;rcoles, 22 de julio de 2026 11:15 AM<br><b>Para:</b> Servicio al Cliente &lt;soporte@entidadfinanciera.com&gt;<br><b>Asunto:</b> RE: Reclamo #987654321 - Cobro duplicado<br></div><br><div>Hola Carlos, sigo a la espera. Llegan 4 d&iacute;as y a&uacute;n no me dan respuesta de los $25.000 COP cobrados de m&aacute;s.</div><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El lun, 20 de jul de 2026 a las 09:10, Servicio al Cliente escribió:<br></div><div>Hola Juan Carlos, su caso fue escalado al &aacute;rea contable. Le daremos respuesta en un plazo m&aacute;ximo de 3 d&iacute;as h&aacute;biles.<br><br>Atentamente,<br>Servicio al Cliente</div></blockquote></blockquote></div><br><div style=\\\"font-size:11px;color:#777777;border-top:1px solid #e0e0e0;padding-top:10px;margin-top:20px;\\\"><p><b>AVISO DE CONFIDENCIALIDAD:</b> Este mensaje de correo electr&oacute;nico y sus anexos contienen informaci&oacute;n confidencial y privilegiada. Si usted no es el destinatario intencional, por favor notifique al remitente de inmediato y elimine este mensaje de su sistema. En cumplimiento del literal a. del art&iacute;culo 7 de la Ley 1328 de 2009 y la Ley 1581 de 2012 de Protecci&oacute;n de Datos Personales.</p><p>You received this message because you are subscribed to the Google Groups &quot;atencion-clientes&quot; group.<br>To unsubscribe from this group send an email to <a href=\\\"mailto:unsubscribe@entidadfinanciera.com\\\">unsubscribe@entidadfinanciera.com</a>.</p></div></blockquote></div><img src=\\\"https://crm.entidadfinanciera.com/tracking/pixel.gif?id=987654321\\\">\",\n    \"archivos_s3\": []\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": null,
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Thu, 23 Jul 2026 14:56:17 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "152"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 142316551509974615 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"142316551509974615\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 4",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974578\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Valeria Gómez - TechPay Solutions\",\n    \"SC_id_type__c\": \"RUT\",\n    \"id_number__c\": \"901234567-1\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2B\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Carrera 7 # 71-21 Piso 8\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Cierre definitivo de caso B2B sobre ajuste en cobro de dispersión masiva.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta Empresas\",\n    \"Categorias_COL__c\": \"Cotización errada\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Entendido Carlos, ya confirmamos en nuestra tesorer&iacute;a la aplicaci&oacute;n del ajuste. Muchas gracias por la rapidez en el caso corporativo!</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mi&eacute;, 22 de jul de 2026 a las 16:45, Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribi&oacute;:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div><p style=\\\"font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;\\\">Estimada Valeria,<br><br>Nos complace informarle que, tras la auditor&iacute;a t&eacute;cnica realizada a su caso de reclamaci&oacute;n B2B #16551509974615, hemos verificado la inconsistencia en el cobro de la tarifa por dispersi&oacute;n masiva de fondos.<br><br>Se ha procedido con el reembolso de $1.250.000 COP a su Cuenta Corporativa Global66. El n&uacute;mero de comprobante de la transacci&oacute;n de abono es <b>884920</b>. Damos por resuelta la solicitud de manera FAVORABLE y definitiva.<br><br>Atentamente,<br><b>Carlos Mendoza - Atenci&oacute;n al Consumidor Financiero Global66</b></p><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div style=\\\"border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm\\\"><b>De:</b> Valeria G&oacute;mez &lt;valeria.gomez@techpaysolutions.com&gt;<br><b>Enviado el:</b> mi&eacute;rcoles, 22 de julio de 2026 02:10 PM<br><b>Para:</b> Global 66 Respuesta &lt;respuesta@global66.com&gt;<br><b>Asunto:</b> RE: Reclamaci&oacute;n B2B #16551509974615 - Cobro tarifa dispersi&oacute;n<br></div><br><div>Hola Carlos, quedamos a la espera de la confirmaci&oacute;n del abono de los $1.250.000 COP a nuestra cuenta de empresa para poder cerrar la conciliaci&oacute;n contable del mes.</div><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026 a las 10:00, Global 66 Respuesta escribi&oacute;:<br></div><div>Estimados se&ntilde;ores TechPay Solutions, su requerimiento fue escalado al &aacute;rea de Operaciones B2B para la verificaci&oacute;n de la liquidaci&oacute;n.<br><br>Atentamente,<br>Atenci&oacute;n al Consumidor Financiero Global66</div></blockquote></blockquote></div><br><div style=\\\"font-size:11px;color:#777777;border-top:1px solid #e0e0e0;padding-top:10px;margin-top:20px;\\\"><p><b>AVISO DE CONFIDENCIALIDAD:</b> Este mensaje y sus anexos son confidenciales y para uso exclusivo de TechPay Solutions S.A.S. y Global66. Si lo ha recibido por error, por favor notifique al remitente y elim&iacute;nelo. En cumplimiento del literal a. del art&iacute;culo 7 de la Ley 1328 de 2009 y la Ley 1581 de 2012.</p><p>You received this message because you are subscribed to the Google Groups &quot;respuesta&quot; group.<br>To unsubscribe from this group send an email to <a href=\\\"mailto:respuesta+unsubscribe@global66.com\\\">respuesta+unsubscribe@global66.com</a>.</p></div></blockquote></div><img src=\\\"https://global66.my.salesforce.com/servlet/servlet.ImageServer?oid=00D3h000003wTG9&esid=018a600001hFndS\\\">\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 5",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974620\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Massiel Salazar - Food Waste Solutions\",\n    \"SC_id_type__c\": \"RUT\",\n    \"id_number__c\": \"76543210-K\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2B\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Av. Andrés Bello 2233, Providencia\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Habilitación e onboarding B2B con consulta posterior por plataforma.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta Empresas\",\n    \"Categorias_COL__c\": \"No resolución a quejas, peticiones y reclamos\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Hola,</div><div dir=\\\"auto\\\"><br></div><div dir=\\\"auto\\\">Te comento que quiero hacer una transferencia y me dice que la página web ya que no está disponible. Descargue la aplicación y me dice que hay error de sistema.</div><div dir=\\\"auto\\\"><br></div><div dir=\\\"auto\\\">Necesito ayuda, ya que debo realizar con urgencia una transferencia.</div><div dir=\\\"auto\\\">Saludos </div><div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El El mié, 22 jul. 2026 a la(s) 4:45 p.m., Matías Licci &lt;<a href=\\\"mailto:matias.licci@global66.com\\\">matias.licci@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Cuenta aprobada Massiel, ya puedes operar. Quedo atento a tus dudas. También, te puedo ayudar en tus primeras operaciones.<br><br>Saludos</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mié, 22 jul 2026 a las 12:31, Matías Licci (&lt;<a href=\\\"mailto:matias.licci@global66.com\\\" target=\\\"_blank\\\">matias.licci@global66.com</a>&gt;) escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Recibido.<br><br>Saludos</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mié, 22 jul 2026 a las 12:28, massiel salazar (&lt;<a href=\\\"mailto:massielsalazar@foodwastesolution.com\\\" target=\\\"_blank\\\">massielsalazar@foodwastesolution.com</a>&gt;) escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Estimado, <div><br></div><div>Adjunto documento .</div><div><br></div><div>Saludos.</div><div><br></div><div>Massiel Salazar </div><div>CEO &amp; Fundadora de Food Waste Solutions</div></div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mié, 22 jul 2026 a la(s) 11:48 a.m., Matías Licci (<a href=\\\"mailto:matias.licci@global66.com\\\" target=\\\"_blank\\\">matias.licci@global66.com</a>) escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\"><div>Buenas tardes Massiel,<br><br>Escribe Matías de Global66 Empresas, mucho gusto. Te contacto para comentarte que ya recibimos tu solicitud para SOLUCIONES INTEGRALES DE GESTIÓN Y CONSULTORÍA ACA. Sólo nos faltaría el Erut para que tu cuenta quede operativa, me lo puedes compartir por acá.<br><br>Saludos,<br>Matías</div><div><br></div><span class=\\\"gmail_signature_prefix\\\">-- </span><br><div dir=\\\"ltr\\\" class=\\\"gmail_signature\\\"><div dir=\\\"ltr\\\"><div style=\\\"color:rgb(34,34,34)\\\"><div dir=\\\"ltr\\\"><div dir=\\\"ltr\\\"><div dir=\\\"ltr\\\">----</div></div></div></div><div dir=\\\"ltr\\\" style=\\\"color:rgb(34,34,34)\\\"><div dir=\\\"ltr\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:728px;font-size:medium;vertical-align:-webkit-baseline-middle;font-family:Arial;color:rgb(255,255,255)\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:728px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><h2 color=\\\"#343E68\\\" style=\\\"font-size:18px;line-height:1.38;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Matías Licci</h2><p color=\\\"#343E68\\\" style=\\\"font-size:14px;line-height:22px;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Key Account Manager B2B</p><p color=\\\"#343E68\\\" style=\\\"font-size:14px;line-height:22px;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Empresas | Global66</p></td><td width=\\\"15\\\" style=\\\"border:0px;padding:0px;font-family:Arial\\\"><div style=\\\"font-family:Arial\\\"></div></td><td color=\\\"#3F5EDF\\\" width=\\\"1\\\" height=\\\"auto\\\" style=\\\"border-width:0px 0px medium 1px;border-style:none none none solid;padding:0px;width:1px;font-family:Arial;border-color:currentcolor currentcolor currentcolor rgb(63,94,223)\\\"></td><td width=\\\"15\\\" style=\\\"border:0px;padding:0px;font-family:Arial\\\"><div style=\\\"font-family:Arial\\\"></div></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:366.039px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/phone-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"mobilePhone\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><font size=\\\"2\\\" style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\">+</u><a href=\\\"tel:+573116854049\\\" color=\\\"#343E68\\\" style=\\\"font-family:Arial;background-color:rgba(0,0,0,0)\\\" target=\\\"_blank\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\">5</font></a><u style=\\\"font-family:Arial\\\">6923798285</u></font></td></tr><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/email-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"emailAddress\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><font size=\\\"2\\\" style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><a href=\\\"mailto:matias.licci@global66.com\\\" target=\\\"_blank\\\" style=\\\"font-family:Arial\\\">matias.licci@global66.com</a></u></font></td></tr><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/link-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"website\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><a href=\\\"https://www.global66.com/\\\" color=\\\"#343E68\\\" style=\\\"font-size:12px;font-family:Arial;background-color:rgba(0,0,0,0)\\\" target=\\\"_blank\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\">www.global66.com</font></a></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></div></div></div></blockquote></div></blockquote></div><div><br clear=\\\"all\\\"></div><div><br></div><span class=\\\"gmail_signature_prefix\\\">-- </span><br><div dir=\\\"ltr\\\" class=\\\"gmail_signature\\\"><div dir=\\\"ltr\\\"><div style=\\\"color:rgb(34,34,34)\\\"><div dir=\\\"ltr\\\"><div dir=\\\"ltr\\\"><div dir=\\\"ltr\\\">----</div></div></div></div><div dir=\\\"ltr\\\" style=\\\"color:rgb(34,34,34)\\\"><div dir=\\\"ltr\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:728px;font-size:medium;vertical-align:-webkit-baseline-middle;font-family:Arial;color:rgb(255,255,255)\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:728px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><h2 color=\\\"#343E68\\\" style=\\\"font-size:18px;line-height:1.38;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Matías Licci</h2><p color=\\\"#343E68\\\" style=\\\"font-size:14px;line-height:22px;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Key Account Manager B2B</p><p color=\\\"#343E68\\\" style=\\\"font-size:14px;line-height:22px;margin:0px;font-family:Arial;color:rgb(52,62,104)\\\">Empresas | Global66</p></td><td width=\\\"15\\\" style=\\\"border:0px;padding:0px;font-family:Arial\\\"><div style=\\\"font-family:Arial\\\"></div></td><td color=\\\"#3F5EDF\\\" width=\\\"1\\\" height=\\\"auto\\\" style=\\\"border-width:0px 0px medium 1px;border-style:none none none solid;padding:0px;width:1px;font-family:Arial;border-color:currentcolor currentcolor currentcolor rgb(63,94,223)\\\"></td><td width=\\\"15\\\" style=\\\"border:0px;padding:0px;font-family:Arial\\\"><div style=\\\"font-family:Arial\\\"></div></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:366.039px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/phone-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"mobilePhone\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><font size=\\\"2\\\" style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\">+</u><a href=\\\"tel:+573116854049\\\" color=\\\"#343E68\\\" style=\\\"font-family:Arial;background-color:rgba(0,0,0,0)\\\" target=\\\"_blank\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\">5</font></a><u style=\\\"font-family:Arial\\\">6923798285</u></font></td></tr><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/email-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"emailAddress\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><font size=\\\"2\\\" style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><a href=\\\"mailto:matias.licci@global66.com\\\" target=\\\"_blank\\\" style=\\\"font-family:Arial\\\">matias.licci@global66.com</a></u></font></td></tr><tr height=\\\"25\\\" style=\\\"border:0px;margin:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><td width=\\\"30\\\" style=\\\"border:0px;padding:0px;vertical-align:middle;font-family:Arial\\\"><table cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" style=\\\"border-collapse:collapse;border-spacing:0px;width:30px;vertical-align:-webkit-baseline-middle;font-family:Arial\\\"><tbody style=\\\"font-family:Arial\\\"><tr style=\\\"border:0px;margin:0px;padding:0px;font-family:Arial\\\"><td style=\\\"border:0px;padding:0px;vertical-align:bottom;font-family:Arial\\\"><span color=\\\"#3F5EDF\\\" width=\\\"11\\\" style=\\\"display:inline-block;font-family:Arial;background-color:rgb(63,94,223)\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\"><u style=\\\"font-family:Arial\\\"><img src=\\\"https://cdn2.hubspot.net/hubfs/53/tools/email-signature-generator/icons/link-icon-2x.png\\\" color=\\\"#3F5EDF\\\" alt=\\\"website\\\" width=\\\"13\\\" style=\\\"border-style: none; display: block; font-family: Arial;\\\"></u></font></span></td></tr></tbody></table></td><td style=\\\"border:0px;padding:0px;font-family:Arial\\\"><a href=\\\"https://www.global66.com/\\\" color=\\\"#343E68\\\" style=\\\"font-size:12px;font-family:Arial;background-color:rgba(0,0,0,0)\\\" target=\\\"_blank\\\"><font style=\\\"font-family:Arial;color:rgb(0,0,0)\\\">www.global66.com</font></a></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></div></div></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 6",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974621\",\n    \"CreatedDate\": \"2026-07-23T09:30:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Carlos Mendoza - Tech Solutions SPA\",\n    \"SC_id_type__c\": \"RUT\",\n    \"id_number__c\": \"77123456-1\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2B\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Las Condes 9000, Santiago\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Inconveniente con abonado de fondos en cuenta B2B.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta Empresas\",\n    \"Categorias_COL__c\": \"No resolución a quejas, peticiones y reclamos\",\n    \"ClosedDate\": \"2026-07-23\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Muchas gracias por la atención, ya pude realizar el abono en la plataforma.</div><div dir=\\\"auto\\\"><br></div><div><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El jue, 23 jul 2026 a las 08:15, Soporte Global66 (&lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt;) escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Estimado Carlos,<br><br>Le informamos que tras la revisión con el equipo de operaciones, hemos acreditado correctamente los fondos en su Cuenta Empresas. Su caso ha sido resuelto de manera favorable.<br><br>Atentamente,<br>Equipo de Atención al Consumidor Financiero | Global66</div></blockquote></div></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 7",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974622\",\n    \"CreatedDate\": \"2026-07-23T10:15:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Sarah Connor - Cyberdyne Systems Ltd\",\n    \"SC_id_type__c\": \"RUT\",\n    \"id_number__c\": \"US-987654321\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2B\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"100 California St, San Francisco, CA\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Onboarding B2B verification for international transfers.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta Empresas\",\n    \"Categorias_COL__c\": \"No resolución a quejas, peticiones y reclamos\",\n    \"ClosedDate\": \"2026-07-23\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Thank you very much, everything is working fine now.</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">On Jul 23, 2026 at 10:00 AM, Global66 Support &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; wrote:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Dear Sarah,<br><br>We are pleased to inform you that your business account onboarding has been successfully approved and fully enabled for international wire transfers.<br><br>Best regards,<br>B2B Support Team | Global66</div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 8",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"16551509974623\",\n    \"CreatedDate\": \"2026-07-23T11:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"João Silva - Inovação Brasil Ltda\",\n    \"SC_id_type__c\": \"RUT\",\n    \"id_number__c\": \"12.345.678/0001-90\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2B\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Av. Paulista 1000, São Paulo\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reclamação sobre reembolso de taxa de transferência.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta Empresas\",\n    \"Categorias_COL__c\": \"No resolución a quejas, peticiones y reclamos\",\n    \"ClosedDate\": \"2026-07-23\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Muito obrigado, o valor já caiu na conta! Perfeito.</div><div><br><div class=\\\"x_gmail_quote\\\">Em 23 de jul. de 2026, à(s) 10:00, Equipe Global66 (&lt;<a href=\\\"mailto:suporte@global66.com\\\">suporte@global66.com</a>&gt;) escreveu:<br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\">Prezado João,<br><br>Informamos que sua solicitação de reembolso foi concluída com sucesso. O valor de R$ 1.500,00 foi estornado para a sua conta corporativa.<br><br>Atenciosamente,<br>Atendimento ao Cliente | Global66</div></blockquote></div></div>\",\n    \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "148"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
           "name": "Endpoint 1: Actualización General - Caso no encontrado",
           "request": {
             "method": "POST",
@@ -1336,312 +2157,6 @@
               ],
               "cookie": [],
               "body": "{\n  \"detail\": [\n    {\n      \"type\": \"value_error\",\n      \"loc\": [\n        \"body\"\n      ],\n      \"msg\": \"Value error, No se envió un documento de cierre del caso (RESP_FINAL_SFC).\",\n      \"input\": {\n        \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n        \"CreatedDate\": \"2026-07-16T12:00:00\",\n        \"Status\": \"Closed\",\n        \"tipo_operacion\": \"CIERRE\",\n        \"SuppliedName\": \"Camila Salas\",\n        \"SC_id_type__c\": \"CC\",\n        \"id_number__c\": \"1040011014\",\n        \"sc_genero__c\": \"Femenino\",\n        \"tipo_de_persona__c\": \"B2C\",\n        \"sc_LGBTIQ__c\": \"No\",\n        \"sc_Condicion_especial__c\": \"No aplica\",\n        \"direccion__c\": \"Calle 93 # 11-11\",\n        \"Departamento__c\": \"Bogotá D.C.\",\n        \"SC_municipio__c\": \"Bogotá D.C.\",\n        \"canal__c\": \"Internet\",\n        \"punto_recepcion\": \"Manual\",\n        \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n        \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n        \"Description\": \"Prueba de validación: Intento de clausura sin adjuntar resolución final.\",\n        \"smart_anexo_queja__c\": false,\n        \"Tutela__c\": \"No\",\n        \"Ente_de_control__c\": \"Otros\",\n        \"smart_escalamiento_DCF__c\": \"No\",\n        \"Product__c\": \"Cuenta perfil\",\n        \"Categorias_COL__c\": \"Transacción no reconocida\",\n        \"ClosedDate\": \"2026-07-16\",\n        \"Favorabilidad__c\": \"Favorable\",\n        \"Aceptacion__c\": \"Si\",\n        \"Rectificacion__c\": false,\n        \"Prorroga__c\": false,\n        \"archivos_s3\": []\n      },\n      \"ctx\": {\n        \"error\": {}\n      }\n    }\n  ]\n}"
-            }
-          ]
-        },
-        {
-          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 3",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-API-Key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974615\",\n    \"CreatedDate\": \"2026-07-22T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Cierre definitivo con hilo de correos anidado y múltiples respuestas.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-22\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">De acuerdo Carlos, ya veriqu&eacute; en mi extracto y efectivamente aparece el abono. Muchas gracias por la rapidez!</div><br><div class=\\\"gmail_quote\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mi&eacute;, 22 de jul de 2026 a las 15:30, Servicio al Cliente &lt;<a href=\\\"mailto:soporte@entidadfinanciera.com\\\">soporte@entidadfinanciera.com</a>&gt; escribi&oacute;:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div><p style=\\\"font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;\\\">Estimado Juan Carlos,<br><br>Nos complace informarle que, tras la auditor&iacute;a realizada a su caso de reclamo #987654321, hemos verificado el cobro duplicado de la cuota de manejo por valor de $25.000 COP.<br><br>El dinero ha sido reintegrado exitosamente a su cuenta de ahorros. El n&uacute;mero de comprobante de la transacci&oacute;n de abono es <b>458921</b>.<br><br>Quedamos atentos a cualquier inquietud adicional.<br><br>Atentamente,<br><b>Carlos Mendoza - Atenci&oacute;n al Cliente</b></p><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div style=\\\"border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm\\\"><b>De:</b> Juan Carlos Ram&iacute;rez &lt;juancarlos@email.com&gt;<br><b>Enviado el:</b> mi&eacute;rcoles, 22 de julio de 2026 11:15 AM<br><b>Para:</b> Servicio al Cliente &lt;soporte@entidadfinanciera.com&gt;<br><b>Asunto:</b> RE: Reclamo #987654321 - Cobro duplicado<br></div><br><div>Hola Carlos, sigo a la espera. Llegan 4 d&iacute;as y a&uacute;n no me dan respuesta de los $25.000 COP cobrados de m&aacute;s.</div><br><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El lun, 20 de jul de 2026 a las 09:10, Servicio al Cliente escribió:<br></div><div>Hola Juan Carlos, su caso fue escalado al &aacute;rea contable. Le daremos respuesta en un plazo m&aacute;ximo de 3 d&iacute;as h&aacute;biles.<br><br>Atentamente,<br>Servicio al Cliente</div></blockquote></blockquote></div><br><div style=\\\"font-size:11px;color:#777777;border-top:1px solid #e0e0e0;padding-top:10px;margin-top:20px;\\\"><p><b>AVISO DE CONFIDENCIALIDAD:</b> Este mensaje de correo electr&oacute;nico y sus anexos contienen informaci&oacute;n confidencial y privilegiada. Si usted no es el destinatario intencional, por favor notifique al remitente de inmediato y elimine este mensaje de su sistema. En cumplimiento del literal a. del art&iacute;culo 7 de la Ley 1328 de 2009 y la Ley 1581 de 2012 de Protecci&oacute;n de Datos Personales.</p><p>You received this message because you are subscribed to the Google Groups &quot;atencion-clientes&quot; group.<br>To unsubscribe from this group send an email to <a href=\\\"mailto:unsubscribe@entidadfinanciera.com\\\">unsubscribe@entidadfinanciera.com</a>.</p></div></blockquote></div><img src=\\\"https://crm.entidadfinanciera.com/tracking/pixel.gif?id=987654321\\\">\",\n    \"archivos_s3\": []\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "quejas",
-                "sync",
-                "despacho"
-              ]
-            },
-            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
-          },
-          "response": [
-            {
-              "name": "Endpoint 3: Cierre Definitivo",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "X-API-Key",
-                    "value": "{{api_key}}"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "quejas",
-                    "sync",
-                    "despacho"
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "148"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
-            }
-          ]
-        },
-        {
-          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 1",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-API-Key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "quejas",
-                "sync",
-                "despacho"
-              ]
-            },
-            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
-          },
-          "response": [
-            {
-              "name": "Endpoint 3: Cierre Definitivo",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "X-API-Key",
-                    "value": "{{api_key}}"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "quejas",
-                    "sync",
-                    "despacho"
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "148"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
-            }
-          ]
-        },
-        {
-          "name": "Endpoint 3: Cierre Definitivo - Ejemplo correo 2",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-API-Key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Ok gracias, espero solución pronto por favor </div><br><div class=\\\"gmail_quote gmail_quote_container\\\"><div dir=\\\"ltr\\\" class=\\\"gmail_attr\\\">El mar, 21 de jul de 2026, 7:45 a. m., Global 66 Respuesta &lt;<a href=\\\"mailto:respuesta@global66.com\\\">respuesta@global66.com</a>&gt; escribió:<br></div><blockquote class=\\\"gmail_quote\\\" style=\\\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\\\"><u></u><div style=\\\"margin:0;background-color:#fff;padding:0\\\"><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff\\\"><tbody><tr><td><table align=\\\"center\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tbody><tr><td><table class=\\\"m_6893828659297732767row-content m_6893828659297732767stack\\\" align=\\\"center\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"background-color:#fff;border-radius:0;color:#000;width:600px;margin:0 auto\\\" width=\\\"600\\\"><tbody><tr><td class=\\\"m_6893828659297732767column\\\" width=\\\"100%\\\" style=\\\"font-weight:400;text-align:left;vertical-align:top\\\"><table class=\\\"m_6893828659297732767image_block\\\" width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\"><tr><td style=\\\"width:100%\\\"><div align=\\\"center\\\"><div style=\\\"max-width:600px\\\"><a href=\\\"https://global66.com/\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\"><img src=\\\"https://d15k2d11r6t6rl.cloudfront.net/public/users/Integrators/669d5713-9b6a-46bb-bd7e-c542cff6dd6a/8dbefaeb68e34c0da3aed8fbd33d2923/CX%20-%20HEADER%20PARA%20TODAS%20LAS%20COMMS%20%281%29_1.png\\\" style=\\\"display:block;height:auto;border:0;width:100%\\\" width=\\\"600\\\" alt=\\\"Global66\\\" title=\\\"Global66\\\" height=\\\"auto\\\"></a></div></div></td></tr></table><table width=\\\"100%\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" role=\\\"presentation\\\" style=\\\"word-break:break-word\\\"><tr><td style=\\\"padding-bottom:10px;padding-left:15px;padding-right:15px;padding-top:10px\\\"><div style=\\\"font-family:sans-serif\\\"><div style=\\\"font-size:14px;font-family:Montserrat,Trebuchet MS,Lucida Grande,Lucida Sans Unicode,Lucida Sans,Tahoma,sans-serif;color:#131f44;line-height:1.5;text-align:justify\\\">Hola GONZALO,<br><br>Tu caso fue escalado a un equipo especialista y se encuentra activamente trabajando en lo que nos has reportado.<br><br>Te estaremos informando cualquier novedad apenas tengamos noticias al respecto.<br><br><div style=\\\"text-align:center\\\">Atentamente,<br>Clara</div></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></div></blockquote></div>\",\n    \"archivos_s3\": []\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "quejas",
-                "sync",
-                "despacho"
-              ]
-            },
-            "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
-          },
-          "response": [
-            {
-              "name": "Endpoint 3: Cierre Definitivo",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "X-API-Key",
-                    "value": "{{api_key}}"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"tipo_operacion\": \"CIERRE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Resolución y cierre definitivo del caso de reclamación.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": false,\n    \"Prorroga__c\": false,\n    \"nombre_archivo_final\": \"carta_resolucion.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/carta_resolucion.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"carta_resolucion.pdf\"\n        }\n    ]\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "quejas",
-                    "sync",
-                    "despacho"
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Tue, 21 Jul 2026 17:19:45 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "148"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
             }
           ]
         }
