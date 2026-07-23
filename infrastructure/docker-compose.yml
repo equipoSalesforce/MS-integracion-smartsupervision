@@ -13,7 +13,7 @@ services:
     volumes:
       - ../:/code                           
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=local
       - SFC_URL_BASE=http://mock-sfc:8080/
       - SFC_VERIFY_SIGNATURES=true #Param para revisar firmas
       - SFC_TIPO_ENTIDAD=1

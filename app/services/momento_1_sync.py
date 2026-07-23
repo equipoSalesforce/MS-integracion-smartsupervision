@@ -91,6 +91,9 @@ class SincronizacionService:
         codigo_queja = queja_sfc.get("codigo_queja")
         tiene_anexos = queja_sfc.get("anexo_queja", False)
         
+        if tiene_anexos:
+            logger.info(f"La queja {codigo_queja} tiene anexos")
+        
         adjuntos_procesados = []
 
         if tiene_anexos:
@@ -116,15 +119,27 @@ class SincronizacionService:
                     adjuntos_procesados = [a for a in resultados_s3 if a is not None]
 
             except Exception as e:
-                logger.error(f"Fallo al procesar adjuntos para la queja {codigo_queja}. Se omitirá este ciclo: {str(e)}")
-                return None
+                if settings.ENVIRONMENT != "local":
+                    logger.error(f"Fallo al procesar adjuntos para la queja {codigo_queja}. Se omitirá este ciclo: {str(e)}")
+                    return None
 
         # 3. Traducimos el payload completo usando el Mapper Universal
         queja_traducida = SfcSalesforceMapper.sfc_payload_to_db_dict(queja_sfc)
 
         # Enriquecemos la queja mapeada agregando el listado de archivos que quedaron guardados en S3
         queja_traducida["archivos_s3"] = adjuntos_procesados
-
+            
+        if settings.ENVIRONMENT == "local":
+            bucket_local = getattr(settings, "AWS_S3_BUCKET", None) or "global66-sfc-bucket-local"
+        
+            queja_traducida["archivos_s3"] = [
+                {
+                    "nombre_archivo": f"ANEXO_MOCK_{codigo_queja}.pdf",
+                    "s3_key": f"local/quejas/{codigo_queja}/ANEXO_MOCK_{codigo_queja}.pdf",
+                    "bucket": bucket_local
+                }
+            ] if tiene_anexos else []
+            
         return queja_traducida
 
     async def _descargar_y_subir_a_s3(self, url: str, s3_key: str, file_id: Any, file_type: str) -> Optional[Dict[str, Any]]:
@@ -132,6 +147,16 @@ class SincronizacionService:
         Descarga un archivo temporal de la SFC y lo almacena de forma remota en S3.
         Retorna la metadata de ubicación de S3.
         """
+        logger.info(f"El environment actual es: {settings.ENVIRONMENT}")
+        
+        if settings.ENVIRONMENT == "local":
+            
+            return {
+                "nombre_archivo": "archivo_ejemplo.pdf",
+                "s3_key": "local/quejas/mock/archivo_ejemplo.pdf",
+                "bucket": getattr(settings, "AWS_S3_BUCKET", "global66-sfc-bucket-local") or "global66-sfc-bucket-local"
+            }
+        
         try:
             async with httpx.AsyncClient() as clean_client:
                 response = await clean_client.get(url, timeout=15.0)
