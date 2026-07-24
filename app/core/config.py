@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import List, Any, Optional
 from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
@@ -104,4 +104,7 @@ class Settings(BaseSettings):
     )
     ALERT_EMAILS_ENABLED: bool = Field(default=True, description="Switch para activar/desactivar alertas por e-mail")
 
+    # -- Configuración de matriz de errores en sheets -- #
+    GOOGLE_SHEETS_MATRIX_URL: Optional[str] = None
+    
 settings = Settings()

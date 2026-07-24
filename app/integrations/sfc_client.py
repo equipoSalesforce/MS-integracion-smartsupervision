@@ -208,9 +208,9 @@ class SfcClient:
             return response.json()
             
         except httpx.HTTPStatusError as exc:
-            SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
+            await SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
         except httpx.RequestError:
-            SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
+            await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     
     async def close(self):
