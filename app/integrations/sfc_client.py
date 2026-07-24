@@ -9,12 +9,56 @@ from app.core.auth import SfcAuthManager
 
 logger = logging.getLogger(__name__)
 
+# 🛠️ Hook para registrar la Petición Saliente (Request)
+async def log_request(request: httpx.Request):
+    headers_formatted = "\n".join([f"  {k}: {v}" for k, v in request.headers.items()])
 
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type or "octet-stream" in content_type:
+        body_str = "<[Contenido Binario / Multipart - Omitido por tamaño]>"
+    else:
+        try:
+            body_str = request.content.decode("utf-8") if request.content else "<Vacio>"
+        except Exception:
+            body_str = f"<[Contenido No-UTF8: {len(request.content)} bytes]>"
+
+    logger.info(
+        f"\n==================== [HTTP OUTGOING REQUEST] ====================\n"
+        f"Method  : {request.method}\n"
+        f"URL     : {request.url}\n"
+        f"Headers :\n{headers_formatted}\n"
+        f"Body    :\n{body_str}\n"
+        f"=================================================================="
+    )
+
+
+# 🛠️ Hook para registrar la Respuesta Entrante (Response) - CORREGIDO
+async def log_response(response: httpx.Response):
+    # 💡 Carga asíncrona obligatoria del contenido del stream antes de acceder a response.text
+    await response.aread()
+
+    headers_formatted = "\n".join([f"  {k}: {v}" for k, v in response.headers.items()])
+
+    logger.info(
+        f"\n==================== [HTTP INCOMING RESPONSE] ====================\n"
+        f"Status  : {response.status_code} {response.reason_phrase}\n"
+        f"URL     : {response.url}\n"
+        f"Headers :\n{headers_formatted}\n"
+        f"Body    :\n{response.text}\n"
+        f"=================================================================="
+    )
 class SfcClient:
     def __init__(self, interceptor: SfcAuthManager):
         self.base_url = settings.SFC_URL_BASE.rstrip('/')
-        self.client = httpx.AsyncClient(auth=interceptor, verify=True)
         self.interceptor = interceptor  # 👈 Apuesta directa a tu SfcAuthManager
+        self.client = httpx.AsyncClient(
+            auth=interceptor,
+            verify=True,
+            event_hooks={
+                'request': [log_request],
+                'response': [log_response]
+            }
+        )
 
     async def fetch_quejas_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de quejas."""
@@ -67,7 +111,7 @@ class SfcClient:
         logger.info(f"Enviando POST de datos de queja regulatoria: {payload_mapeado.get('codigo_queja')}")
         
         try:
-            response = await self.client.post(url, json=wrapped_payload)
+            response = await self.client.post(url, json=payload_mapeado)
             
             if response.status_code != 201:
                 logger.error(f"SFC rechazó la queja. Código: {response.status_code}. Respuesta: {response.text}")
@@ -148,14 +192,11 @@ class SfcClient:
         logger.info(f"[SfcClient] Enviando actualización de estado M3 a: {url}")
         
         # Envolvemos el payload mapeado en la raíz canónica exigida por la proforma
-        wrapped_payload = {
-            "Body": payload
-        }
         
         try:
             # Al ser un JSON estándar, permitimos que el interceptor (SfcAuthManager)
             # calcule y estampe el header X-SFC-Signature de forma transparente[cite: 2].
-            response = await self.client.put(url, json=wrapped_payload)
+            response = await self.client.patch(url, json=payload)
             
             if response.status_code != 200:
                 logger.error(

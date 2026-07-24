@@ -77,7 +77,7 @@ class TestMomento2Integration(unittest.TestCase):
         request_enviado = self.sfc_client_mock.post_nueva_queja.call_args[0][0]
         
         # Comprobamos los campos mapeados correctamente al formato SFC directamente
-        self.assertEqual(request_enviado["codigo_queja"], f"1423{self.smart_code_test}")
+        self.assertEqual(request_enviado["codigo_queja"], f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.smart_code_test}")
         self.assertEqual(request_enviado["canal_cod"], 13)
         self.assertEqual(request_enviado["tipo_Persona"], 1)
         

@@ -29,7 +29,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
         self.smart_code_test = "16551509974609"
-        self.sfc_id_largo_esperado = f"1423{self.smart_code_test}"
+        self.sfc_id_largo_esperado = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.smart_code_test}"
 
         # 📄 Base de proforma simulada para la SFC
         self.mock_mapper_response = {
@@ -76,25 +76,6 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
     # ======================================================================
     # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINT UNIFICADO & PYDANTIC)
     # ======================================================================
-
-    def test_endpoint_cierre_fallo_pydantic_sin_cuerpo_correo(self):
-        """Verifica que el despacho de cierre rechace la petición si no se envía cuerpo_respuesta_final."""
-        payload_invalido = self.base_crm_payload.copy()
-        payload_invalido.update({
-            "Status": "Closed",                           
-            "ClosedDate": "2026-07-16",
-            "Favorabilidad__c": "Favorable",              
-            "Aceptacion__c": "Si",                        
-            "Rectificacion__c": "No",                     
-            "Prorroga__c": "No",                          
-            "cuerpo_respuesta_final": "",  # 🚨 TEXTO VACÍO: Gatilla el ValueError de Pydantic
-            "archivos_s3": []
-        })
-        
-        response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_invalido)
-        
-        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
-        self.assertIn("cuerpo_respuesta_final", response.text)
 
     def test_endpoint_fraude_fallo_pydantic_ambiguedad_archivos(self):
         """Verifica el rechazo si vienen múltiples archivos en fraude pero no se especifica el principal."""

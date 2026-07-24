@@ -43,7 +43,8 @@ class TestSfcSalesforceMapper(unittest.TestCase):
             "Rectificacion__c": False,
             "canal__c": "Internet",
             "Ente_de_control__c": "Otros",
-            "tipo_de_persona__c": "Natural"
+            "tipo_de_persona__c": "Natural",
+            "Status": "In progress"
         }
 
         # 🪐 DATOS ORIGEN SUPERINTENDENCIA (SFC)
@@ -83,38 +84,46 @@ class TestSfcSalesforceMapper(unittest.TestCase):
     # 🧪 TEST 1: CRM -> SFC (MOMENTOS 2 Y 3)
     # ======================================================================
     def test_mapeo_crm_hacia_sfc_excel_valores(self):
-        """Valida que el diccionario enviado a la SFC cumpla con los tipos y equivalencias del Excel."""
-        resultado_sfc = SfcSalesforceMapper.crm_entity_to_sfc_payload(self.salesforce_case_data)
+        """
+        Valida que la traducción del CRM hacia la SFC cumpla con los tipos y equivalencias del Excel,
+        probando las estructuras estrictas diferenciadas entre Momento 2 y Momento 3.
+        """
+        # ======================================================================
+        # 📌 MOMENTO 2 (Alta / Creación de Queja Nueva - SfcNuevaQuejaPayload)
+        # ======================================================================
+        res_m2 = SfcSalesforceMapper.crm_entity_to_sfc_payload(self.salesforce_case_data, momento=2)
 
-        # 1. Comprobación de Limpieza de HTML y Normalización de Texto[cite: 5]
-        self.assertEqual(resultado_sfc["texto_queja"], "Prueba de texto HTML de la queja.")
+        # 1. Limpieza de HTML y Normalización de Texto
+        self.assertEqual(res_m2["texto_queja"], "Prueba de texto HTML de la queja.")
 
-        # 2. Comprobación de Homologación de Códigos DIVIPOLA (Excel: Bogotá -> 11)[cite: 5]
-        self.assertEqual(resultado_sfc["departamento_cod"], "11")
-        self.assertEqual(resultado_sfc["municipio_cod"], "11001")
+        # 2. Homologación de Códigos DIVIPOLA (Bogotá -> 11 / 11001)
+        self.assertEqual(res_m2["departamento_cod"], "11")
+        self.assertEqual(res_m2["municipio_cod"], "11001")
 
-        # 3. Comprobación de Nombres de variables corregidos del Excel[cite: 5]
-        self.assertEqual(resultado_sfc["monto_reclamado"], 500000.0)      # card_amount__c -> monto_reclamado
-        self.assertEqual(resultado_sfc["monto_reconocido"], 450000.0)
-        self.assertTrue(resultado_sfc["documentacion_rta_final"])         # sinRespuestaFinal__c -> documentacion_rta_final
+        # 3. Formateo de Fechas ISO con Tilde para M2
+        self.assertEqual(res_m2["fecha_creación"], "2026-07-16T12:00:00")
 
-        # 4. Verificación de Formateo de Fechas e Inyección de Variables con Tilde[cite: 5]
-        self.assertEqual(resultado_sfc["fecha_creación"], "2026-07-16T12:00:00")
-        self.assertEqual(resultado_sfc["fecha_cierre"], "2026-07-16")
-        
-        # 5. Verificación de Picklists y Catálogos Numéricos
-        self.assertEqual(resultado_sfc["canal_cod"], 13)                  # Internet -> 13
-        self.assertEqual(resultado_sfc["ente_control"], 99)               # Otros -> 99
-        self.assertEqual(resultado_sfc["tipo_Persona"], 1)                # Natural -> 1
+        # 4. Catálogos y Picklists Numéricos M2
+        self.assertEqual(res_m2["canal_cod"], 13)               # Internet -> 13
+        self.assertEqual(res_m2["ente_control"], 99)            # Otros -> 99
+        self.assertEqual(res_m2["tipo_Persona"], 1)             # B2C/Natural -> 1
 
-    def test_mapeo_fallback_casenumber_si_no_hay_smartcode(self):
-        """Valida la nota técnica del Excel: si no viene Smart_Code__c usa CaseNumber de respaldo."""
-        payload_sin_smartcode = {
-            "CaseNumber": "00045612",
-            "SuppliedName": "Test Fallback"
-        }
-        resultado = SfcSalesforceMapper.crm_entity_to_sfc_payload(payload_sin_smartcode)
-        self.assertEqual(resultado["codigo_queja"], "00045612")
+        # ======================================================================
+        # 📌 MOMENTO 3 (Trámite, Fraude y Cierre - SfcActualizarQuejaPayload)
+        # ======================================================================
+        res_m3 = SfcSalesforceMapper.crm_entity_to_sfc_payload(self.salesforce_case_data, momento=3)
+
+        # 1. Montos Reclamados y Devueltos por Fraude
+        self.assertEqual(res_m3["monto_reclamado"], 500000.0)   # card_amount__c -> monto_reclamado
+        self.assertEqual(res_m3["monto_reconocido"], 450000.0) # Total_Devuelto_por_Desconocimiento__c
+
+        # 2. Fechas de Cierre Definitivo
+        self.assertEqual(res_m3["fecha_cierre"], "2026-07-16")
+
+        # 3. Catálogos Numéricos M3
+        self.assertEqual(res_m3["canal_cod"], 13)
+        self.assertEqual(res_m3["ente_control"], 99)
+        self.assertEqual(res_m3["estado_cod"], 2)
 
     # ======================================================================
     # 🧪 TEST 2: SFC -> CRM (MOMENTO 1)

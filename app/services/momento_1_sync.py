@@ -91,6 +91,12 @@ class SincronizacionService:
         codigo_queja = queja_sfc.get("codigo_queja")
         tiene_anexos = queja_sfc.get("anexo_queja", False)
         
+        if settings.ENVIRONMENT == "local":
+            codigo_entidad = queja_sfc.get("entidad_cod")
+            tipo_entidad = queja_sfc.get("tipo_entidad")
+            
+            logger.info(f"el codigo de entidad es {codigo_entidad} y el tipo entidad es {tipo_entidad}")
+        
         if tiene_anexos:
             logger.info(f"La queja {codigo_queja} tiene anexos")
         

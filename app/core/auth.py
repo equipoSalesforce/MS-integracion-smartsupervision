@@ -45,6 +45,9 @@ class SfcAuthManager(httpx.Auth):
             "password": settings.SFC_PASSWORD
         }
         
+        if settings.ENVIRONMENT == "local":
+            logger.info(f"El username utilizado para login es {settings.SFC_USERNAME}")
+        
         signature = self.signature_context.get_signature("POST", endpoint, payload)
         
         headers = {

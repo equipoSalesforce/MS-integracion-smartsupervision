@@ -35,7 +35,6 @@ class SfcErrorTranslator:
     @classmethod
     def procesar_y_lanzar(cls, status_code: int, response_text: str):
         """Analiza el body devuelto por la SFC (JSON o String) y lanza SfcIntegrationException."""
-        # Asegura la carga diferida si no se ejecutó en el startup
         if not cls.MATRIZ_ERRORES_TEXTO:
             cls.cargar_matriz_errores()
 
@@ -48,10 +47,26 @@ class SfcErrorTranslator:
         try:
             data = json.loads(response_text)
             if isinstance(data, dict):
-                if "detail" in data:
+                # 🎯 FIX: La SFC empaqueta los errores detallados dentro de "message": {"campo": ["detalle"]}
+                msg_obj = data.get("message")
+                
+                if isinstance(msg_obj, dict):
+                    for key, value in msg_obj.items():
+                        sfc_field = key
+                        if isinstance(value, list) and len(value) > 0:
+                            raw_message = str(value[0])
+                        else:
+                            raw_message = str(value)
+                        break
+                elif isinstance(msg_obj, str):
+                    raw_message = msg_obj
+                elif "detail" in data and data["detail"] != "Error en API":
                     raw_message = str(data["detail"])
                 else:
+                    # Fallback para estructuras directas tipo {"nombres": ["Campo obligatorio"]}
                     for key, value in data.items():
+                        if key in ("status_code", "detail"):
+                            continue
                         sfc_field = key
                         if isinstance(value, list) and len(value) > 0:
                             raw_message = str(value[0])
@@ -63,10 +78,21 @@ class SfcErrorTranslator:
             pass
 
         # 2. Buscar coincidencias en nuestra matriz en RAM
+        response_text_lower = response_text.lower()
+        raw_message_lower = raw_message.lower()
+        sfc_field_lower = (sfc_field or "").lower()
+
         encontrado = False
         for regla in cls.MATRIZ_ERRORES_TEXTO:
-            subcadena = regla.get("subcadena", "")
-            if subcadena.lower() in raw_message.lower() or (sfc_field and subcadena.lower() in sfc_field.lower()):
+            subcadena = regla.get("subcadena", "").lower()
+            if not subcadena:
+                continue
+
+            # 🎯 Coincide si está en el mensaje extraído, en el campo o en el cuerpo JSON crudo
+            if (subcadena in raw_message_lower 
+                or subcadena in sfc_field_lower 
+                or subcadena in response_text_lower):
+                
                 error_type = regla.get("tipo", "UNKNOWN_SFC_ERROR")
                 crm_action = regla.get("accion", crm_action)
                 encontrado = True
@@ -84,11 +110,10 @@ class SfcErrorTranslator:
                         sfc_field=sfc_field
                     )
                 )
-                
             except Exception as mail_err:
                 logger.warning(f"⚠️ No se pudo enviar el correo de error no mapeado: {str(mail_err)}")
         
-        # 3. Lanzar la excepción controlada
+        # 3. Lanzar la excepción controlada con el error_type ya traducido
         raise SfcIntegrationException(
             status_code=status_code,
             error_type=error_type,

@@ -1,5 +1,5 @@
 # app/schemas/sfc_payloads.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 
 # ======================================================================
@@ -67,13 +67,25 @@ class SfcNuevaQuejaPayload(BaseModel):
     canal_cod: int
     producto_cod: int
     macro_motivo_cod: int
-    fecha_creación: str = Field(..., description="Fecha de creación formateada con tilde para M2 SFC")
-    fecha_creacion: Optional[str] = None  # Fallback de compatibilidad
+    
+    # 🎯 CORRECCIÓN M2: Alias obligatorio para que el JSON de salida tenga tilde
+    fecha_creacion: str = Field(
+        ..., 
+        alias="fecha_creación", 
+        description="Fecha de creación ISO-8601 (Se exporta como 'fecha_creación')"
+    )
+    
     nombres: str
     tipo_id_CF: int
     numero_id_CF: str
-    tipo_Persona: int = Field(..., description="Tipo de persona con P mayúscula")
-    tipo_persona: Optional[int] = None   # Fallback de compatibilidad
+    
+    # 🎯 CORRECCIÓN M2: Alias obligatorio para que el JSON de salida tenga 'P' mayúscula
+    tipo_persona: int = Field(
+        ..., 
+        alias="tipo_Persona", 
+        description="Tipo de persona (Se exporta como 'tipo_Persona')"
+    )
+    
     texto_queja: str
     anexo_queja: bool
     ente_control: int
@@ -81,7 +93,15 @@ class SfcNuevaQuejaPayload(BaseModel):
     admision: int
     codigo_pais: str = "COL"
     punto_recepcion: int = 1
-    
+
+    model_config = {
+        # Permite construir el objeto usando 'fecha_creacion' pero lo exporta como 'fecha_creación'
+        "populate_by_name": True,
+        # Obliga a Pydantic a usar el alias ("fecha_creación", "tipo_Persona") al hacer model_dump()
+        "populate_by_alias": True 
+    }
+
+
 # ======================================================================
 # 🔄 ESQUEMAS MOMENTO 3 (ENTIDAD -> SFC)
 # ======================================================================
@@ -94,31 +114,46 @@ class SfcActualizarQuejaPayload(BaseModel):
     codigo_queja: str = Field(..., max_length=30, description="Identificador único de la queja (ID largo)")
     sexo: int = Field(2, description="Sexo del consumidor financiero (Código del catálogo)")
     lgbtiq: int = Field(2, description="Identidad LGBTIQ+")
-    condicion_especial: int = Field(98, description="Condición especial del consumidor[cite: 2]")
-    canal_cod: int = Field(..., description="Canal de atención de la gestión[cite: 2]")
-    producto_cod: int = Field(..., description="Código del producto financiero[cite: 2]")
-    macro_motivo_cod: int = Field(..., description="Código del motivo de la queja[cite: 2]")
-    estado_cod: int = Field(..., description="Estado actual del trámite (4 para clausura definitiva)[cite: 2]")
-    fecha_actualizacion: str = Field(..., description="Fecha de la última actualización en formato YYYY-MM-DD[cite: 2]")
-    producto_digital: int = Field(1, description="Indica si corresponde a un producto digital[cite: 2]")
-    admision: int = Field(1, description="Estado de admisión del caso[cite: 2]")
-    desistimiento_queja: int = Field(2, description="Desistimiento del consumidor financiero[cite: 2]")
-    anexo_queja: bool = Field(..., description="Informa la presencia de archivos anexos en la transacción[cite: 2]")
-    tutela: int = Field(2, description="Relación con acción de tutela[cite: 2]")
-    ente_control: int = Field(99, description="Remisión a entes de control externos[cite: 2]")
-    queja_expres: int = Field(1, description="Marca de queja exprés[cite: 2]")
+    condicion_especial: int = Field(98, description="Condición especial del consumidor")
+    canal_cod: int = Field(..., description="Canal de atención de la gestión")
+    producto_cod: int = Field(..., description="Código del producto financiero")
+    macro_motivo_cod: int = Field(..., description="Código del motivo de la queja")
+    estado_cod: int = Field(..., description="Estado actual del trámite (4 para clausura definitiva)")
     
-    # Campos operacionales condicionales (Opcionales en trámite ordinario)[cite: 2]
-    a_favor_de: Optional[int] = Field(None, description="Sentido de la decisión final (Exigido en cierres)[cite: 2]")
-    aceptacion_queja: Optional[int] = Field(None, description="Aceptación por la entidad[cite: 2]")
-    rectificacion_queja: Optional[int] = Field(None, description="Rectificación de información[cite: 2]")
-    prorroga_queja: Optional[int] = Field(None, description="Uso de prórroga por la entidad[cite: 2]")
-    documentacion_rta_final: Optional[bool] = Field(None, description="Referencia a la presencia de respuesta final[cite: 2]")
-    fecha_cierre: Optional[str] = Field(None, description="Fecha de cierre definitivo en formato YYYY-MM-DD[cite: 2]")
-    marcacion: Optional[int] = Field(None, description="Marcaciones adicionales del caso[cite: 2]")
+    # 🎯 CORRECCIÓN M3: Debe ser String y el docstring aclara el formato completo ISO 8601
+    fecha_actualizacion: str = Field(..., description="Fecha y hora de actualización (YYYY-MM-DDThh:mm:ss)")
     
-    # Campos obligatorios exclusivos para la mitigación y gestión de fraudes[cite: 2]
-    tipo_fraude: Optional[int] = Field(None, description="Clasificación del fraude según catálogo SFC[cite: 2]")
-    modalidad_fraude: Optional[int] = Field(None, description="Modalidad detectada según catálogo SFC[cite: 2]")
-    monto_reclamado: Optional[float] = Field(None, description="Valor total reclamado por el consumidor[cite: 2]")
-    monto_reconocido: Optional[float] = Field(None, description="Valor final reconocido/devuelto por la entidad[cite: 2]")
+    producto_digital: int = Field(1, description="Indica si corresponde a un producto digital")
+    admision: int = Field(1, description="Estado de admisión del caso")
+    desistimiento_queja: int = Field(2, description="Desistimiento del consumidor financiero")
+    anexo_queja: bool = Field(..., description="Informa la presencia de archivos anexos en la transacción")
+    tutela: int = Field(2, description="Relación con acción de tutela")
+    ente_control: int = Field(99, description="Remisión a entes de control externos")
+    queja_expres: int = Field(1, description="Marca de queja exprés")
+    
+    # Campos operacionales condicionales (Opcionales en trámite ordinario)
+    a_favor_de: Optional[int] = Field(None, description="Sentido de la decisión final (Exigido en cierres)")
+    aceptacion_queja: Optional[int] = Field(None, description="Aceptación por la entidad")
+    rectificacion_queja: Optional[int] = Field(None, description="Rectificación de información")
+    prorroga_queja: Optional[int] = Field(None, description="Uso de prórroga por la entidad")
+    documentacion_rta_final: Optional[bool] = Field(None, description="Referencia a la presencia de respuesta final")
+    
+    # 🎯 CORRECCIÓN M3: Debe ser String para mantener el formato completo si lo enviamos en ISO
+    fecha_cierre: Optional[str] = Field(None, description="Fecha y hora de cierre definitivo (YYYY-MM-DDThh:mm:ss)")
+    marcacion: Optional[int] = Field(None, description="Marcaciones adicionales del caso")
+    
+    # Campos obligatorios exclusivos para la mitigación y gestión de fraudes
+    tipo_fraude: Optional[int] = Field(1, description="Clasificación del fraude según catálogo SFC")
+    modalidad_fraude: Optional[int] = Field(1, description="Modalidad detectada según catálogo SFC")
+    monto_reclamado: Optional[int] = Field(0, description="Valor total reclamado por el consumidor")
+    monto_reconocido: Optional[int] = Field(0, description="Valor final reconocido/devuelto por la entidad")
+    
+    @field_validator("tipo_fraude", "modalidad_fraude", mode="before")
+    @classmethod
+    def normalizar_enteros_fraude(cls, v):
+        return v if v is not None else 1
+
+    @field_validator("monto_reclamado", "monto_reconocido", mode="before")
+    @classmethod
+    def normalizar_montos_fraude(cls, v):
+        return v if v is not None else 0

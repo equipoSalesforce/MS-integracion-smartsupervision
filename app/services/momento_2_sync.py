@@ -73,6 +73,12 @@ class Momento2SincronizacionService:
             }
 
         except SfcIntegrationException as exc:
+            
+            logger.error(f"Error al enviar queja con codigo {smart_code}")
+            
+            if settings.ENVIRONMENT == "local":
+                logger.info(sfc_raw_payload)
+                        
             if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
                 await EmailAlertService.notificar_error_no_mapeado(
                     status_code=getattr(exc, "status_code", 500),

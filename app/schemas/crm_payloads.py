@@ -42,7 +42,7 @@ class QuejaMapeadaCrmResponse(BaseModel):
     Description: str = Field(..., description="texto_queja traducido y libre de HTML")
     smart_anexo_queja__c: bool = Field(..., description="anexo_queja traducido")
     Tutela__c: str = Field("No", description="tutela traducida, opcional y su valor por defecto es 'No'")
-    Ente_de_control__c: str = Field(..., description="ente_control traducido a texto")
+    Ente_de_control__c: Optional[str] = Field(..., description="ente_control traducido a texto")
     smart_escalamiento_DCF__c: str = Field(..., description="escalamiento_DCF traducido")
     replica__c: str = Field(..., description="replica traducida")
     argumento_replica__c: Optional[str] = Field(None, description="argumento_replica traducido")
@@ -84,7 +84,7 @@ class Momento2QuejaCrmInput(BaseModel):
     # Recepción y Clasificación
     canal__c: Optional[str] = Field(None, description="Canal de ingreso, opcional y puede ser None")
     punto_recepcion: str = Field(..., description="Punto de radicación")
-    Instancia_de_recepcion__c: str = Field(..., description="Instancia de recepción")
+    Instancia_de_recepcion__c: Optional[str] = Field("Entidad vigilada", description="Instancia de recepción")
     admision_col__c: str = Field("No Aplica", description="Estado inicial de admisión")
 
     # Detalles de la Reclamación
@@ -202,7 +202,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     a_favor_de__c: Optional[str] = Field(None, description="A favor de")
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación de la decisión")
     Rectificacion__c: Optional[str] = Field(None, description="Rectificación")
-    Prorroga__c: Optional[str] = Field(None, description="Prórroga solicitada")
+    Prorroga__c: Optional[int] = Field(None, description="Prórroga solicitada, va desde 0 hasta 9")
     #TODO: Dejar listo el mensaje final real
     cuerpo_respuesta_final: Optional[str] = Field(
         "Se emite respuesta formal y cierre definitivo al caso de reclamación conforme a los términos de ley y políticas de la entidad.",

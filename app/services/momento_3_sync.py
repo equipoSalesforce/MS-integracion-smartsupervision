@@ -75,7 +75,7 @@ class Momento3SincronizacionService:
             cliente_nombre = getattr(payload, "SuppliedName", "Consumidor Financiero")
 
         sfc_id_largo = smart_code
-        sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
+        sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict, momento=3)
         estado_cod = sfc_raw_payload.get("estado_cod", 2)
 
         logger.info(f"[Momento 3] Iniciando pipeline asíncrono para el caso: {sfc_id_largo} (Estado SFC: {estado_cod})")
@@ -102,12 +102,17 @@ class Momento3SincronizacionService:
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = pdf_generado_exito or len(archivos_s3_raw) > 0
-            sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%d")
+            sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
+            if pdf_generado_exito:
+                sfc_raw_payload["documentacion_rta_final"] = True
+            
             sfc_defaults = {
                 "sexo": 2, "lgbtiq": 2, "condicion_especial": 98,
                 "queja_expres": 1, "tutela": 2, "ente_control": 99,
-                "producto_digital": 1, "admision": 1, "desistimiento_queja": 2
+                "producto_digital": 1, "admision": 1, "desistimiento_queja": 2,
+                "tipo_fraude": 0, "modalidad_fraude": 0, "monto_reclamado": 0.0, "monto_reconocido": 0.0,
+                "prorroga_queja": 1
             }
             for campo, valor_defecto in sfc_defaults.items():
                 if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
@@ -118,7 +123,7 @@ class Momento3SincronizacionService:
             logger.info(f"[Momento 3] Transmitiendo formulario de actualización de estado hacia la SFC...")
             await self.sfc_client.put_actualizar_queja(
                 sfc_codigo_queja=sfc_id_largo, 
-                payload=payload_validado.model_dump()
+                payload=payload_validado.model_dump(exclude_none=True)
             )
 
             return {
@@ -140,6 +145,53 @@ class Momento3SincronizacionService:
         except Exception as e:
             logger.error(f"Fallo crítico en pipeline del Momento 3 para caso {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline M3 interrumpido: {str(e)}"}
+
+    async def _enviar_adjunto_seguro(
+        self, 
+        sfc_code: str, 
+        file_bytes: bytes, 
+        file_type: str, 
+        file_name: str
+    ):
+        """
+        Envía un adjunto a la SFC manejando de forma idempotente el error 'DUPLICATE_FILE'.
+        Si el archivo ya fue cargado previamente en la SFC, omite la falla y permite continuar el flujo.
+        """
+        try:
+            await self.sfc_client.post_adjunto_queja(
+                sfc_codigo_queja=sfc_code,
+                file_bytes=file_bytes,
+                file_type=file_type,
+                file_name=file_name
+            )
+        except SfcIntegrationException as exc:
+            # 🎯 1. Búsqueda directa basada en la clasificación del catálogo JSON (DUPLICATE_FILE)
+            if getattr(exc, "error_type", None) == "DUPLICATE_FILE":
+                logger.warning(
+                    f"[Momento 3] El archivo '{file_name}' ya fue identificado como DUPLICATE_FILE en la SFC. "
+                    f"Se omite la falla y se continúa con el proceso del caso {sfc_code}."
+                )
+                return
+
+            # 🎯 2. Fallback secundario defensivo sobre raw_message o mensaje completo
+            raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
+            if "ya existe" in raw_msg or "556240" in raw_msg:
+                logger.warning(
+                    f"[Momento 3] Fallback texto: El archivo '{file_name}' ya existía en la SFC. "
+                    f"Ignorando duplicado para continuar el despacho del caso {sfc_code}."
+                )
+                return
+
+            raise
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "ya existe" in error_msg or "556240" in error_msg:
+                logger.warning(
+                    f"[Momento 3] Excepción no controlada con patrón duplicado en '{file_name}'. Continuando..."
+                )
+                return
+            raise
 
     async def _generar_y_enviar_pdf_respuesta_final(
         self,
@@ -166,8 +218,8 @@ class Momento3SincronizacionService:
             final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
 
             logger.info(f"[Momento 3] Transmitiendo PDF generado '{final_pdf_name}' a la SFC...")
-            await self.sfc_client.post_adjunto_queja(
-                sfc_codigo_queja=sfc_code,
+            await self._enviar_adjunto_seguro(
+                sfc_code=sfc_code,
                 file_bytes=file_bytes,
                 file_type="pdf",
                 file_name=final_pdf_name
@@ -197,8 +249,8 @@ class Momento3SincronizacionService:
                         logger.info(f"[LOCAL TEST M3] Aplicando afijo. Nombre de envío: {file_name}")
 
                     file_bytes = b"Contenido de resolucion digital simulado por Global66."
-                    tareas_envio.append(self.sfc_client.post_adjunto_queja(
-                        sfc_codigo_queja=sfc_code,
+                    tareas_envio.append(self._enviar_adjunto_seguro(
+                        sfc_code=sfc_code,
                         file_bytes=file_bytes,
                         file_type=file_type,
                         file_name=file_name
@@ -232,8 +284,8 @@ class Momento3SincronizacionService:
             else:
                 final_send_name = original_name
 
-            tareas_envio.append(self.sfc_client.post_adjunto_queja(
-                sfc_codigo_queja=sfc_code,
+            tareas_envio.append(self._enviar_adjunto_seguro(
+                sfc_code=sfc_code,
                 file_bytes=file_bytes,
                 file_type=file_type,
                 file_name=final_send_name

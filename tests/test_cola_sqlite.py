@@ -57,7 +57,7 @@ class TestColaSqliteContingencia(unittest.IsolatedAsyncioTestCase):
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
-        self.smart_code_esperado = "1423999888777666"
+        self.smart_code_esperado = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}999888777666"
 
         self.payload_crm_test = {
             "Smart_Code__c": "999888777666",

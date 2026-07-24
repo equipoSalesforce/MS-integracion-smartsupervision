@@ -7,75 +7,91 @@ from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
 from app.workers.scheduler import reintentar_despachos_pendientes_job
 from app.core.exceptions import SfcIntegrationException
+from app.core.config import settings
 
 
 class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
-    async def asyncSetUp(self):
-        self.db_mock = AsyncMock()
-        self.queue_service = QueueService(db_session=self.db_mock)
-
-    @patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock)
-    @patch.object(EmailAlertService, "notificar_umbral_cola", new_callable=AsyncMock)
-    async def test_encolar_despacho_dispara_alertas(self, mock_umbral, mock_falla):
-        """Valida que al encolar un caso se dispare la alerta de infraestructura y el umbral si corresponde."""
-        self.queue_service.contar_pendientes = AsyncMock(return_value=100)
-        self.db_mock.refresh = AsyncMock()
-
+    async def test_encolar_despacho_dispara_alertas(self):
+        """
+        NUEVA PRUEBA: Valida aisladamente que al encolar un despacho con error 
+        se invoquen las alertas de infraestructura y de umbral de la cola.
+        """
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        await self.queue_service.encolar_despacho(
-            smart_code=smart_code,
-            tipo_operacion="CREACION",
-            payload_json={"Smart_Code__c": smart_code},
-            error_inicial=error_msg
-        )
+        # 1. Configurar DB Session completamente inocua
+        db_mock = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.one_or_none.return_value = None
+        db_mock.execute.return_value = mock_result
+        db_mock.add = MagicMock()
+        db_mock.commit = AsyncMock()
+        db_mock.refresh = AsyncMock()
 
-        mock_falla.assert_called_once_with(
-            smart_code=smart_code,
-            error_msg=error_msg
-        )
-        mock_umbral.assert_called_once_with(total_pendientes=100)
+        queue_service = QueueService(db_session=db_mock)
+        queue_service.contar_pendientes = AsyncMock(return_value=100)
+
+        # 2. Aislar contexto con Mocks explícitos
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_falla, \
+             patch.object(EmailAlertService, "notificar_umbral_cola", new_callable=AsyncMock) as mock_umbral:
+
+            # 3. Ejecución
+            await queue_service.encolar_despacho(
+                smart_code=smart_code,
+                tipo_operacion="CREACION",
+                payload_json={"Smart_Code__c": smart_code},
+                error_inicial=error_msg
+            )
+
+            # 4. Aserciones
+            mock_falla.assert_awaited_once_with(
+                smart_code=smart_code,
+                error_msg=error_msg
+            )
+            mock_umbral.assert_awaited_once_with(total_pendientes=100)
 
     @patch.object(EmailAlertService, "notificar_error_no_mapeado", new_callable=AsyncMock)
     async def test_orquestador_dispara_correo_error_no_mapeado(self, mock_no_mapeado):
         """Valida que un error no reconocido en la SFC notifique exclusivamente al desarrollador."""
-        sfc_mock = MagicMock()
-        
-        exc = SfcIntegrationException(
-            "Error desconocido desde la SFC",
-            "UNKNOWN_ERROR",
-            None,
-            "Error desconocido desde la SFC",
-            "Revisar payload"
-        )
-        exc.status_code = 400
-        exc.is_unmapped = True
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True):
+            sfc_mock = MagicMock()
+            
+            exc = SfcIntegrationException(
+                "Error desconocido desde la SFC",
+                "UNKNOWN_ERROR",
+                None,
+                "Error desconocido desde la SFC",
+                "Revisar payload"
+            )
+            exc.status_code = 400
+            exc.is_unmapped = True
 
-        m2_mock = AsyncMock()
-        m2_mock.ejecutar_envio_momento_2.side_effect = exc
+            m2_mock = AsyncMock()
+            m2_mock.ejecutar_envio_momento_2.side_effect = exc
 
-        orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock)
-        orquestador.m2_service = m2_mock
+            orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock)
+            orquestador.m2_service = m2_mock
 
-        payload_mock = MagicMock()
-        payload_mock.Smart_Code__c = "142399988877"
-        payload_mock.Status = "New"
-        payload_mock.ClosedDate = None
-        payload_mock.Favorabilidad__c = None
-        payload_mock.tipo_fraude__c = None
-        payload_mock.modalidad_fraude__c = None
+            payload_mock = MagicMock()
+            payload_mock.Smart_Code__c = "142399988877"
+            payload_mock.Status = "New"
+            payload_mock.ClosedDate = None
+            payload_mock.Favorabilidad__c = None
+            payload_mock.tipo_fraude__c = None
+            payload_mock.modalidad_fraude__c = None
 
-        with self.assertRaises(SfcIntegrationException):
-            await orquestador.procesar_despacho(payload=payload_mock)
+            with self.assertRaises(SfcIntegrationException):
+                await orquestador.procesar_despacho(payload=payload_mock)
 
-        mock_no_mapeado.assert_called_once_with(
-            status_code=400,
-            raw_message="Error desconocido desde la SFC",
-            sfc_field=None,
-            smart_code="142399988877"
-        )
+            mock_no_mapeado.assert_called_once_with(
+                status_code=400,
+                raw_message="Error desconocido desde la SFC",
+                sfc_field=None,
+                smart_code="142399988877"
+            )
 
     async def test_scheduler_dispara_digest_sla_y_recuperacion(self):
         """Valida las alertas de digest por envejecimiento (>12h) y autorrecuperación en el job de scheduler."""
@@ -92,8 +108,8 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         reg.smart_code = "1423111"
         reg.payload_json = {"Smart_Code__c": "1423111"}
 
-        # 🎯 Asignación explícita mediante context manager (sin ambigüedades de orden de parámetros)
-        with patch.object(EmailAlertService, "notificar_casos_vencimiento_sla", new_callable=AsyncMock) as mock_sla, \
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "notificar_casos_vencimiento_sla", new_callable=AsyncMock) as mock_sla, \
              patch.object(EmailAlertService, "notificar_recuperacion_sfc", new_callable=AsyncMock) as mock_recuperacion, \
              patch("app.workers.scheduler.AsyncSessionLocal") as mock_session_local, \
              patch("app.workers.scheduler.get_sfc_client"), \
@@ -115,7 +131,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
             await reintentar_despachos_pendientes_job()
 
-            # Verificaciones
             mock_sla.assert_called_once_with(casos_vencidos=casos_vencidos)
             mock_recuperacion.assert_called_once_with(total_despachados=1)
 
