@@ -33,9 +33,11 @@ class SfcSalesforceMapper:
 
     @staticmethod
     def _normalize_text(text: str) -> str:
+        """Remueve tildes, signos de puntuación (puntos/comas) y convierte a minúsculas limpias."""
         if not text:
             return ""
         normalized = "".join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn')
+        normalized = re.sub(r'[^\w\s]', '', normalized)
         return normalized.lower().strip()
 
     @classmethod
@@ -62,9 +64,9 @@ class SfcSalesforceMapper:
 
             # Aliases comunes para Bogotá u otras ciudades
             cls.DEPT_DIVIPOLA["bogota"] = "11"
-            cls.DEPT_DIVIPOLA["bogota d.c."] = "11"
+            cls.DEPT_DIVIPOLA["bogota dc"] = "11"
             cls.MUNI_DIVIPOLA["bogota"] = "11001"
-            cls.MUNI_DIVIPOLA["bogota d.c."] = "11001"
+            cls.MUNI_DIVIPOLA["bogota dc"] = "11001"
 
             logger.info(
                 f"✅ [SfcSalesforceMapper] Cargar DIVIPOLA exitosa: "
@@ -72,7 +74,6 @@ class SfcSalesforceMapper:
             )
         except Exception as e:
             logger.error(f"❌ Error al cargar divipola_sfc_crm.json: {e}")
-    
     
     @classmethod
     def cargar_catalogos(cls):
@@ -83,9 +84,12 @@ class SfcSalesforceMapper:
             
             cls.INVERSE_CATALOGS = {}
             for cat_key, cat_dict in cls.CATALOGOS.items():
-                cls.INVERSE_CATALOGS[cat_key] = {
-                    cls._normalize_text(v): int(k) for k, v in cat_dict.items()
-                }
+                cat_inverse = {}
+                for k, v in cat_dict.items():
+                    k_int = int(k)
+                    cat_inverse[cls._normalize_text(v)] = k_int
+                    cat_inverse[str(k)] = k_int  # Mapea también el código numérico directamente
+                cls.INVERSE_CATALOGS[cat_key] = cat_inverse
             
             if "tipo_id" in cls.INVERSE_CATALOGS:
                 cls.INVERSE_CATALOGS["tipo_id"].update({
@@ -125,7 +129,6 @@ SfcSalesforceMapper.MAPPING_MOMENTO_1_SFC_TO_CRM = {
     "replica": "replica__c", "argumento_replica": "argumento_replica__c"
 }
 
-# 🎯 MAPEO MOMENTO 4 (Información de Usuarios SFC -> CRM)
 SfcSalesforceMapper.MAPPING_MOMENTO_4_SFC_TO_CRM = {
     "numero_id_CF": "id_number__c",
     "tipo_id_CF": "SC_id_type__c",
@@ -195,7 +198,7 @@ def _strip_html(cls, text: str) -> str:
 def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
     if sfc_value is None: 
         return None
-    str_key = str(sfc_value)
+    str_key = str(sfc_value).strip()
     
     if sfc_key == "codigo_pais":
         if sfc_value == "COL" or sfc_value == "170":
@@ -225,7 +228,19 @@ def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
 
     if sfc_key in key_to_cat:
         cat_key, default_val = key_to_cat[sfc_key]
-        return cls.CATALOGOS.get(cat_key, {}).get(str_key, default_val)
+        cat_dict = cls.CATALOGOS.get(cat_key, {})
+
+        # 1. Búsqueda exacta directa (ej. "931", "201", "940")
+        if str_key in cat_dict:
+            return cat_dict[str_key]
+
+        # 🎯 2. Manejo de offset 900 para la SFC (ej. 31 -> 931, 32 -> 932, 7 -> 907)
+        if cat_key == "macro_motivo" and str_key.isdigit():
+            offset_key = str(int(str_key) + 900)
+            if offset_key in cat_dict:
+                return cat_dict[offset_key]
+
+        return default_val
 
     if sfc_key in ("departamento_cod", "Departamento__c"): return cls.DEPT_DIVIPOLA_INV.get(str_key, str(sfc_value))
     if sfc_key in ("municipio_cod", "SC_municipio__c"): return cls.MUNI_DIVIPOLA_INV.get(str_key, str(sfc_value))
@@ -275,7 +290,7 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         "modalidad_fraude__c": ("modalidad_fraude", 90),
         "Modalidad_Fraude__c": ("modalidad_fraude", 90),
         "punto_recepcion": ("punto_recepcion", 1),
-        "Categorias_COL__c": ("macro_motivo", 958)
+        "Categorias_COL__c": ("macro_motivo", 940)
     }
 
     if sf_key in sf_to_cat:
@@ -329,7 +344,6 @@ def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
     return crm_data
 
 
-# 🎯 NUEVO MÉTODO PARA MOMENTO 4
 @classmethod
 def sfc_user_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
     """Mapea el JSON de un usuario del Momento 4 (SFC) al formato del CRM local."""
@@ -355,7 +369,6 @@ def sfc_user_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]
             else:
                 crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
 
-    # Construir SuppliedName combinando Nombres y Apellidos si existen
     first_name = crm_data.get("FirstName", "")
     last_name = crm_data.get("LastName", "")
     if first_name or last_name:
@@ -392,7 +405,7 @@ def crm_entity_to_sfc_momento2_payload(cls, entity: Any) -> Dict[str, Any]:
         municipio_cod=str(cls._translate_value_to_sfc("SC_municipio__c", cls._get_sf_field_value(entity, "SC_municipio__c")) or "11001"),
         canal_cod=int(cls._translate_value_to_sfc("canal__c", cls._get_sf_field_value(entity, "canal__c")) or 13),
         producto_cod=int(cls._translate_value_to_sfc("Product__c", cls._get_sf_field_value(entity, "Product__c")) or 207),
-        macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 958),
+        macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 940),
         fecha_creacion=fecha_iso,
         nombres=str(cls._get_sf_field_value(entity, "SuppliedName") or ""),
         tipo_id_CF=int(cls._translate_value_to_sfc("SC_id_type__c", cls._get_sf_field_value(entity, "SC_id_type__c")) or 1),
@@ -453,7 +466,7 @@ def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
         condicion_especial=int(cls._translate_value_to_sfc("sc_Condicion_especial__c", cls._get_sf_field_value(entity, "sc_Condicion_especial__c")) or 98),
         canal_cod=int(cls._translate_value_to_sfc("canal__c", cls._get_sf_field_value(entity, "canal__c")) or 13),
         producto_cod=int(cls._translate_value_to_sfc("Product__c", cls._get_sf_field_value(entity, "Product__c")) or 207),
-        macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 958),
+        macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 940),
         estado_cod=int(estado_cod_val),
         fecha_actualizacion=fecha_act,
         producto_digital=int(cls._translate_value_to_sfc("producto_digital__c", cls._get_sf_field_value(entity, "producto_digital__c")) or 1),

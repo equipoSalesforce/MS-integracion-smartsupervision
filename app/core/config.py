@@ -106,5 +106,10 @@ class Settings(BaseSettings):
 
     # -- Configuración de matriz de errores en sheets -- #
     GOOGLE_SHEETS_MATRIX_URL: Optional[str] = None
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REFRESH_TOKEN: Optional[str] = None
+    GOOGLE_SPREADSHEET_ID: Optional[str] = None
+    GOOGLE_SHEET_RANGE: Optional[str] = None
     
 settings = Settings()

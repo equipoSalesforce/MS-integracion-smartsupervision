@@ -37,7 +37,7 @@
   {
     "subcadena": "no tenga más de 50 caracteres",
     "tipo": "VALIDATION_ERROR",
-    "accion": "Verificar que el nombre de la cuenta asociada no tenga mas de 50 caracteres."
+    "accion": "Verificar que el nombre de la cuenta asociada este diligenciado o no tenga mas de 50 caracteres."
   },
   {
     "subcadena": "Este campo no puede ser nulo",
@@ -135,9 +135,19 @@
     "accion": "La queja será enviada sin documento duplicado."
   },
   {
+    "subcadena": "Ya existe queja con este codigo queja",
+    "tipo": "ALREADY_EXISTS",
+    "accion": "El código de la queja ya existe registrado en la SFC. Verificar si la queja ya se radicó previamente."
+  },
+  {
+    "subcadena": "codigo_queja",
+    "tipo": "ALREADY_EXISTS",
+    "accion": "El código de la queja ya se encuentra registrado en la SFC."
+  },
+  {
     "subcadena": "ya existe una Queja radicada para la entidad con el mismo motivo",
     "tipo": "ALREADY_EXISTS",
-    "accion": "Validar que el caso que referencian en el mensaje donde estan los signos de interrogación no corresponda a la misma información del caso actual. Si son casos diferentes cambiar el canal para que se entienda que son casos diferentes y volver a guardar."
+    "accion": "Validar que el caso que referencian en el mensaje no corresponda a la misma información del caso actual. Si son casos diferentes cambiar el canal o motivo y volver a guardar."
   },
   {
     "subcadena": "no está disponible por el momento",
@@ -173,5 +183,45 @@
     "subcadena": "does not exist",
     "tipo": "NOT_FOUND_ERROR",
     "accion": "La queja no existe en la SFC. El sistema intentará recuperarla automáticamente creando el caso (Momento 2) y reintentando el cierre."
+  },
+  {
+    "subcadena": "no tenga más de 14 caracteres",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que el campo numero_id_CF no supere los 14 caracteres."
+  },
+  {
+    "subcadena": "Verificación de firma fallida",
+    "tipo": "AUTH_ERROR",
+    "accion": "Verificar firma y llaves en las cabeceras de la petición HTTP."
+  },
+  {
+    "subcadena": "punto_recepcion",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Validar que el campo punto_recepcion contenga un código permitido."
+  },
+  {
+    "subcadena": "Solicitud fue regulada (throttled)",
+    "tipo": "THROTTLED_ERROR",
+    "accion": "Se enviaron demasiadas solicitudes. El sistema reintentará respetando el control de flujo (1 req / 5s)."
+  },
+  {
+    "subcadena": "Verifique que el Token enviado este bien formado",
+    "tipo": "AUTH_ERROR",
+    "accion": "Verificar el contenido y estado de expiración del Access Token enviado."
+  },
+  {
+    "subcadena": "desistimiento, réplica o escalonamiento en proceso",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Ajustar la fecha de cierre para que sea posterior a la fecha del desistimiento, réplica o escalonamiento vigente."
+  },
+  {
+    "subcadena": "no puede ser nulo",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Verificar que los campos requeridos de cierre (a_favor_de, documentacion_rta_final, fecha_cierre, anexo_queja) estén diligenciados."
+  },
+  {
+    "subcadena": "marcacion",
+    "tipo": "BUSINESS_RULE_ERROR",
+    "accion": "Para quejas duplicadas enviar marcacion = 7, estado_cod = 4 (cerrado) y fecha_cierre."
   }
 ]

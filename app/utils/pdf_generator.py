@@ -58,7 +58,7 @@ def generar_pdf_respuesta_final(
     texto_ajustado = ajustar_ancho_texto(texto_crm, max_caracteres_por_linea=80)
 
     datos_formulario = {
-        "caso_nombre": caso_nombre,
+        "caso_nombre": f"Caso - {caso_nombre}",
         "smart_code": smart_code,
         "mensaje_cuerpo": texto_ajustado
     }

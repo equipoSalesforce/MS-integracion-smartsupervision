@@ -37,10 +37,49 @@ class SfcErrorTranslator:
     CACHE_TTL_SEGUNDOS: int = 600  # 10 Minutos en RAM
 
     @classmethod
+    async def _obtener_google_access_token(cls) -> Optional[str]:
+        """
+        Intercambia el Refresh Token por un Access Token válido de Google.
+        """
+        client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
+        client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
+        refresh_token = getattr(settings, "GOOGLE_REFRESH_TOKEN", None)
+
+        if not all([client_id, client_secret, refresh_token]):
+            logger.warning(
+                "⚠️ [SfcErrorTranslator] Faltan credenciales de Google OAuth en settings. "
+                "No se agregará header de autorización."
+            )
+            return None
+
+        url_oauth = "https://oauth2.googleapis.com/token"
+        payload = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.post(url_oauth, data=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    return data.get("access_token")
+                else:
+                    logger.warning(
+                        f"⚠️ [SfcErrorTranslator] Falló renovación de token Google OAuth: HTTP {res.status_code}"
+                    )
+        except Exception as e:
+            logger.warning(f"⚠️ [SfcErrorTranslator] Error solicitando Access Token a Google: {e}")
+
+        return None
+
+    @classmethod
     async def obtener_matriz_errores(cls) -> List[Dict[str, str]]:
         """
         Retorna la matriz en RAM. Si la caché expiró o está vacía, realiza una
-        petición HTTP GET saliente hacia Google Sheets.
+        petición HTTP GET a la API v4 de Google Sheets usando OAuth 2.0.
         """
         ahora = time.time()
 
@@ -48,42 +87,54 @@ class SfcErrorTranslator:
         if cls.MATRIZ_ERRORES_TEXTO and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
             return cls.MATRIZ_ERRORES_TEXTO
 
-        url_sheets = getattr(settings, "GOOGLE_SHEETS_MATRIX_URL", None)
+        spreadsheet_id = getattr(settings, "GOOGLE_SPREADSHEET_ID", None)
+        sheet_range = getattr(settings, "GOOGLE_SHEET_RANGE", "Hoja1!A:C")
 
-        # 2. Consultar Google Sheets
-        if url_sheets:
+        # 2. Consultar la API oficial v4 de Google Sheets
+        if spreadsheet_id:
             try:
-                logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz de errores desde Google Sheets...")
+                logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz mediante Google Sheets API v4...")
+
+                access_token = await cls._obtener_google_access_token()
+                if not access_token:
+                    raise ValueError("No se pudo obtener el Access Token de Google OAuth.")
+
+                headers = {"Authorization": f"Bearer {access_token}"}
+                url_api_v4 = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{sheet_range}"
+
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    response = await client.get(url_sheets, follow_redirects=True)
-                    
-                    if settings.ENVIRONMENT == "local":
-                        # 🎯 FIX: Imprimir response.text en lugar de forzar .json()
-                        logger.info(f"Retornado por el script (Status {response.status_code}):\n {response.text[:300]}")
-                    
+                    response = await client.get(url_api_v4, headers=headers)
+
                     if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if isinstance(data, list) and len(data) > 0:
-                                cls.MATRIZ_ERRORES_TEXTO = data
-                                cls.ULTIMA_ACTUALIZACION = ahora
-                                logger.info(
-                                    f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets: "
-                                    f"{len(data)} reglas cargadas."
-                                )
-                                return cls.MATRIZ_ERRORES_TEXTO
-                        except json.JSONDecodeError:
-                            logger.warning(
-                                "⚠️ [SfcErrorTranslator] La respuesta de Google Sheets no es un JSON válido. "
-                                "Verifica que el despliegue del Apps Script tenga acceso para 'Cualquiera'."
+                        data = response.json()
+                        rows = data.get("values", [])
+
+                        # Omitimos la primera fila (encabezados: subcadena, tipo, accion)
+                        reglas = []
+                        for row in rows[1:]:
+                            if not row or not row[0]:
+                                continue
+                            reglas.append({
+                                "subcadena": str(row[0]).strip(),
+                                "tipo": str(row[1]).strip() if len(row) > 1 else "UNKNOWN_SFC_ERROR",
+                                "accion": str(row[2]).strip() if len(row) > 2 else "Revisar logs del payload."
+                            })
+
+                        if reglas:
+                            cls.MATRIZ_ERRORES_TEXTO = reglas
+                            cls.ULTIMA_ACTUALIZACION = ahora
+                            logger.info(
+                                f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
+                                f"{len(reglas)} reglas cargadas."
                             )
+                            return cls.MATRIZ_ERRORES_TEXTO
                     else:
                         logger.warning(
-                            f"⚠️ [SfcErrorTranslator] Google Apps Script devolvió HTTP {response.status_code}."
+                            f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
                         )
             except Exception as e:
                 logger.warning(
-                    f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets: {e}. Usando respaldo local."
+                    f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. Usando respaldo local."
                 )
 
         # 3. Fallback: Cargar JSON local
