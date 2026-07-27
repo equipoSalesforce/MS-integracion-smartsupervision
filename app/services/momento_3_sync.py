@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.integrations.sfc_client import SfcClient
 from app.core.config import settings
@@ -102,7 +103,7 @@ class Momento3SincronizacionService:
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = pdf_generado_exito or len(archivos_s3_raw) > 0
-            sfc_raw_payload["fecha_actualizacion"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            sfc_raw_payload["fecha_actualizacion"] = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
 
             if pdf_generado_exito:
                 sfc_raw_payload["documentacion_rta_final"] = True
@@ -216,6 +217,20 @@ class Momento3SincronizacionService:
                 file_bytes = f.read()
 
             final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
+            
+            if self.s3_client:
+                s3_key = f"quejas/{sfc_code}/cierre/{final_pdf_name}"
+                try:
+                    logger.info(f"[Momento 3] Guardando copia de respaldo del PDF en S3: {s3_key}")
+                    await asyncio.to_thread(
+                        self.s3_client.put_object,
+                        Bucket=settings.AWS_S3_BUCKET,
+                        Key=s3_key,
+                        Body=file_bytes,
+                        ContentType="application/pdf"
+                    )
+                except Exception as s3_err:
+                    logger.error(f"⚠️ [Momento 3] No se pudo guardar el respaldo del PDF en S3: {s3_err}")
 
             logger.info(f"[Momento 3] Transmitiendo PDF generado '{final_pdf_name}' a la SFC...")
             await self._enviar_adjunto_seguro(

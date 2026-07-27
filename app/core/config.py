@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str = "mi-bucket-smartsupervision"
     AWS_ACCESS_KEY_ID: str = "test_key"
     AWS_SECRET_ACCESS_KEY: str = "test_secret"
+    AWS_REGION: str = "us-east-1"
+    AWS_ENDPOINT_URL: str = None
 
     # --- Constantes de Entidad para la SFC ---
     #TODO: consultar cuales son los valores reales

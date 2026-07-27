@@ -5,6 +5,7 @@ import re
 import unicodedata
 from datetime import datetime, date
 from typing import Dict, Any, Optional, Set
+from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
 from app.core.config import settings
@@ -432,13 +433,13 @@ def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
     else:
         codigo_queja = raw_code
 
-    fecha_act = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    fecha_act = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
 
     closed_date_raw = cls._get_sf_field_value(entity, "ClosedDate")
     fecha_cierre_val = None
 
     if closed_date_raw:
-        hora_actual = datetime.now().strftime("%H:%M:%S")
+        hora_actual = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
 
         if isinstance(closed_date_raw, datetime):
             fecha_cierre_val = closed_date_raw.strftime("%Y-%m-%dT%H:%M:%S")

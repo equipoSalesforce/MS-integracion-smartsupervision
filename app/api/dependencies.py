@@ -30,7 +30,8 @@ def get_s3_client():
                 "s3",
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                region_name=settings.AWS_REGION
+                region_name=settings.AWS_REGION,
+                endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None) 
             )
         
         # En AWS ECS Fargate, boto3 busca y hereda el IAM Role automáticamente

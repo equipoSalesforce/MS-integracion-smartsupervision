@@ -25,6 +25,7 @@ wheels/
 venv/
 .env
 .venv
+infrastructure/.env.test
 
 # AWS y Seguridad (¡Crítico!)
 *.pem
