@@ -99,6 +99,45 @@ Esto iniciará dos servicios comunicados en la misma red de Docker:
 
 ---
 
+### 3.3. Ejecución con Docker (Microservicio + MinIO para simulación de S3)
+
+Primero, ve a la carpeta infrastructure y crea el archivo .env.test, puedes copiar y pegar el .env.example y cambiar los valores de la sfc por los que nos dieron. Si necesitas los valores relacionados a google para la conexion a la sheet me avisas (no es necesario en este momento de testeo, hay un fallback local con los mismos errores)
+
+Para probar la integración completa con de la SFC sin depender de s3, pero con un servicio que utiliza la misma API puedes levantar el entorno en Docker usando Docker Compose:
+
+```bash
+# Levantar el microservicio con MinIO
+sion> docker compose -f infrastructure/docker-compose.test.yml up --build
+```
+
+Esto iniciará dos servicios comunicados en la misma red de Docker:
+
+1. **`smartsupervision-app` (Microservicio Real):** Expone el puerto `8000` (`http://localhost:8000`). Su documentación interactiva estará en `http://localhost:8000/docs`.
+2. **`MinIO` (Emulador de AWS S3)**:
+   - API de S3 (boto3/ HTTP): Expone el puerto 9000 (http://localhost:9000).
+   - Consola Web de Administración: Expone el puerto 9001 (http://localhost:9001).
+
+**Inicialización de MinIO (Creación de bucket local)**
+Antes de ejecutar peticiones que involucren descarga o subida de archivos adjuntos (Momento 1, Momento 2 o Momento 3), debes crear el bucket en la consola de MinIO la primera vez que levantes el contenedor:
+
+1. Acceder a la Consola Web: Abre tu navegador e ingresa a http://localhost:9001.
+2. Iniciar Sesión:Ingresa con las credenciales por defecto configuradas en el entorno:
+   - Username: minioadmin
+   - Password: minioadmin
+3. Crear el Bucket de Trabajo:
+   - En el menú lateral izquierdo, selecciona Create Bucket.
+   - En el campo Bucket Name, ingresa el nombre exacto definido en la variable de entorno AWS_S3_BUCKET (por ejemplo: global66-sfc-bucket-local).
+   - Haz clic en Create Bucket para finalizar.
+
+La información del bucket persistirá en el volumen de Docker (minio_data), por lo que solo es necesario realizar este paso de creación la primera vez.
+
+Para subir archivos es similar a utilizar drive, abres la carpeta/o la creas con Create a new path:
+![1785185146855](image/Como_testear/1785185146855.png)
+
+Finalmente solo arrastras el archivo a donde lo vas a poner o le das a upload y seleccionas el archivo
+
+---
+
 ## 4. Ejecución de Pruebas (Test Suite)
 
 La suite de pruebas incluye tests unitarios e integrales para verificar el comportamiento de la autenticación, generación de firmas y el flujo de sincronización de los Momentos 1 y 2.
