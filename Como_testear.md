@@ -121,7 +121,8 @@ Esto iniciará dos servicios comunicados en la misma red de Docker:
 Antes de ejecutar peticiones que involucren descarga o subida de archivos adjuntos (Momento 1, Momento 2 o Momento 3), debes crear el bucket en la consola de MinIO la primera vez que levantes el contenedor:
 
 1. Acceder a la Consola Web: Abre tu navegador e ingresa a http://localhost:9001.
-2. Iniciar Sesión:Ingresa con las credenciales por defecto configuradas en el entorno:
+2. Iniciar Sesión: 
+    Ingresa con las credenciales por defecto configuradas en el entorno:
    - Username: minioadmin
    - Password: minioadmin
 3. Crear el Bucket de Trabajo:
