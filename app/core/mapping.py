@@ -1,4 +1,3 @@
-# app/core/mapping.py
 import json
 import logging
 import os
@@ -89,6 +88,30 @@ SfcSalesforceMapper.MAPPING_MOMENTO_1_SFC_TO_CRM = {
     "replica": "replica__c", "argumento_replica": "argumento_replica__c"
 }
 
+# 🎯 MAPEO MOMENTO 4 (Información de Usuarios SFC -> CRM)
+SfcSalesforceMapper.MAPPING_MOMENTO_4_SFC_TO_CRM = {
+    "numero_id_CF": "id_number__c",
+    "tipo_id_CF": "SC_id_type__c",
+    "nombre": "FirstName",
+    "nombres": "FirstName",
+    "Nombres": "FirstName",
+    "apellido": "LastName",
+    "apellidos": "LastName",
+    "Apellidos": "LastName",
+    "fecha_nacimiento": "fecha_nacimiento__c",
+    "correo": "SuppliedEmail",
+    "Correo": "SuppliedEmail",
+    "telefono": "SuppliedPhone",
+    "Teléfono": "SuppliedPhone",
+    "Telefono": "SuppliedPhone",
+    "razon_social": "company_name__c",
+    "direccion": "direccion__c",
+    "Dirección": "direccion__c",
+    "Direccion": "direccion__c",
+    "departamento_cod": "Departamento__c",
+    "municipio_cod": "SC_municipio__c",
+}
+
 
 @classmethod
 def _get_sf_field_value(cls, entity: Any, field_name: str) -> Any:
@@ -138,7 +161,6 @@ def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
     str_key = str(sfc_value)
     
     if sfc_key == "codigo_pais":
-        #TODO agregar igualmente logica mas avanzada para mas paises
         if sfc_value == "COL" or sfc_value == "170":
             return "Colombia"
     
@@ -168,8 +190,8 @@ def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
         cat_key, default_val = key_to_cat[sfc_key]
         return cls.CATALOGOS.get(cat_key, {}).get(str_key, default_val)
 
-    if sfc_key == "departamento_cod": return cls.DEPT_DIVIPOLA_INV.get(str_key, str(sfc_value))
-    if sfc_key == "municipio_cod": return cls.MUNI_DIVIPOLA_INV.get(str_key, str(sfc_value))
+    if sfc_key in ("departamento_cod", "Departamento__c"): return cls.DEPT_DIVIPOLA_INV.get(str_key, str(sfc_value))
+    if sfc_key in ("municipio_cod", "SC_municipio__c"): return cls.MUNI_DIVIPOLA_INV.get(str_key, str(sfc_value))
 
     if sfc_key in ("tutela", "queja_expres", "escalamiento_DCF", "replica", "producto_digital"):
         val_int = int(sfc_value) if str_key.isdigit() else sfc_value
@@ -184,8 +206,6 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         return None
     
     if sf_key == "codigo_pais__c":
-        #TODO agregar logica solida para codigos de pais
-        # Adicionalmente, ellos no reciben "COL" sino "170"
         if str(sf_value) == "Colombia":
             return "170"
 
@@ -272,6 +292,41 @@ def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
     return crm_data
 
 
+# 🎯 NUEVO MÉTODO PARA MOMENTO 4
+@classmethod
+def sfc_user_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Mapea el JSON de un usuario del Momento 4 (SFC) al formato del CRM local."""
+    crm_data = {}
+    if not isinstance(sfc_data, dict):
+        return crm_data
+
+    for sfc_key, value in sfc_data.items():
+        if value is None:
+            continue
+
+        crm_key = cls.MAPPING_MOMENTO_4_SFC_TO_CRM.get(sfc_key)
+        if not crm_key:
+            crm_key = cls.MAPPING_MOMENTO_4_SFC_TO_CRM.get(str(sfc_key).lower())
+
+        if crm_key:
+            if sfc_key == "fecha_nacimiento" and isinstance(value, str) and value.strip():
+                try:
+                    clean_date = value.replace(" ", "T")
+                    crm_data[crm_key] = datetime.fromisoformat(clean_date).isoformat()
+                except ValueError:
+                    crm_data[crm_key] = value
+            else:
+                crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
+
+    # Construir SuppliedName combinando Nombres y Apellidos si existen
+    first_name = crm_data.get("FirstName", "")
+    last_name = crm_data.get("LastName", "")
+    if first_name or last_name:
+        crm_data["SuppliedName"] = f"{first_name} {last_name}".strip()
+
+    return crm_data
+
+
 @classmethod
 def crm_entity_to_sfc_momento2_payload(cls, entity: Any) -> Dict[str, Any]:
     prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}"
@@ -327,31 +382,25 @@ def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
     else:
         codigo_queja = raw_code
 
-    # 🎯 CORRECCIÓN: Formato ISO completo (YYYY-MM-DDTHH:MM:SS) exigido por la SFC
     fecha_act = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     closed_date_raw = cls._get_sf_field_value(entity, "ClosedDate")
     fecha_cierre_val = None
 
     if closed_date_raw:
-        # Capturamos la hora actual del sistema (ej: 13:45:22)
         hora_actual = datetime.now().strftime("%H:%M:%S")
 
         if isinstance(closed_date_raw, datetime):
-            # Si ya es un objeto datetime completo con hora
             fecha_cierre_val = closed_date_raw.strftime("%Y-%m-%dT%H:%M:%S")
             
         elif isinstance(closed_date_raw, date):
-            # Si es un objeto date puro (sin hora), le pegamos la hora actual
             fecha_cierre_val = f"{closed_date_raw.isoformat()}T{hora_actual}"
             
         elif isinstance(closed_date_raw, str) and closed_date_raw.strip():
             clean_str = closed_date_raw.strip()
             if "T" in clean_str:
-                # Si ya venía en formato ISO con hora (ej: "2026-07-24T14:30:00")
                 fecha_cierre_val = clean_str
             else:
-                # Si venía como string solo de fecha "YYYY-MM-DD", le pegamos la hora actual
                 fecha_cierre_val = f"{clean_str.split()[0]}T{hora_actual}"
             
     status_val = cls._get_sf_field_value(entity, "Status")
@@ -369,7 +418,7 @@ def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
         producto_cod=int(cls._translate_value_to_sfc("Product__c", cls._get_sf_field_value(entity, "Product__c")) or 207),
         macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 958),
         estado_cod=int(estado_cod_val),
-        fecha_actualizacion=fecha_act,  # 👈 Envía "2026-07-24T12:55:01"
+        fecha_actualizacion=fecha_act,
         producto_digital=int(cls._translate_value_to_sfc("producto_digital__c", cls._get_sf_field_value(entity, "producto_digital__c")) or 1),
         admision=int(cls._translate_value_to_sfc("admision_col__c", cls._get_sf_field_value(entity, "admision_col__c")) or 1),
         desistimiento_queja=2,
@@ -406,6 +455,7 @@ SfcSalesforceMapper._get_sf_field_value = _get_sf_field_value
 SfcSalesforceMapper._translate_value_to_crm = _translate_value_to_crm
 SfcSalesforceMapper._translate_value_to_sfc = _translate_value_to_sfc
 SfcSalesforceMapper.sfc_payload_to_db_dict = sfc_payload_to_db_dict
+SfcSalesforceMapper.sfc_user_payload_to_db_dict = sfc_user_payload_to_db_dict
 SfcSalesforceMapper.crm_entity_to_sfc_momento2_payload = crm_entity_to_sfc_momento2_payload
 SfcSalesforceMapper.crm_entity_to_sfc_momento3_payload = crm_entity_to_sfc_momento3_payload
 SfcSalesforceMapper.crm_entity_to_sfc_payload = crm_entity_to_sfc_payload

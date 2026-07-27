@@ -136,7 +136,7 @@ class TestMomento1Integration(unittest.TestCase):
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
 
         # Hacemos la petición POST al endpoint de sincronización
-        response = self.client.post("/api/v1/quejas/sync/momento-1")
+        response = self.client.get("/api/v1/quejas/sync/momento-1")
         
         # --- VERIFICACIONES SÍNCRONAS ---
         self.assertEqual(response.status_code, 200)

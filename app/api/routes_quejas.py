@@ -13,8 +13,10 @@ from app.integrations.sfc_client import SfcClient
 from app.services.email_service import EmailAlertService
 from app.services.momento_1_sync import SincronizacionService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
+from app.services.momento_4_sync import UserSync
 from app.core.exceptions import SfcIntegrationException
 from app.schemas.crm_payloads import (
+    ConfirmacionAckUsuariosInput,
     QuejaMapeadaCrmResponse, 
     QuejaUnificadaCrmInput,
     ConfirmacionAckInput
@@ -31,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 # 📥 MOMENTO 1: Sincronización y ACK (SFC -> CRM)
 # ======================================================================
-@router.post(
+@router.get(
     "/sync/momento-1", 
     status_code=status.HTTP_200_OK, 
     summary="Obtener Quejas Nuevas de la SFC y procesar adjuntos a S3",
@@ -250,3 +252,82 @@ async def consultar_cola_local(
             }
             for r in registros
         ]
+        
+        
+# ======================================================================
+# 📥 MOMENTO 4: Actualización y ACK de usuarios
+# ======================================================================
+
+@router.get(
+    "/sync/momento-4",
+    status_code=status.HTTP_200_OK,
+    summary="Obtener información actualizada de usuarios desde la SFC",
+)
+async def actualizar_usuarios(
+    sfc_client: SfcClient = Depends(get_sfc_client),
+):
+    """
+    Endpoint consumido por el CRM para obtener las actualizaciones de datos de los 
+    consumidores financieros. Retorna la lista mapeada sin enviar el ACK a la SFC.
+    """
+    try:
+        servicio = UserSync(sfc_client=sfc_client)
+        resultado = await servicio.sincronizar_usuarios()
+        return resultado
+    
+    except SfcIntegrationException as exc:
+        logger.warning(f"Error controlado de la SFC en Momento 4: {exc.raw_message}")
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "status": "error",
+                "error_type": exc.error_type,
+                "sfc_field": exc.sfc_field,
+                "raw_sfc_message": exc.raw_message,
+                "crm_action_friendly": exc.crm_action
+            }
+        )
+    except Exception as e:
+        logger.error(f"Fallo crítico en endpoint de Sincronización de Momento 4: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al sincronizar usuarios de la SFC: {str(e)}"
+        )
+
+
+@router.post(
+    "/sync/momento-4/ack",
+    status_code=status.HTTP_200_OK,
+    summary="Confirmar recepción exitosa de datos de usuarios (ACK) a la SFC"
+)
+async def confirmar_ack_momento_4(
+    payload: ConfirmacionAckUsuariosInput,
+    sfc_client: SfcClient = Depends(get_sfc_client)
+):
+    """
+    Endpoint invocado por el CRM tras actualizar la información de los usuarios en su BD.
+    Notifica en lote (ACK) a la SFC para quitar las actualizaciones pendientes de la cola.
+    """
+    try:
+        servicio = UserSync(sfc_client=sfc_client)
+        resultado = await servicio.confirmar_recepcion_ack_usuarios(numeros_id_cf=payload.numeros_id_cf)
+        return resultado
+        
+    except SfcIntegrationException as exc:
+        logger.warning(f"Error controlado de la SFC al enviar ACK de usuarios: {exc.raw_message}")
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "status": "error",
+                "error_type": exc.error_type,
+                "sfc_field": exc.sfc_field,
+                "raw_sfc_message": exc.raw_message,
+                "crm_action_friendly": exc.crm_action
+            }
+        )
+    except Exception as e:
+        logger.error(f"Fallo crítico al reportar ACK de Momento 4: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al enviar confirmación ACK de usuarios a la SFC: {str(e)}"
+        )

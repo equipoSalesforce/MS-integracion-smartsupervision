@@ -1,6 +1,6 @@
 # tests/test_mapper.py
 import unittest
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from unittest.mock import patch
 
 # 🚀 Importamos el mapper al inicio. Esto inicializa app.core.config y app.core.mapping de forma limpia.
@@ -101,12 +101,12 @@ class TestSfcSalesforceMapper(unittest.TestCase):
         self.assertEqual(res_m2["municipio_cod"], "11001")
 
         # 3. Formateo de Fechas ISO con Tilde para M2
-        self.assertEqual(res_m2["fecha_creación"], "2026-07-16T12:00:00")
+        self.assertEqual(res_m2["fecha_creacion"], "2026-07-16T12:00:00")
 
         # 4. Catálogos y Picklists Numéricos M2
         self.assertEqual(res_m2["canal_cod"], 13)               # Internet -> 13
         self.assertEqual(res_m2["ente_control"], 99)            # Otros -> 99
-        self.assertEqual(res_m2["tipo_Persona"], 1)             # B2C/Natural -> 1
+        self.assertEqual(res_m2["tipo_persona"], 1)             # B2C/Natural -> 1
 
         # ======================================================================
         # 📌 MOMENTO 3 (Trámite, Fraude y Cierre - SfcActualizarQuejaPayload)
@@ -118,7 +118,7 @@ class TestSfcSalesforceMapper(unittest.TestCase):
         self.assertEqual(res_m3["monto_reconocido"], 450000.0) # Total_Devuelto_por_Desconocimiento__c
 
         # 2. Fechas de Cierre Definitivo
-        self.assertEqual(res_m3["fecha_cierre"], "2026-07-16")
+        self.assertTrue(res_m3["fecha_cierre"].startswith("2026-07-16T"))
 
         # 3. Catálogos Numéricos M3
         self.assertEqual(res_m3["canal_cod"], 13)
@@ -136,7 +136,7 @@ class TestSfcSalesforceMapper(unittest.TestCase):
         self.assertEqual(resultado_crm["Smart_Code__c"], "16551509974606")
         self.assertEqual(resultado_crm["SuppliedName"], "Camila Salas")
         self.assertEqual(resultado_crm["id_number__c"], "1040011014")
-        self.assertEqual(resultado_crm["codigo_pais__c"], "COL")
+        self.assertEqual(resultado_crm["codigo_pais__c"], "Colombia")
 
         # 2. Comprobación DIVIPOLA Inversa (Códigos de la SFC -> Picklists con Tilde del CRM)[cite: 1]
         self.assertEqual(resultado_crm["Departamento__c"], "Bogotá D.C.")

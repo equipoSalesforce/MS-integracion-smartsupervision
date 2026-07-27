@@ -259,3 +259,10 @@ class ConfirmacionAckInput(BaseModel):
         if not cleaned:
             raise ValueError("La lista 'ids_quejas' debe contener al menos un identificador válido no vacío.")
         return cleaned
+    
+
+class ConfirmacionAckUsuariosInput(BaseModel):
+    numeros_id_cf: List[str] = Field(
+        ..., 
+        description="Lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM."
+    )

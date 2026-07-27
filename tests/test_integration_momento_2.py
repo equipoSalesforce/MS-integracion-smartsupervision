@@ -79,7 +79,7 @@ class TestMomento2Integration(unittest.TestCase):
         # Comprobamos los campos mapeados correctamente al formato SFC directamente
         self.assertEqual(request_enviado["codigo_queja"], f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.smart_code_test}")
         self.assertEqual(request_enviado["canal_cod"], 13)
-        self.assertEqual(request_enviado["tipo_Persona"], 1)
+        self.assertEqual(request_enviado["tipo_persona"], 1)
         
         # Los campos de Momento 3 no deben enviarse en la creación inicial
         self.assertNotIn("fecha_cierre", request_enviado)

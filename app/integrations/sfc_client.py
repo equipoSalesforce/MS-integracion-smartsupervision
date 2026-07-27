@@ -212,6 +212,30 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
+    async def fetch_usuarios_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
+        """Obtiene una página de usuarios actualizados (Momento 4)."""
+        target_url = url if url else f"{self.base_url}/api/usuarios/info/"
+        try:
+            response = await self.client.get(target_url)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
+        except httpx.RequestError:
+            SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
+
+    async def send_user_ack_batch(self, numeros_id_cf: list) -> Dict[str, Any]:
+        """Envía el lote de confirmación de recibido para usuarios (Momento 4 ACK)."""
+        target_url = f"{self.base_url}/api/usuarios/ack/"
+        payload = {"numero_id_CF": numeros_id_cf}
+        try:
+            response = await self.client.post(target_url, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
+        except httpx.RequestError:
+            SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     async def close(self):
         """Cierra de forma segura el pool de conexiones del cliente HTTPX."""

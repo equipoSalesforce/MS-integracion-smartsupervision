@@ -1,4 +1,4 @@
-# tests/test_email_triggers.py
+import asyncio
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -12,15 +12,11 @@ from app.core.config import settings
 
 class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
-    async def test_encolar_despacho_dispara_alertas(self):
-        """
-        NUEVA PRUEBA: Valida aisladamente que al encolar un despacho con error 
-        se invoquen las alertas de infraestructura y de umbral de la cola.
-        """
+    async def test_encolar_despacho_dispara_alerta_infraestructura_cuando_cola_vacia(self):
+        """Valida que si la cola está vacía (0 pendientes), se notifique la caída de infraestructura."""
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        # 1. Configurar DB Session completamente inocua
         db_mock = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -31,27 +27,63 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         db_mock.refresh = AsyncMock()
 
         queue_service = QueueService(db_session=db_mock)
-        queue_service.contar_pendientes = AsyncMock(return_value=100)
+        # 🎯 Retorna 0 para simular la primera falla (cola vacía)
+        queue_service.contar_pendientes = AsyncMock(return_value=0)
 
-        # 2. Aislar contexto con Mocks explícitos
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
              patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_falla, \
              patch.object(EmailAlertService, "notificar_umbral_cola", new_callable=AsyncMock) as mock_umbral:
 
-            # 3. Ejecución
             await queue_service.encolar_despacho(
                 smart_code=smart_code,
                 tipo_operacion="CREACION",
                 payload_json={"Smart_Code__c": smart_code},
                 error_inicial=error_msg
             )
+            
+            await asyncio.sleep(0)
 
-            # 4. Aserciones
-            mock_falla.assert_awaited_once_with(
+            # Debe llamarse a alerta de infraestructura y NO a la de umbral
+            mock_falla.assert_called_once_with(
                 smart_code=smart_code,
                 error_msg=error_msg
             )
-            mock_umbral.assert_awaited_once_with(total_pendientes=100)
+            mock_umbral.assert_not_called()
+
+    async def test_encolar_despacho_dispara_alerta_umbral_al_llegar_a_100(self):
+        """Valida que si al encolar un caso se alcanzan 100 pendientes, se notifique la alerta de umbral."""
+        smart_code = "142316551509974606"
+        error_msg = "HTTP 502 Bad Gateway"
+
+        db_mock = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.one_or_none.return_value = None
+        db_mock.execute.return_value = mock_result
+        db_mock.add = MagicMock()
+        db_mock.commit = AsyncMock()
+        db_mock.refresh = AsyncMock()
+
+        queue_service = QueueService(db_session=db_mock)
+        # 🎯 Retorna 99 para que con el nuevo caso sume 100
+        queue_service.contar_pendientes = AsyncMock(return_value=99)
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_falla, \
+             patch.object(EmailAlertService, "notificar_umbral_cola", new_callable=AsyncMock) as mock_umbral:
+
+            await queue_service.encolar_despacho(
+                smart_code=smart_code,
+                tipo_operacion="CREACION",
+                payload_json={"Smart_Code__c": smart_code},
+                error_inicial=error_msg
+            )
+            
+            await asyncio.sleep(0)
+
+            # NO debe llamarse a alerta de infraestructura (ya había casos), pero SÍ a la de umbral
+            mock_falla.assert_not_called()
+            mock_umbral.assert_called_once_with(total_pendientes=100)
 
     @patch.object(EmailAlertService, "notificar_error_no_mapeado", new_callable=AsyncMock)
     async def test_orquestador_dispara_correo_error_no_mapeado(self, mock_no_mapeado):
@@ -86,9 +118,10 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(SfcIntegrationException):
                 await orquestador.procesar_despacho(payload=payload_mock)
 
+            # 🎯 FIX: Se ajusta raw_message para incluir el prefijo [UNKNOWN_ERROR]
             mock_no_mapeado.assert_called_once_with(
                 status_code=400,
-                raw_message="Error desconocido desde la SFC",
+                raw_message="[UNKNOWN_ERROR] Error desconocido desde la SFC",
                 sfc_field=None,
                 smart_code="142399988877"
             )

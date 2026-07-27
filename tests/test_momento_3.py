@@ -146,7 +146,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "a_favor_de__c": "1",
             "Aceptacion__c": "Si",
             "Rectificacion__c": "No",
-            "Prorroga__c": "No",
+            "Prorroga__c": 1,
             "cuerpo_respuesta_final": "<p>Estimado cliente, su reclamación ha sido resuelta a favor.</p>",
             "archivos_s3": []
         })

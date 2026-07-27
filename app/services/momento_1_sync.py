@@ -48,23 +48,26 @@ class SincronizacionService:
 
     async def _procesar_pagina_quejas(self, raw_quejas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Procesa de forma concurrente un lote de quejas de la SFC.
-        Ya NO envía el ACK automáticamente.
+        Procesa de forma concurrente un lote de quejas de la SFC, 
+        limitando la concurrencia para no saturar la red ni la API de la SFC.
         """
-        tareas = []
-        for queja_sfc in raw_quejas:
-            tareas.append(self._procesar_queja_individual(queja_sfc))
+        resultados = []
+        # Dividimos las 100 quejas en sub-lotes de 10 para no asfixiar el servidor
+        TAMANO_CHUNK = 10
+        chunks = [raw_quejas[i:i + TAMANO_CHUNK] for i in range(0, len(raw_quejas), TAMANO_CHUNK)]
+        
+        for chunk in chunks:
+            tareas = [self._procesar_queja_individual(queja) for queja in chunk]
+            resultados_chunk = await asyncio.gather(*tareas)
+            resultados.extend(resultados_chunk)
 
-        # Disparamos el procesamiento de todas las quejas del lote en paralelo
-        resultados = await asyncio.gather(*tareas)
-
-        # Filtramos únicamente las quejas que se procesaron con éxito (no retornaron None)
         return [q for q in resultados if q is not None]
 
     async def confirmar_recepcion_ack(self, ids_quejas: List[str]) -> Dict[str, Any]:
         """
         Recibe la lista de IDs de quejas confirmadas por el CRM local
-        y transmite la confirmación (ACK Batch) de manera manual a la SFC.
+        y transmite la confirmación (ACK Batch) de manera manual a la SFC,
+        dividiendo el envío en lotes máximos de 100 registros según la doc de la SFC.
         """
         if not ids_quejas:
             return {
@@ -73,14 +76,28 @@ class SincronizacionService:
                 "confirmados": 0
             }
 
-        logger.info(f"[Momento 1 ACK] Enviando confirmación ACK Batch para {len(ids_quejas)} quejas a la SFC.")
-        await self.sfc_client.send_ack_batch(ids_quejas)
+        logger.info(f"[Momento 1 ACK] Iniciando confirmación ACK para un total de {len(ids_quejas)} quejas.")
+        
+        TAMANO_LOTE = 100
+        lotes = [ids_quejas[i:i + TAMANO_LOTE] for i in range(0, len(ids_quejas), TAMANO_LOTE)]
+        
+        total_confirmados = 0
+        
+        for index, lote in enumerate(lotes):
+            logger.info(f"[Momento 1 ACK] Enviando lote {index + 1}/{len(lotes)} con {len(lote)} quejas a la SFC...")
+            try:
+                # Envía únicamente el lote actual (<= 100 IDs)
+                await self.sfc_client.send_ack_batch(lote)
+                total_confirmados += len(lote)
+            except Exception as e:
+                logger.error(f"❌ Error al confirmar el lote {index + 1}: {str(e)}")
+                raise
 
         return {
-            "status": "success",
-            "message": f"ACK confirmado exitosamente ante la SFC para {len(ids_quejas)} quejas.",
-            "confirmados": len(ids_quejas),
-            "ids_procesados": ids_quejas
+            "status": "success" if total_confirmados == len(ids_quejas) else "partial",
+            "message": f"ACK confirmado exitosamente ante la SFC para {total_confirmados} de {len(ids_quejas)} quejas.",
+            "confirmados": total_confirmados,
+            "ids_procesados": ids_quejas[:total_confirmados]
         }
 
     async def _procesar_queja_individual(self, queja_sfc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -94,11 +111,10 @@ class SincronizacionService:
         if settings.ENVIRONMENT == "local":
             codigo_entidad = queja_sfc.get("entidad_cod")
             tipo_entidad = queja_sfc.get("tipo_entidad")
-            
-            logger.info(f"el codigo de entidad es {codigo_entidad} y el tipo entidad es {tipo_entidad}")
+            logger.info(f"[LOCAL] El codigo de entidad es {codigo_entidad} y el tipo entidad es {tipo_entidad}")
         
         if tiene_anexos:
-            logger.info(f"La queja {codigo_queja} tiene anexos")
+            logger.info(f"La queja {codigo_queja} tiene anexos. Iniciando descarga...")
         
         adjuntos_procesados = []
 
@@ -121,30 +137,41 @@ class SincronizacionService:
 
                 if tareas_descarga:
                     resultados_s3 = await asyncio.gather(*tareas_descarga)
-                    # Filtramos únicamente las cargas exitosas
+                    
+                    if None in resultados_s3:
+                        if settings.ENVIRONMENT != "local":
+                            logger.error(f"❌ Abortando queja {codigo_queja}: Al menos un anexo falló (Timeout/Error). No se enviará ACK para forzar reintento.")
+                            return None
+                        else:
+                            logger.warning(f"⚠️ [LOCAL] Falló un anexo en {codigo_queja}, pero se continuará por ser entorno de desarrollo.")
+
+                    # Si llegamos aquí, TODOS los anexos se descargaron y subieron a S3 con éxito
                     adjuntos_procesados = [a for a in resultados_s3 if a is not None]
 
             except Exception as e:
+                # Esto atrapa caídas en 'get_adjuntos_list' o si la SFC devuelve un error 500
                 if settings.ENVIRONMENT != "local":
-                    logger.error(f"Fallo al procesar adjuntos para la queja {codigo_queja}. Se omitirá este ciclo: {str(e)}")
+                    logger.error(f"❌ Fallo general al procesar adjuntos para la queja {codigo_queja}. Se omitirá este ciclo: {str(e)}")
                     return None
+                else:
+                    logger.warning(f"⚠️ [LOCAL] Fallo general en anexos de {codigo_queja}: {str(e)}")
 
         # 3. Traducimos el payload completo usando el Mapper Universal
         queja_traducida = SfcSalesforceMapper.sfc_payload_to_db_dict(queja_sfc)
 
-        # Enriquecemos la queja mapeada agregando el listado de archivos que quedaron guardados en S3
+        # Enriquecemos la queja mapeada agregando el listado de archivos guardados en S3
         queja_traducida["archivos_s3"] = adjuntos_procesados
             
+        # 4. Inyección de Mock solo para entorno local si no hay archivos reales
         if settings.ENVIRONMENT == "local" and not adjuntos_procesados and tiene_anexos:
             bucket_local = getattr(settings, "AWS_S3_BUCKET", None) or "global66-sfc-bucket-local"
-        
             queja_traducida["archivos_s3"] = [
                 {
                     "nombre_archivo": f"ANEXO_MOCK_{codigo_queja}.pdf",
                     "s3_key": f"local/quejas/{codigo_queja}/ANEXO_MOCK_{codigo_queja}.pdf",
                     "bucket": bucket_local
                 }
-            ] if tiene_anexos else []
+            ]
             
         return queja_traducida
 
