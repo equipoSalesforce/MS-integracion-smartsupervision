@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from botocore.exceptions import ClientError
 
 from app.integrations.sfc_client import SfcClient
 from app.core.config import settings
@@ -274,7 +275,13 @@ class Momento3SincronizacionService:
                     await asyncio.gather(*tareas_envio)
                 return
             else:
-                raise ValueError("Error de infraestructura: El cliente S3 no está inicializado en producción.")
+                raise SfcIntegrationException(
+                    status_code=500,
+                    error_type="INFRASTRUCTURE_ERROR",
+                    sfc_field="s3_client",
+                    raw_message="El cliente de almacenamiento S3 no está inicializado en el entorno actual.",
+                    crm_action="Contactar al equipo de infraestructura/DevOps para validar la configuración de AWS S3."
+                )
 
         for item in archivos:
             s3_key = item.s3_key if hasattr(item, "s3_key") else item.get("s3_key")
@@ -282,9 +289,31 @@ class Momento3SincronizacionService:
             original_name = item.nombre_archivo if hasattr(item, "nombre_archivo") else item.get("nombre_archivo")
             file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
 
-            metadata = await asyncio.to_thread(self.s3_client.head_object, Bucket=bucket, Key=s3_key)
+            # 🎯 1. Captura estandarizada de existencia en S3 / MinIO
+            try:
+                metadata = await asyncio.to_thread(self.s3_client.head_object, Bucket=bucket, Key=s3_key)
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code in ("404", "403", "NoSuchKey", "NotFound"):
+                    logger.error(f"❌ [Momento 3 S3 Error] Archivo '{original_name}' no encontrado (Key: '{s3_key}', Bucket: '{bucket}').")
+                    raise SfcIntegrationException(
+                        status_code=404,
+                        error_type="S3_FILE_NOT_FOUND",
+                        sfc_field="archivos_s3",
+                        raw_message=f"El archivo '{original_name}' (Key: '{s3_key}') no existe o no se pudo acceder en el almacenamiento S3.",
+                        crm_action="Verifique que el archivo haya sido cargado correctamente en el bucket de S3/MinIO antes de reintentar la transmisión."
+                    )
+                raise
+
+            # 🎯 2. Captura estandarizada de límite de tamaño (30MB)
             if metadata.get("ContentLength", 0) > 30 * 1024 * 1024:
-                raise ValueError(f"El archivo {original_name} supera el límite de 30MB permitido por la SFC.")
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="FILE_SIZE_EXCEEDED",
+                    sfc_field="archivos_s3",
+                    raw_message=f"El archivo '{original_name}' supera el límite máximo de 30MB permitido por la SFC.",
+                    crm_action="Comprima el documento o adjunte una versión de menor tamaño (máximo 30MB)."
+                )
 
             s3_file = await asyncio.to_thread(self.s3_client.get_object, Bucket=bucket, Key=s3_key)
             file_bytes = s3_file["Body"].read()
