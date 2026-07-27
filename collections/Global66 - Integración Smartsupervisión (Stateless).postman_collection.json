@@ -14,7 +14,7 @@
         {
           "name": "Sincronizar Quejas (SFC -> CRM)",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
               {
                 "key": "Content-Type",
@@ -27,7 +27,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"ids_quejas\": [\r\n    \"142316551509974606\",\r\n    \"142316551509974607\",\r\n    \"142316551509974608\"\r\n  ]\r\n}",
+              "raw": "",
               "options": {
                 "raw": {
                   "language": "json"
@@ -181,7 +181,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"ids_quejas\": [\r\n    \"128617849172540746\"\r\n  ]\r\n}",
+              "raw": "{\r\n  \"ids_quejas\": [\r\n    \"128617851823129171\",\r\n    \"12861785166582997342\"\r\n  ]\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -289,7 +289,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"TRIGGER_ERR_NAME_NULL\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
+              "raw": "{\n    \"Case_id\": \"165515099746067\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -799,7 +799,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"1231231112312312312\",\n    \"Status\": \"New\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Incumplimiento de los términos del contrato\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": false,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n    ]\n}",
+              "raw": "{\n    \"Case_id\": \"1231231112316767\",\n    \"Status\": \"New\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Aplicaciones móviles\",\n    \"Product__c\": \"Wallet\",\n    \"Categorias_COL__c\": \"Inconformidad en proceso de embargos\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024623\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Creacion en vivo 27 de julio.\",\n    \"smart_anexo_queja__c\": false,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n    ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1725,7 +1725,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"128617849172540746\",\n    \"CreatedDate\": \"2026-07-24T09:19:17\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"ClosedDate\": \"2026-07-24\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": null,\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Estimado cliente,<br><br>Le informamos que su solicitud sobre la transacción no reconocida ha sido resuelta de manera favorable. Se procedió con el ajuste correspondiente a su favor.<br><br>Atentamente,<br>Atención al Cliente | Global66</div>\",\n    \"archivos_s3\": []\n}",
+                  "raw": "{\n    \"Smart_Code__c\": \"12861231231112316767\",\n    \"CreatedDate\": \"2026-07-27T09:19:17\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"ClosedDate\": \"2026-07-27\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": null,\n    \"cuerpo_respuesta_final\": \"<div dir=\\\"auto\\\">Estimado cliente,<br><br>Le informamos que su solicitud sobre la transacción no reconocida ha sido resuelta de manera favorable. Se procedió con el ajuste correspondiente a su favor.<br><br>Atentamente,<br>Atención al Cliente | Global66</div>\",\n    \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1931,7 +1931,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Smart_Code__c\": \"128617849172540746\",\n    \"CreatedDate\": \"2026-07-24T09:19:17\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": []\n}",
+              "raw": "{\n    \"Smart_Code__c\": \"1286178516792806186\",\n    \"CreatedDate\": \"2026-07-24T09:19:17\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/1286178516792806186/AWS.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\",\n            \"nombre_archivo\": \"AWS.pdf\"\n        }\n    ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2094,7 +2094,211 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"nombre_archivo_fraude\": \"informe_tecnico.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"informe_tecnico.pdf\"\n        }\n    ]\n}",
+              "raw": "{\n    \"Case_id\": \"128617851823129171\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"556363.pdf\",\n            \"s3_key\": \"quejas/128617851823129171/556363.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 2: Reporte de Fraude",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"FRAUDE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"nombre_archivo_fraude\": \"informe_tecnico.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"informe_tecnico.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:21 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 2: Reporte de Fraude junto con creacion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Case_id\": \"5008b000021ABCXYZ\",\n  \"CreatedDate\": \"2026-07-27T10:00:00\",\n  \"Status\": \"In Progress\",\n\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018273645\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n\n  \"SuppliedPhone\": \"3001234567\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"direccion__c\": \"Calle 100 # 15-20\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n\n  \"Description\": \"El cliente reporta una transferencia no autorizada desde su billetera digital por un monto de $500,000 COP.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": null,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": null,\n\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"nombre_archivo_fraude\": \"informe_investigacion_fraude.pdf\",\n\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"informe_investigacion_fraude.pdf\",\n      \"s3_key\": \"quejas/5008b000021ABCXYZ/informe_investigacion_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "despacho"
+              ]
+            },
+            "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
+          },
+          "response": [
+            {
+              "name": "Endpoint 2: Reporte de Fraude",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"FRAUDE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"nombre_archivo_fraude\": \"informe_tecnico.pdf\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/informe_tecnico.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"informe_tecnico.pdf\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 17:16:21 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Endpoint 2: Reporte de Fraude junto con creacion (id db)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Case_id\": \"c4db8244-a2b1-548a-a279\",\n  \"CreatedDate\": \"2026-07-27T14:30:00\",\n  \"Status\": \"In Progress\",\n\n  \"SuppliedName\": \"María Alejandra Ospina\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"52981044\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n\n  \"SuppliedPhone\": \"3159876543\",\n  \"SuppliedEmail\": \"maria.ospina@testdomain.com\",\n  \"direccion__c\": \"Carrera 7 # 72-41\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellín\",\n\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n\n  \"Description\": \"La clienta manifiesta haber sido víctima de un acceso no autorizado a su portal transaccional tras ingresar a un enlace de suplantación (phishing).\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": null,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": null,\n\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Vishing\",\n  \"card_amount__c\": 1250000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n  \"nombre_archivo_fraude\": \"analisis_tecnico_fraude.pdf\",\n\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/c4db8244-a2b1-548a-a27/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2298,7 +2502,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de clausura sin cuerpo_respuesta_final.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": \"No\",\n    \"cuerpo_respuesta_final\": \"\", \n    \"archivos_s3\": []\n}",
+              "raw": "{\n    \"Case_id\": \"16551509974606\",\n    \"CreatedDate\": \"2026-07-16T12:00:00\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de clausura sin cuerpo_respuesta_final.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"ClosedDate\": \"2026-07-16\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"a_favor_de__c\": \"1\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": null,\n    \"cuerpo_respuesta_final\": \"\", \n    \"archivos_s3\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
