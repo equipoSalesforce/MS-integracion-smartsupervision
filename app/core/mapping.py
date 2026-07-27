@@ -20,8 +20,10 @@ class SfcSalesforceMapper:
     CATALOGOS: Dict[str, Dict[str, str]] = {}
     INVERSE_CATALOGS: Dict[str, Dict[str, int]] = {}
 
-    DEPT_DIVIPOLA_INV = {"11": "Bogotá D.C.", "05": "Antioquia", "08": "Atlántico"}
-    MUNI_DIVIPOLA_INV = {"11001": "Bogotá D.C.", "05001": "Medellín", "08001": "Barranquilla"}
+    DEPT_DIVIPOLA_INV: Dict[str, str] = {}  
+    MUNI_DIVIPOLA_INV: Dict[str, str] = {}  
+    DEPT_DIVIPOLA: Dict[str, str] = {}      
+    MUNI_DIVIPOLA: Dict[str, str] = {}      
     
     PRODUCTO_SFC_TEXTO_TO_SF = {
         "wallet": "Wallet", "exchange": "Exchange", "transactions": "Transactions",
@@ -37,8 +39,44 @@ class SfcSalesforceMapper:
         return normalized.lower().strip()
 
     @classmethod
+    def cargar_divipola(cls):
+        """Carga y construye los diccionarios bidireccionales de DIVIPOLA desde JSON."""
+        ruta = os.path.join(os.path.dirname(__file__), "resources/divipola_sfc_crm.json")
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # 1. Mapeo Inverso (SFC -> CRM)
+            cls.DEPT_DIVIPOLA_INV = data.get("departamentos", {})
+            cls.MUNI_DIVIPOLA_INV = data.get("municipios", {})
+
+            # 2. Mapeo Directo (CRM -> SFC) con Normalización
+            cls.DEPT_DIVIPOLA = {
+                cls._normalize_text(nombre): cod
+                for cod, nombre in cls.DEPT_DIVIPOLA_INV.items()
+            }
+            cls.MUNI_DIVIPOLA = {
+                cls._normalize_text(nombre): cod
+                for cod, nombre in cls.MUNI_DIVIPOLA_INV.items()
+            }
+
+            # Aliases comunes para Bogotá u otras ciudades
+            cls.DEPT_DIVIPOLA["bogota"] = "11"
+            cls.DEPT_DIVIPOLA["bogota d.c."] = "11"
+            cls.MUNI_DIVIPOLA["bogota"] = "11001"
+            cls.MUNI_DIVIPOLA["bogota d.c."] = "11001"
+
+            logger.info(
+                f"✅ [SfcSalesforceMapper] Cargar DIVIPOLA exitosa: "
+                f"{len(cls.DEPT_DIVIPOLA_INV)} deptos y {len(cls.MUNI_DIVIPOLA_INV)} municipios."
+            )
+        except Exception as e:
+            logger.error(f"❌ Error al cargar divipola_sfc_crm.json: {e}")
+    
+    
+    @classmethod
     def cargar_catalogos(cls):
-        ruta = os.path.join(os.path.dirname(__file__), "catalogos_sfc_crm.json")
+        ruta = os.path.join(os.path.dirname(__file__), "resources/catalogos_sfc_crm.json")
         try:
             with open(ruta, "r", encoding="utf-8") as f:
                 cls.CATALOGOS = json.load(f)
@@ -58,8 +96,7 @@ class SfcSalesforceMapper:
                     "activate b2c": 99, "form: change data": 99, "updatecom": 99, "manual": 1, "internet": 2
                 })
 
-            cls.DEPT_DIVIPOLA = {"bogota d.c.": "11", "bogota": "11", "antioquia": "05", "atlantico": "08"}
-            cls.MUNI_DIVIPOLA = {"bogota d.c.": "11001", "bogota": "11001", "medellin": "05001", "barranquilla": "08001"}
+            cls.cargar_divipola()
 
             logger.info(f"✅ [SfcSalesforceMapper] Cargados {len(cls.CATALOGOS)} catálogos desde JSON.")
         except Exception as e:

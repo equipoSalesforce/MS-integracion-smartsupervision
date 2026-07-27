@@ -56,16 +56,27 @@ class SfcErrorTranslator:
                 logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz de errores desde Google Sheets...")
                 async with httpx.AsyncClient(timeout=8.0) as client:
                     response = await client.get(url_sheets, follow_redirects=True)
+                    
+                    if settings.ENVIRONMENT == "local":
+                        # 🎯 FIX: Imprimir response.text en lugar de forzar .json()
+                        logger.info(f"Retornado por el script (Status {response.status_code}):\n {response.text[:300]}")
+                    
                     if response.status_code == 200:
-                        data = response.json()
-                        if isinstance(data, list) and len(data) > 0:
-                            cls.MATRIZ_ERRORES_TEXTO = data
-                            cls.ULTIMA_ACTUALIZACION = ahora
-                            logger.info(
-                                f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets: "
-                                f"{len(data)} reglas cargadas."
+                        try:
+                            data = response.json()
+                            if isinstance(data, list) and len(data) > 0:
+                                cls.MATRIZ_ERRORES_TEXTO = data
+                                cls.ULTIMA_ACTUALIZACION = ahora
+                                logger.info(
+                                    f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets: "
+                                    f"{len(data)} reglas cargadas."
+                                )
+                                return cls.MATRIZ_ERRORES_TEXTO
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "⚠️ [SfcErrorTranslator] La respuesta de Google Sheets no es un JSON válido. "
+                                "Verifica que el despliegue del Apps Script tenga acceso para 'Cualquiera'."
                             )
-                            return cls.MATRIZ_ERRORES_TEXTO
                     else:
                         logger.warning(
                             f"⚠️ [SfcErrorTranslator] Google Apps Script devolvió HTTP {response.status_code}."
@@ -84,7 +95,7 @@ class SfcErrorTranslator:
     @classmethod
     def cargar_matriz_local(cls) -> None:
         """Carga el respaldo local desde errores_sfc.json."""
-        ruta_archivo = os.path.join(os.path.dirname(__file__), "errores_sfc.json")
+        ruta_archivo = os.path.join(os.path.dirname(__file__), "resources/errores_sfc.json")
         try:
             with open(ruta_archivo, "r", encoding="utf-8") as f:
                 cls.MATRIZ_ERRORES_TEXTO = json.load(f)

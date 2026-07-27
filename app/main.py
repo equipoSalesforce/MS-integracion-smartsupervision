@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     
     # 3. Cargar matriz de errores en RAM
     try:
-        SfcErrorTranslator.cargar_matriz_errores()
+        await SfcErrorTranslator.obtener_matriz_errores()
     except Exception as e:
         logger.error(f"Fallo al arrancar la matriz de errores: {str(e)}")
     
