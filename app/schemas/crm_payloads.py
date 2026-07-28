@@ -62,7 +62,10 @@ class Momento2QuejaCrmInput(BaseModel):
     Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce")
     Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision")
 
-    CreatedDate: str = Field(..., description="Fecha/Hora de creación ISO")
+    CreatedDate: Optional[str] = Field(
+        None, 
+        description="Fecha/Hora de creación ISO. Si se omite o es null, se autogenera en hora Bogotá (UTC-5)."
+    )
     Status: Optional[str] = Field("New", description="Estado del caso dentro del CRM")
 
     # Campos de Picklist validados dinámicamente desde el Mapper/JSON
@@ -192,6 +195,24 @@ class Momento2QuejaCrmInput(BaseModel):
                     f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
                 )
         return value
+    
+    @field_validator("CreatedDate", mode="before")
+    @classmethod
+    def auto_completar_y_validar_fecha_creacion(cls, v: Optional[str]) -> str:
+        """
+        Si 'CreatedDate' viene nulo, vacío o no se envía en el JSON, se genera 
+        automáticamente la fecha/hora actual en hora local de Bogotá (UTC-5).
+        Si viene provisto, valida que cumpla con el formato ISO 8601.
+        """
+        if not v or not str(v).strip():
+            return datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
+        
+        if isinstance(v, str):
+            try:
+                datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.")
+        return v
 
 
 # ======================================================================
@@ -214,7 +235,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     nombre_archivo_fraude: Optional[str] = Field(None, description="Archivo INV_FRAUDE_SFC")
 
     # --- Opcionales Cierre ---
-    ClosedDate: Optional[date] = Field(None, description="Fecha de cierre")
+    ClosedDate: Optional[date] = Field(None, description="Fecha de cierre (YYYY-MM-DD). Si se omite en un cierre, se autogenera con la fecha actual de Bogotá.")
     Favorabilidad__c: Optional[str] = Field(None, description="Favorabilidad del caso")
     a_favor_de__c: Optional[str] = Field(None, description="A favor de")
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación de la decisión")
@@ -222,20 +243,25 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     Prorroga__c: Optional[int] = Field(None, ge=0, le=9, description="Prórroga solicitada, va desde 0 hasta 9")
     
     cuerpo_respuesta_final: Optional[str] = Field(
-        "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\n\nPara nosotros es un placer haberte atendido, tu solicitud ha sido atendida de acuerdo con lo requerido, para nosotros es un placer atenderte.\nSi tienes alguna duda adicional puedes comunicarte al correo contacto@global66.com, por medio de nuestro centro de ayuda en nuestra página web o por medio de nuestro canal de WhatsApp.",
+        "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\nPara nosotros es un placer haberte atendido, tu solicitud ha sido atendida de acuerdo con lo requerido, para nosotros es un placer atenderte.\nSi tienes alguna duda adicional puedes comunicarte al correo contacto@global66.com, por medio de nuestro centro de ayuda en nuestra página web o por medio de nuestro canal de WhatsApp.",
         description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
     )
 
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
-        es_estado_cierre = self.Status == "Closed" or self.ClosedDate is not None or self.Favorabilidad__c is not None
+        es_estado_cierre = self.Status in ("Closed", "closed", "cerrado") or self.Favorabilidad__c is not None
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
         # Validaciones para intenciones de CIERRE
         if es_estado_cierre:
-            if not self.ClosedDate or not self.Favorabilidad__c or not self.Aceptacion__c:
-                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'ClosedDate', 'Favorabilidad__c' y 'Aceptacion__c'.")
+            hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
+            
+            if not self.ClosedDate:
+                self.ClosedDate = hoy_bogota
+            
+            if not self.Favorabilidad__c or not self.Aceptacion__c:
+                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
 
             hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
             if self.ClosedDate > hoy_bogota:

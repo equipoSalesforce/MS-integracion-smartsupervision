@@ -196,6 +196,7 @@ class Momento3SincronizacionService:
                 if afijo_regulatorio and afijo_regulatorio not in original_name:
                     nombre_puro = original_name.rsplit(".", 1)[0]
                     final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
+                    logger.info(f"Agregado afijo regulatorio al archivo {original_name}, el nombre resultado es {final_send_name}")
                 else:
                     final_send_name = original_name
             else:
