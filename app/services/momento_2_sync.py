@@ -2,14 +2,10 @@
 import asyncio
 import logging
 from typing import Dict, Any, List, Union
-from botocore.exceptions import ClientError
 
 from app.integrations.sfc_client import SfcClient
-from app.schemas.crm_payloads import (
-    ArchivoS3Schema, 
-    QuejaUnificadaCrmInput, 
-    Momento2QuejaCrmInput
-)
+from app.services.s3_service import S3StorageService
+from app.schemas.crm_payloads import ArchivoS3Schema, QuejaUnificadaCrmInput, Momento2QuejaCrmInput
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
 from app.core.config import settings
 from app.core.mapping import SfcSalesforceMapper
@@ -22,7 +18,7 @@ logger = logging.getLogger(__name__)
 class Momento2SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):     
         self.sfc_client = sfc_client
-        self.s3_client = s3_client
+        self.s3_service = S3StorageService(s3_client=s3_client)
 
     async def ejecutar_envio_momento_2(
         self, 
@@ -52,14 +48,6 @@ class Momento2SincronizacionService:
             logger.info(f"[Momento 2] Enviando queja a la SFC con código regulatorio: {sfc_id_largo}")
             await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
             
-            logger.info(f"[Momento 2] Recibidos {len(archivos_s3_raw)} archivos para enviar.")
-            
-            if payload_validado.anexo_queja and not archivos_s3_raw:
-                logger.warning(
-                    f"[Momento 2] La queja {smart_code} marca 'anexo_queja' como Verdadero, "
-                    f"pero la lista 'archivos_s3' llegó vacía desde el CRM."
-                )
-
             if archivos_s3_raw:
                 archivos_schema = [
                     a if isinstance(a, ArchivoS3Schema) else ArchivoS3Schema(**a)
@@ -74,12 +62,7 @@ class Momento2SincronizacionService:
             }
 
         except SfcIntegrationException as exc:
-            
             logger.error(f"Error al enviar queja con codigo {smart_code}")
-            
-            if settings.ENVIRONMENT == "local":
-                logger.info(sfc_raw_payload)
-                        
             if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
                 await EmailAlertService.notificar_error_no_mapeado(
                     status_code=getattr(exc, "status_code", 500),
@@ -94,81 +77,23 @@ class Momento2SincronizacionService:
             return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
 
     async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[ArchivoS3Schema], sfc_code: str):
-        """
-        Procesa de forma concurrente los anexos recibidos del CRM, valida su existencia 
-        y tamaño en S3, y los transmite a la SFC estandarizando las excepciones de infraestructura.
-        """
-        if not archivos:
-            return
-
-        is_local_env = settings.ENVIRONMENT in ("development", "local")
-
-        # 1. Validación de infraestructura del cliente S3
-        if not self.s3_client:
-            if is_local_env:
-                logger.info("[LOCAL TEST] Generando bytes ficticios locales para simular la carga de adjuntos hacia la SFC.")
-            else:
-                raise SfcIntegrationException(
-                    status_code=500,
-                    error_type="INFRASTRUCTURE_ERROR",
-                    sfc_field="s3_client",
-                    raw_message="El cliente de almacenamiento S3 no está inicializado en el entorno actual.",
-                    crm_action="Contactar al equipo de infraestructura/DevOps para validar la configuración de AWS S3."
-                )
-
+        """Procesa y envía concurrentemente los anexos del caso utilizando S3StorageService."""
         async def _procesar_un_adjunto(archivo: ArchivoS3Schema):
             s3_key = archivo.s3_key
             if not s3_key:
-                logger.warning("[Momento 2] Se recibió un adjunto sin clave 's3_key', se omitirá.")
                 return
 
-            bucket = archivo.bucket or settings.AWS_S3_BUCKET
             file_name = archivo.nombre_archivo or (s3_key.split("/")[-1] if "/" in s3_key else s3_key)
             file_type = file_name.split(".")[-1] if "." in file_name else "pdf"
 
-            # Modo MOCK/DEV sin S3 real
-            if is_local_env and not self.s3_client:
-                file_bytes = b"Contenido ficticio simulado localmente por el gateway de Global66."
-            else:
-                # 🎯 A. Captura estandarizada de existencia en S3 / MinIO
-                try:
-                    metadata = await asyncio.to_thread(
-                        self.s3_client.head_object,
-                        Bucket=bucket,
-                        Key=s3_key
-                    )
-                except ClientError as e:
-                    error_code = e.response.get("Error", {}).get("Code", "")
-                    if error_code in ("404", "403", "NoSuchKey", "NotFound"):
-                        logger.error(f"❌ [Momento 2 S3 Error] Archivo '{file_name}' no encontrado (Key: '{s3_key}', Bucket: '{bucket}').")
-                        raise SfcIntegrationException(
-                            status_code=404,
-                            error_type="S3_FILE_NOT_FOUND",
-                            sfc_field="archivos_s3",
-                            raw_message=f"El archivo '{file_name}' (Key: '{s3_key}') no existe o no se pudo acceder en el almacenamiento S3.",
-                            crm_action="Verifique que el archivo haya sido cargado correctamente en el bucket de S3/MinIO antes de reintentar la transmisión."
-                        )
-                    raise
+            # 1. Obtener bytes mediante el servicio unificado de S3
+            file_bytes = await self.s3_service.obtener_bytes_archivo(
+                s3_key=s3_key, 
+                bucket=archivo.bucket
+            )
 
-                # 🎯 B. Captura estandarizada de límite de tamaño (30MB)
-                if metadata.get("ContentLength", 0) > 30 * 1024 * 1024:
-                    raise SfcIntegrationException(
-                        status_code=400,
-                        error_type="FILE_SIZE_EXCEEDED",
-                        sfc_field="archivos_s3",
-                        raw_message=f"El archivo '{file_name}' supera el límite máximo de 30MB permitido por la SFC.",
-                        crm_action="Comprima el documento o adjunte una versión de menor tamaño (máximo 30MB)."
-                    )
-
-                # 🎯 C. Descarga de bytes en hilo secundario (Non-blocking I/O)
-                def _descargar_bytes():
-                    s3_file = self.s3_client.get_object(Bucket=bucket, Key=s3_key)
-                    return s3_file["Body"].read()
-
-                file_bytes = await asyncio.to_thread(_descargar_bytes)
-
-            # 2. Transmisión a la SFC
-            logger.info(f"[Momento 2] Transmitiendo adjunto '{file_name}' a la SFC para queja {sfc_code}.")
+            # 2. Transmitir adjunto a la SFC
+            logger.info(f"[Momento 2] Transmitiendo adjunto '{file_name}' a la SFC para caso {sfc_code}.")
             return await self.sfc_client.post_adjunto_queja(
                 sfc_codigo_queja=sfc_code,
                 file_bytes=file_bytes,
@@ -176,6 +101,5 @@ class Momento2SincronizacionService:
                 file_name=file_name
             )
 
-        # Ejecución paralela de todos los adjuntos del caso
         tareas = [_procesar_un_adjunto(archivo) for archivo in archivos]
         await asyncio.gather(*tareas)
