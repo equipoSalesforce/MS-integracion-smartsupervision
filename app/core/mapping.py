@@ -87,9 +87,10 @@ class SfcSalesforceMapper:
             for cat_key, cat_dict in cls.CATALOGOS.items():
                 cat_inverse = {}
                 for k, v in cat_dict.items():
-                    k_int = int(k)
-                    cat_inverse[cls._normalize_text(v)] = k_int
-                    cat_inverse[str(k)] = k_int  # Mapea también el código numérico directamente
+                    val_to_store = int(k) if str(k).isdigit() else str(k)
+                    
+                    cat_inverse[cls._normalize_text(v)] = val_to_store
+                    cat_inverse[str(k)] = val_to_store  # Mapea también el código numérico directamente
                 cls.INVERSE_CATALOGS[cat_key] = cat_inverse
             
             if "tipo_id" in cls.INVERSE_CATALOGS:
@@ -202,8 +203,8 @@ def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
     str_key = str(sfc_value).strip()
     
     if sfc_key == "codigo_pais":
-        if sfc_value == "COL" or sfc_value == "170":
-            return "Colombia"
+        cat_paises = cls.CATALOGOS.get("codigo_pais", {})
+        return cat_paises.get(str_key, "Colombia")
     
     key_to_cat = {
         "sexo": ("genero", "No Aplica"),
@@ -259,8 +260,10 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         return None
     
     if sf_key == "codigo_pais__c":
-        if str(sf_value) == "Colombia":
-            return "170"
+        normalized_country = cls._normalize_text(str(sf_value))
+        cat_inverse_pais = cls.INVERSE_CATALOGS.get("codigo_pais", {})
+        
+        return str(cat_inverse_pais.get(normalized_country, "170"))
 
     if sf_key in ("Aceptacion__c", "Rectificacion__c", "Tutela__c", "Quejas_express__c"):
         v_clean = str(sf_value).lower().strip()

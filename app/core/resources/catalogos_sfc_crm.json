@@ -237,5 +237,15 @@
     "967": "Diferencias en monetización",
     "968": "Distribución de portafolio",
     "969": "Remesas"
+  },
+  "codigo_pais": {
+    "170": "Colombia",
+    "COL": "Colombia",
+    "152": "Chile",
+    "CHL": "Chile",
+    "604": "Perú",
+    "PER": "Perú",
+    "840": "Estados Unidos",
+    "USA": "Estados Unidos"
   }
 }
