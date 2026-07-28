@@ -83,6 +83,12 @@ class SfcSalesforceMapper:
             with open(ruta, "r", encoding="utf-8") as f:
                 cls.CATALOGOS = json.load(f)
             
+            if "producto" not in cls.CATALOGOS or not cls.CATALOGOS["producto"]:
+                cls.CATALOGOS["producto"] = {
+                    f"207_{idx}": nombre
+                    for idx, nombre in enumerate(cls.PRODUCTO_SFC_TEXTO_TO_SF.values(), 1)
+                }
+            
             cls.INVERSE_CATALOGS = {}
             for cat_key, cat_dict in cls.CATALOGOS.items():
                 cat_inverse = {}
@@ -90,7 +96,7 @@ class SfcSalesforceMapper:
                     val_to_store = int(k) if str(k).isdigit() else str(k)
                     
                     cat_inverse[cls._normalize_text(v)] = val_to_store
-                    cat_inverse[str(k)] = val_to_store  # Mapea también el código numérico directamente
+                    cat_inverse[str(k)] = val_to_store 
                 cls.INVERSE_CATALOGS[cat_key] = cat_inverse
             
             if "tipo_id" in cls.INVERSE_CATALOGS:
@@ -294,7 +300,8 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         "modalidad_fraude__c": ("modalidad_fraude", 90),
         "Modalidad_Fraude__c": ("modalidad_fraude", 90),
         "punto_recepcion": ("punto_recepcion", 1),
-        "Categorias_COL__c": ("macro_motivo", 940)
+        "Categorias_COL__c": ("macro_motivo", 940),
+        "Product__c": ("producto_cod", 207)
     }
 
     if sf_key in sf_to_cat:

@@ -1,6 +1,5 @@
-# app/schemas/crm_payloads.py
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 from pydantic import (
     BaseModel,
@@ -24,8 +23,8 @@ class QuejaMapeadaCrmResponse(BaseModel):
     CreatedDate: str = Field(..., description="fecha_creacion traducida a ISO")
     Smart_Code__c: str = Field(..., description="codigo_queja traducido")
     codigo_pais__c: str = Field(..., description="codigo_pais traducido")
-    Departamento__c: str = Field(..., description="departamento_cod traducido a texto")
-    SC_municipio__c: str = Field(..., description="municipio_cod traducido a texto")
+    Departamento__c: Optional[str] = Field(..., description="departamento_cod traducido a texto")
+    SC_municipio__c: Optional[str] = Field(..., description="municipio_cod traducido a texto")
     SuppliedName: str = Field(..., description="nombres traducido")
     SC_id_type__c: str = Field(..., description="tipo_id_CF traducido")
     id_number__c: str = Field(..., description="numero_id_CF traducido")
@@ -128,7 +127,19 @@ class Momento2QuejaCrmInput(BaseModel):
     def limpiar_id_solo_numeros(cls, v: str) -> str:
         if isinstance(v, str):
             cleaned = re.sub(r"\D", "", v)
-            return cleaned if cleaned else v
+            if not cleaned:
+                raise ValueError("El número de identificación ('id_number__c') debe contener al menos un dígito numérico.")
+            return cleaned
+        return v
+
+    @field_validator("CreatedDate", mode="after")
+    @classmethod
+    def validar_formato_iso_fecha(cls, v: str) -> str:
+        if isinstance(v, str) and v.strip():
+            try:
+                datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.")
         return v
 
     @field_validator("Smart_Code__c", "Case_id", mode="before")
@@ -143,6 +154,7 @@ class Momento2QuejaCrmInput(BaseModel):
         "SC_id_type__c", "sc_genero__c", "tipo_de_persona__c", "sc_LGBTIQ__c",
         "sc_Condicion_especial__c", "canal__c", "punto_recepcion",
         "Instancia_de_recepcion__c", "Ente_de_control__c", "Categorias_COL__c",
+        "Product__c",
         mode="after"
     )
     @classmethod
@@ -160,7 +172,8 @@ class Momento2QuejaCrmInput(BaseModel):
             "punto_recepcion": "punto_recepcion",
             "Instancia_de_recepcion__c": "instancia_recepcion",
             "Ente_de_control__c": "ente_control",
-            "Categorias_COL__c": "macro_motivo"
+            "Categorias_COL__c": "macro_motivo",
+            "Product__c": "producto"
         }
 
         cat_key = field_to_catalog.get(info.field_name)
@@ -168,12 +181,15 @@ class Momento2QuejaCrmInput(BaseModel):
             allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
             if value not in allowed:
                 normalized_val = SfcSalesforceMapper._normalize_text(value)
-                allowed_normalized = {SfcSalesforceMapper._normalize_text(a) for a in allowed}
-                if normalized_val not in allowed_normalized:
-                    raise ValueError(
-                        f"El valor '{value}' no es válido para {info.field_name}. "
-                        f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
-                    )
+                norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
+                
+                if normalized_val in norm_to_canonical:
+                    return norm_to_canonical[normalized_val]
+
+                raise ValueError(
+                    f"El valor '{value}' no es válido para {info.field_name}. "
+                    f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
+                )
         return value
 
 
@@ -202,12 +218,13 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     a_favor_de__c: Optional[str] = Field(None, description="A favor de")
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación de la decisión")
     Rectificacion__c: Optional[str] = Field(None, description="Rectificación")
-    Prorroga__c: Optional[int] = Field(None, description="Prórroga solicitada, va desde 0 hasta 9")
-    #TODO: Dejar listo el mensaje final real
+    Prorroga__c: Optional[int] = Field(None, ge=0, le=9, description="Prórroga solicitada, va desde 0 hasta 9")
+    
     cuerpo_respuesta_final: Optional[str] = Field(
-        "Se emite respuesta formal y cierre definitivo al caso de reclamación conforme a los términos de ley y políticas de la entidad.",
+        "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\n\nPara nosotros es un placer haberte atendido, tu solicitud ha sido atendida de acuerdo con lo requerido, para nosotros es un placer atenderte.\nSi tienes alguna duda adicional puedes comunicarte al correo contacto@global66.com, por medio de nuestro centro de ayuda en nuestra página web o por medio de nuestro canal de WhatsApp.",
         description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
     )
+
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
@@ -228,6 +245,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                     "Se emite respuesta formal y cierre definitivo al caso de reclamación "
                     "conforme a los términos de ley y políticas de la entidad."
                 )
+
         # Validaciones para intenciones de FRAUDE
         if es_evento_fraude:
             if num_archivos == 0:
@@ -259,7 +277,7 @@ class ConfirmacionAckInput(BaseModel):
         if not cleaned:
             raise ValueError("La lista 'ids_quejas' debe contener al menos un identificador válido no vacío.")
         return cleaned
-    
+
 
 class ConfirmacionAckUsuariosInput(BaseModel):
     numeros_id_cf: List[str] = Field(

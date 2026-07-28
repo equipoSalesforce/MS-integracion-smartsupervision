@@ -247,5 +247,15 @@
     "PER": "Perú",
     "840": "Estados Unidos",
     "USA": "Estados Unidos"
+  },
+  "producto": {
+    "207_1": "Cuenta perfil",
+    "207_2": "Wallet",
+    "207_3": "Exchange",
+    "207_4": "Transactions",
+    "207_5": "P2P",
+    "207_6": "Tarjeta Digital",
+    "207_7": "Tarjeta Fisica",
+    "207_8": "Otro"
   }
 }

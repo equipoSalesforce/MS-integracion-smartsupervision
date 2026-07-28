@@ -44,5 +44,8 @@ tmp/
 *.pdf
 *.docx
 
+# Para que suba la plantilla 
+!app/resources/*.pdf
+
 #DB local para queue
 cola_local.db
