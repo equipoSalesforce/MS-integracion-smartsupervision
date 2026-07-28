@@ -223,5 +223,10 @@
     "subcadena": "marcacion",
     "tipo": "BUSINESS_RULE_ERROR",
     "accion": "Para quejas duplicadas enviar marcacion = 7, estado_cod = 4 (cerrado) y fecha_cierre."
+  },
+  {
+    "subcadena": "La fecha debe ser anterior a la fecha actual",
+    "tipo": "VALIDATION_ERROR",
+    "accion": "Hubo un error de formato al mandar la fecha, revisar logs para encontrar el problema"
   }
 ]

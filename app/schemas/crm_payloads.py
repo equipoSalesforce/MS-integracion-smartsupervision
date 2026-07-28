@@ -263,6 +263,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
         # Validaciones para intenciones de CIERRE
         if es_estado_cierre:
+            
+            if not self.Status or status_clean not in ("closed", "cerrado"):
+                self.Status = "Closed"
+            
             hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
             
             if not self.ClosedDate:
