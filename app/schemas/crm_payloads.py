@@ -250,7 +250,15 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
-        es_estado_cierre = self.Status in ("Closed", "closed", "cerrado") or self.Favorabilidad__c is not None
+        
+        # 🎯 Normalización de Status protegiendo contra None
+        status_clean = (self.Status or "").strip().lower()
+        
+        es_estado_cierre = (
+            status_clean in ("closed", "cerrado") or 
+            self.ClosedDate is not None or 
+            self.Favorabilidad__c is not None
+        )
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
         # Validaciones para intenciones de CIERRE
@@ -263,11 +271,9 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             if not self.Favorabilidad__c or not self.Aceptacion__c:
                 raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
 
-            hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
             if self.ClosedDate > hoy_bogota:
                 raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
 
-            # REGLA DE ORO: Debe venir el contenido del correo para construir el PDF
             if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
                 self.cuerpo_respuesta_final = (
                     "Se emite respuesta formal y cierre definitivo al caso de reclamación "
