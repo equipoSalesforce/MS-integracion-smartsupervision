@@ -474,7 +474,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"1231231112316589\",\n    \"Status\": \"New\",\n    \"Departamento__c\": \"Bogota\",\n    \"SC_municipio__c\": \"Bogota\",\n    \"canal__c\": \"Internet\",\n    \"Product__c\": \"Wallet\",\n    \"Categorias_COL__c\": \"Inconformidad en proceso de embargos\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024623\",\n    \"sc_genero__c\": \"Femenino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"direccion__c\": \"calle 12345\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"Description\": \"Creacion en vivo 27 de julio.\",\n    \"smart_anexo_queja__c\": false,\n    \"Ente_de_control__c\": \"Otros\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"archivos_s3\": [\n    ]\n}",
+              "raw": "{\n \"Case_id\": \"CRM-LOCAL-M2-20260728-005\",\n \"Status\": \"In Progress\",\n \"SuppliedName\": \"Laura Martinez Mock\",\n \"SC_id_type__c\": \"CC\",\n \"id_number__c\": \"1098877665\",\n \"sc_genero__c\": \"Femenino\",\n \"tipo_de_persona__c\": \"B2C\",\n \"sc_LGBTIQ__c\": \"No\",\n \"sc_Condicion_especial__c\": \"No aplica\",\n \"SuppliedPhone\": \"3014567788\",\n \"SuppliedEmail\": \"laura.martinez.mock@global66.test\",\n \"direccion__c\": \"Calle 72 # 9-55\",\n \"Departamento__c\": \"Bogotá D.C.\",\n \"SC_municipio__c\": \"Bogotá D.C.\",\n \"canal__c\": \"Internet\",\n \"punto_recepcion\": \"Manual\",\n \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n \"Description\": \"Prueba con Case_id, estado In Progress y datos distintos de cliente.\",\n \"smart_anexo_queja__c\": false,\n \"Tutela__c\": \"No\",\n \"Ente_de_control__c\": \"Otros\",\n \"smart_escalamiento_DCF__c\": \"No\",\n \"Product__c\": \"Cuenta perfil\",\n \"smart_Producto_nombre__c\": \"Global Account Digital\",\n \"Categorias_COL__c\": \"Transacción no reconocida\",\n \"producto_digital__c\": \"Si\",\n \"archivos_s3\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -513,7 +513,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_001\",\n  \"Status\": \"New\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_004\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234562\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -540,7 +540,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 17:06:52 GMT"
+                  "value": "Tue, 28 Jul 2026 20:38:46 GMT"
                 },
                 {
                   "key": "server",
@@ -556,7 +556,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286CASO_OK_2026_001\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286CASO_OK_2026_004\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Plataforma caida",
@@ -574,7 +574,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"16551509974606\",\n    \"Status\": \"New\",\n    \"tipo_operacion\": \"AUTO\",\n    \"SuppliedName\": \"TRIGGER_ERR_SERVICE_DOWN\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle Falsa 123, Bogotá\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Este es el texto del reclamo reportado desde el CRM local hacia la SFC.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Inconsistencia en el cobro de gastos\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/16551509974606/soporte_reclamo.pdf\",\n            \"bucket\": \"mi-bucket-smartsupervision\",\n            \"nombre_archivo\": \"soporte_reclamo.pdf\"\n        }\n    ]\n}",
+                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_001\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -635,7 +635,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"Case_id\": \"165515099746067\",\n    \"Status\": \"New\",\n    \"SuppliedName\": \"\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
+                  "raw": "{\n    \"Case_id\": \"165515099746067\",\n    \"SuppliedName\": \"\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"No Aplica\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"No proporcionada\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"WhatsApp\",\n    \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba controlada de error de nombre nulo.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -704,7 +704,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"TEST_FUTURE_DATE_001\",\n  \"Status\": \"New\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Inconformidad en proceso de embargos\",\n  \"SuppliedName\": \"Santiago Mendoza\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"882910394\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Carrera 45 # 100-20\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de envio con fecha futura.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_FUTURE_DATE_001\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Inconformidad en proceso de embargos\",\n  \"SuppliedName\": \"Santiago Mendoza\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"882910394\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Carrera 45 # 100-20\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de envio con fecha futura.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo inadmitida y/o rechazada por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -765,7 +765,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"TEST_MAX_DOC_002\",\n  \"Status\": \"New\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellin\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"Product__c\": \"Exchange\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Valentina Ríos\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"12345678901234567890\",\n  \"sc_genero__c\": \"Femenino\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 10 # 30-15\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento demasiado largo.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_MAX_DOC_002\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellin\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"Product__c\": \"Exchange\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Valentina Ríos\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"12345678901234567890\",\n  \"sc_genero__c\": \"Femenino\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 10 # 30-15\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento demasiado largo.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -826,7 +826,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"TEST_NON_NUMERIC_DOC_003\",\n  \"Status\": \"New\",\n  \"Departamento__c\": \"Valle del Cauca\",\n  \"SC_municipio__c\": \"Cali\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\",\n  \"SuppliedName\": \"Diego Torres\",\n  \"SC_id_type__c\": \"PEP\",\n  \"id_number__c\": \"NOAPLICA\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Avenida 6N # 22-10\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento sin caracteres numéricos.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Email\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_NON_NUMERIC_DOC_003\",\n  \"Departamento__c\": \"Valle del Cauca\",\n  \"SC_municipio__c\": \"Cali\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\",\n  \"SuppliedName\": \"Diego Torres\",\n  \"SC_id_type__c\": \"PEP\",\n  \"id_number__c\": \"NOAPLICA\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Avenida 6N # 22-10\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento sin caracteres numéricos.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Email\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -868,7 +868,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"TEST_INVALID_CATALOG_004\",\n  \"Status\": \"New\",\n  \"Departamento__c\": \"Cundinamarca\",\n  \"SC_municipio__c\": \"Soacha\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Cobro de Tarifa Por Saludar Al Asesor\",\n  \"SuppliedName\": \"Andrés Felipe Castro\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1019283746\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 15 # 4-20\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba con categoria inexistente.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Manual\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_INVALID_CATALOG_004\",\n  \"Departamento__c\": \"Cundinamarca\",\n  \"SC_municipio__c\": \"Soacha\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Cobro de Tarifa Por Saludar Al Asesor\",\n  \"SuppliedName\": \"Andrés Felipe Castro\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1019283746\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 15 # 4-20\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba con categoria inexistente.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Manual\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -910,7 +910,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_002\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Radicación de queja base utilizando únicamente los campos obligatorios del esquema.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\"\n}",
+                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_003\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304051\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Radicación de queja base utilizando únicamente los campos obligatorios del esquema.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -937,7 +937,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 19:35:01 GMT"
+                  "value": "Tue, 28 Jul 2026 20:39:31 GMT"
                 },
                 {
                   "key": "server",
@@ -953,7 +953,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286M2_BASE_MANDATORY_002\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286M2_BASE_MANDATORY_003\"\n}"
             }
           ]
         }
@@ -981,7 +981,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"12861785247442747573\",\n    \"Status\": \"Closed\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Aplicaciones móviles\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": null,\n    \"archivos_s3\": []\n}",
+                  "raw": "{\n    \"Smart_Code__c\": \"12861785247442747573\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Aplicaciones móviles\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"Favorabilidad__c\": \"Favorable\",\n    \"Aceptacion__c\": \"Si\",\n    \"Rectificacion__c\": \"No\",\n    \"Prorroga__c\": null,\n    \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1020,7 +1020,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"CASO_OK_2026_002\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"SuppliedPhone\": \"3005551234\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"archivos_s3\": []\n}",
+                      "raw": "{\n  \"Case_id\": \"CASO_OK_2026_002\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"SuppliedPhone\": \"3005551234\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"archivos_s3\": []\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -1081,7 +1081,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"CASO_OK_2026_001\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"SuppliedPhone\": \"3005551234\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"archivos_s3\": []\n}",
+                      "raw": "{\n  \"Case_id\": \"CASO_OK_2026_001\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"SuppliedPhone\": \"3005551234\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"archivos_s3\": []\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -1144,7 +1144,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_001\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Cierre definitivo y emisión de respuesta final para la queja sobre transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"archivos_s3\": []\n}",
+                      "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_001\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Cierre definitivo y emisión de respuesta final para la queja sobre transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"archivos_s3\": []\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -1205,7 +1205,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"M3_CLOSE_HEAL_MIN_001\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Manuela Beltrán\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1050607080\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 26 # 68-90\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Cierre directo con creación automática en flujo Self-Healing.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\"\n}",
+                      "raw": "{\n  \"Case_id\": \"M3_CLOSE_HEAL_MIN_003\",\n  \"SuppliedName\": \"Manuela Beltrán\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1050607081\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 26 # 68-90\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Cierre directo con creación automática en flujo Self-Healing.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -1226,10 +1226,29 @@
                       ]
                     }
                   },
-                  "_postman_previewlanguage": null,
-                  "header": null,
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 28 Jul 2026 20:45:34 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "166"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
                   "cookie": [],
-                  "body": null
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M3_CLOSE_HEAL_MIN_003 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286M3_CLOSE_HEAL_MIN_003\"\n}"
                 }
               ]
             }
@@ -1453,7 +1472,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n    \"Status\": \"In Progress\",\n    \"tipo_operacion\": \"FRAUDE\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Prueba de validación: Intento de reportar fraude sin adjuntos.\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Vishing\",\n    \"card_amount__c\": 12345.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 12345.0,\n    \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_002\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte y gestión de investigación de fraude para la transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1555,7 +1574,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M3_FRAUD_HEAL_002\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Andrés Felipe Osorio\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1030405061\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 53 # 10-20\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte de presunta suplantación de identidad en retiro no reconocido.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M3_FRAUD_HEAL_002/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"Case_id\": \"M3_FRAUD_HEAL_003\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Andrés Felipe Osorio\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1030405062\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 53 # 10-20\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte de presunta suplantación de identidad en retiro no reconocido.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M3_FRAUD_HEAL_002/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
