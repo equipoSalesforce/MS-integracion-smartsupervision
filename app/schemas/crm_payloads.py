@@ -1,6 +1,7 @@
 import re
 from datetime import date, datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 from pydantic import (
     BaseModel,
     Field,
@@ -236,7 +237,8 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             if not self.ClosedDate or not self.Favorabilidad__c or not self.Aceptacion__c:
                 raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'ClosedDate', 'Favorabilidad__c' y 'Aceptacion__c'.")
 
-            if self.ClosedDate > date.today():
+            hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
+            if self.ClosedDate > hoy_bogota:
                 raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
 
             # REGLA DE ORO: Debe venir el contenido del correo para construir el PDF

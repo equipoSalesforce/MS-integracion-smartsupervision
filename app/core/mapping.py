@@ -397,7 +397,7 @@ def crm_entity_to_sfc_momento2_payload(cls, entity: Any) -> Dict[str, Any]:
     else:
         codigo_queja = raw_code
 
-    created_raw = str(cls._get_sf_field_value(entity, "CreatedDate") or datetime.now().isoformat())
+    created_raw = str(cls._get_sf_field_value(entity, "CreatedDate") or datetime.now(ZoneInfo("America/Bogota")).isoformat())
     fecha_iso = created_raw
     fecha_str = created_raw.split("T")[0] if "T" in created_raw else created_raw
 
