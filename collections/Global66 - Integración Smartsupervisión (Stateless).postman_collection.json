@@ -202,7 +202,7 @@
               },
               "status": "OK",
               "code": 200,
-              "_postman_previewlanguage": null,
+              "_postman_previewlanguage": "json",
               "header": [
                 {
                   "key": "date",
@@ -217,8 +217,10 @@
                   "value": "4972"
                 },
                 {
-                  "key": "content-type",
-                  "value": "application/json"
+                  "key": "Content-Type",
+                  "value": "application/json",
+                  "description": "",
+                  "type": "text"
                 }
               ],
               "cookie": [],
@@ -474,7 +476,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n \"Case_id\": \"CRM-LOCAL-M2-20260728-005\",\n \"Status\": \"In Progress\",\n \"SuppliedName\": \"Laura Martinez Mock\",\n \"SC_id_type__c\": \"CC\",\n \"id_number__c\": \"1098877665\",\n \"sc_genero__c\": \"Femenino\",\n \"tipo_de_persona__c\": \"B2C\",\n \"sc_LGBTIQ__c\": \"No\",\n \"sc_Condicion_especial__c\": \"No aplica\",\n \"SuppliedPhone\": \"3014567788\",\n \"SuppliedEmail\": \"laura.martinez.mock@global66.test\",\n \"direccion__c\": \"Calle 72 # 9-55\",\n \"Departamento__c\": \"Bogotá D.C.\",\n \"SC_municipio__c\": \"Bogotá D.C.\",\n \"canal__c\": \"Internet\",\n \"punto_recepcion\": \"Manual\",\n \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n \"Description\": \"Prueba con Case_id, estado In Progress y datos distintos de cliente.\",\n \"smart_anexo_queja__c\": false,\n \"Tutela__c\": \"No\",\n \"Ente_de_control__c\": \"Otros\",\n \"smart_escalamiento_DCF__c\": \"No\",\n \"Product__c\": \"Cuenta perfil\",\n \"smart_Producto_nombre__c\": \"Global Account Digital\",\n \"Categorias_COL__c\": \"Transacción no reconocida\",\n \"producto_digital__c\": \"Si\",\n \"archivos_s3\": []\n}",
+              "raw": "{\n\"Smart_Code__c\": \"TEST-DIRECTO-SSV-002\",\n\"CreatedDate\": \"2026-07-29T10:25:00\",\n\"Status\": \"Closed\",\n\"ClosedDate\": \"2026-07-29\",\n\"SuppliedName\": \"Daniela Rojas Mock\",\n\"SC_id_type__c\": \"CC\",\n\"id_number__c\": \"1099001122\",\n\"sc_genero__c\": \"Femenino\",\n\"tipo_de_persona__c\": \"B2C\",\n\"sc_LGBTIQ__c\": \"No\",\n\"sc_Condicion_especial__c\": \"No aplica\",\n\"SuppliedPhone\": \"3104488899\",\n\"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n\"direccion__c\": \"Carrera 15 # 82-30\",\n\"Departamento__c\": \"Bogotá D.C.\",\n\"SC_municipio__c\": \"Bogotá D.C.\",\n\"canal__c\": \"Internet\",\n\"punto_recepcion\": \"Manual\",\n\"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n\"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n\"Description\": \"Prueba de creación de queja nueva directamente en estado de cierre con cuerpo final estilo hilo de correos Gmail.\",\n\"smart_anexo_queja__c\": false,\n\"Tutela__c\": \"No\",\n\"Queja_express__c\": \"No\",\n\"Ente_de_control__c\": \"Otros\",\n\"smart_escalamiento_DCF__c\": \"No\",\n\"Product__c\": \"P2P\",\n\"smart_Producto_nombre__c\": \"Global Account Digital\",\n\"Categorias_COL__c\": \"Remesas\",\n\"Favorabilidad__c\": \"Favorable\",\n\"Aceptacion__c\": \"Parcialmente favorable\",\n\"a_favor_de__c\": \"1\",\n\"Rectificacion__c\": \"No\",\n\"Prorroga__c\": 1,\n\"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'><title>Re: Respuesta final caso TEST-CIERRE-DIRECTO-SSV-002</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#202124;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px 28px;border:1px solid #E5E7EB;'><div style='font-size:20px;font-weight:600;color:#202124;margin-bottom:18px;'>Re: Respuesta final sobre tu reclamo - Global66</div><div style='border-bottom:1px solid #E5E7EB;padding-bottom:16px;margin-bottom:18px;'><table width='100%' cellpadding='0' cellspacing='0'><tr><td width='42' valign='top'><div style='width:36px;height:36px;border-radius:50%;background:#0b57d0;color:#ffffff;text-align:center;line-height:36px;font-weight:bold;'>MG</div></td><td valign='top'><div style='font-size:14px;color:#202124;'><strong>María González</strong> &lt;soporte@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;margin-top:2px;'>para Daniela Rojas Mock · 29 jul 2026, 10:25</div></td><td align='right' valign='top'><img src='https://dummyimage.com/110x30/ffffff/003B8F.png&text=Global66' alt='Global66' style='display:block;border:1px solid #E5E7EB;border-radius:6px;'></td></tr></table></div><div style='font-size:14px;line-height:22px;color:#202124;'><p>Hola Daniela,</p><p>Te escribimos para informarte el resultado final de la revisión asociada a tu reclamo por la transacción que no reconocías en tu cuenta Global66.</p><p>Después de revisar la trazabilidad de la operación, los registros de seguridad y la información que nos compartiste, confirmamos que tu solicitud fue resuelta de manera <strong>favorable</strong>. La aceptación queda registrada como <strong>parcialmente favorable</strong>, ya que acogimos la revisión principal solicitada, pero se mantiene registro de algunos antecedentes operacionales para efectos de trazabilidad y control interno.</p><p>Con esto, dejamos el caso cerrado y registrado con el número <strong>TEST-CIERRE-DIRECTO-SSV-002</strong>.</p><p>Saludos,</p><div style='margin-top:18px;padding-top:14px;border-top:1px solid #E5E7EB;'><table cellpadding='0' cellspacing='0'><tr><td valign='top' style='padding-right:12px;'><img src='https://dummyimage.com/64x64/003B8F/ffffff.png&text=G66' alt='Global66' style='border-radius:12px;display:block;'></td><td valign='top' style='font-size:13px;line-height:20px;color:#374151;'><strong style='font-size:14px;color:#111827;'>María González</strong><br>Ejecutiva de Atención al Cliente<br>Global66<br><span style='color:#0b57d0;'>soporte@global66.com</span><br><span style='color:#6b7280;'>www.global66.com</span></td></tr></table></div><div style='margin-top:18px;background:#f8fafc;border:1px solid #E5E7EB;border-radius:10px;padding:12px;color:#6b7280;font-size:12px;line-height:18px;'>Este mensaje y sus anexos pueden contener información confidencial. Si recibiste este correo por error, por favor elimínalo e informa al remitente. Este correo corresponde a una prueba técnica de integración SmartSupervisión.</div></div><div style='margin-top:28px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;font-size:13px;line-height:21px;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 10:13, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><div style='background:#ffffff;'><p>Hola María,</p><p>Gracias por la revisión. Entiendo que encontraron antecedentes para resolver mi caso y acepto que se deje como parcialmente favorable, pero necesito que quede constancia de que yo no reconocía inicialmente esa transacción.</p><p>También agradezco que me confirmen por escrito que el reclamo fue revisado y cerrado.</p><p>Saludos,<br>Daniela</p></div><div style='margin-top:18px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:58, María González &lt;soporte@global66.com&gt; escribió:</div><p>Hola Daniela,</p><p>Seguimos revisando tu caso con el equipo interno. Validamos la información de la transacción, la fecha, el estado de la cuenta y la evidencia que nos compartiste.</p><p>De forma preliminar, vemos que corresponde acoger tu solicitud principal. Antes del cierre, queremos confirmar contigo que recibiste esta actualización.</p><p>Saludos,<br>María González<br>Global66</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:41, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><p>Hola,</p><p>Adjunto captura del movimiento que no reconozco. Me preocupa que aparezca en mi cuenta porque no recuerdo haber autorizado esa operación.</p><div style='margin:12px 0;padding:10px;border:1px dashed #CBD5E1;border-radius:10px;background:#f8fafc;'><img src='https://dummyimage.com/600x160/f8fafc/334155.png&text=Captura+adjunta+por+cliente:+movimiento+no+reconocido' alt='Captura adjunta movimiento no reconocido' style='width:100%;max-width:600px;display:block;border-radius:8px;'></div><p>Quedo atenta.</p><p>Daniela</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:26, María González &lt;soporte@global66.com&gt; escribió:</div><p>Hola Daniela,</p><p>Gracias por contactarnos. Recibimos tu solicitud y abrimos la revisión correspondiente. Por favor envíanos la captura del movimiento y cualquier antecedente que tengas para completar el análisis.</p><p>Saludos,<br>María González<br>Global66</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:12, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><p>Hola equipo Global66,</p><p>Reporto una transacción que no reconozco en mi cuenta. Necesito que revisen el movimiento y me indiquen cómo proceder.</p><p>Gracias,<br>Daniela Rojas</p></div></div></div></div></div></div></body></html>\",\n\"archivos_s3\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -513,7 +515,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_004\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234562\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_116\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234565\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -540,7 +542,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 20:38:46 GMT"
+                  "value": "Wed, 29 Jul 2026 20:23:19 GMT"
                 },
                 {
                   "key": "server",
@@ -548,7 +550,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "145"
+                  "value": "156"
                 },
                 {
                   "key": "content-type",
@@ -556,7 +558,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286CASO_OK_2026_004\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286CASO_OK_2026_116 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286CASO_OK_2026_116\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Plataforma caida",
@@ -620,6 +622,67 @@
               "body": "{\n  \"status\": \"queued\",\n  \"smart_code\": \"16551509974606\",\n  \"message\": \"La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado en la BD local para reintento automático.\",\n  \"error_origen\": \"El servicio no está disponible por el momento. Vuelva a intentarlo mas tarde.\"\n}"
             },
             {
+              "name": "Enviar Queja Nueva - Plataforma congestionada/caida",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_001\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 21 Jul 2026 21:03:11 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "289"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status_code\": 429,\n    \"error_type\": \"THROTTLED_ERROR\",\n    \"sfc_field\": null,\n    \"raw_message\": \"Solicitud fue regulada (throttled). Expected available in 5 seconds.\",\n    \"crm_action_friendly\": \"Se enviaron demasiadas solicitudes. El sistema reintentará respetando el control de flujo (1 req / 5s).\"\n}"
+            },
+            {
               "name": "Enviar Queja Nueva - Nombre nulo",
               "originalRequest": {
                 "method": "POST",
@@ -662,7 +725,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 15:30:44 GMT"
+                  "value": "Wed, 29 Jul 2026 19:25:53 GMT"
                 },
                 {
                   "key": "server",
@@ -670,13 +733,11 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "229"
+                  "value": "206"
                 },
                 {
-                  "key": "Content-Type",
-                  "value": "application/json",
-                  "description": "",
-                  "type": "text"
+                  "key": "content-type",
+                  "value": "application/json"
                 }
               ],
               "cookie": [
@@ -686,7 +747,7 @@
                   "path": ""
                 }
               ],
-              "body": "{\n    \"detail\": {\n        \"status\": \"error\",\n        \"error_type\": \"VALIDATION_ERROR\",\n        \"sfc_field\": \"nombres\",\n        \"raw_sfc_message\": \"Este campo no puede estar en blanco.\",\n        \"crm_action_friendly\": \"Verificar que el nombre de la cuenta asociada este diligenciado.\"\n    }\n}"
+              "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"VALIDATION_ERROR\",\n    \"sfc_field\": \"nombres\",\n    \"raw_message\": \"Este campo no puede estar en blanco.\",\n    \"crm_action\": \"Verificar que el nombre de la cuenta asociada este diligenciado.\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Error fecha en el futuro",
@@ -731,7 +792,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 19:34:08 GMT"
+                  "value": "Wed, 29 Jul 2026 19:26:09 GMT"
                 },
                 {
                   "key": "server",
@@ -739,7 +800,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "267"
+                  "value": "250"
                 },
                 {
                   "key": "content-type",
@@ -747,7 +808,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"detail\": {\n        \"status\": \"error\",\n        \"error_type\": \"VALIDATION_ERROR\",\n        \"sfc_field\": \"non_field_errors\",\n        \"raw_sfc_message\": \"La fecha debe ser anterior a la fecha actual.\",\n        \"crm_action_friendly\": \"Hubo un error de formato al mandar la fecha, revisar logs para encontrar el problema\"\n    }\n}"
+              "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"ALREADY_EXISTS\",\n    \"sfc_field\": \"codigo_queja\",\n    \"raw_message\": \"Ya existe queja con este codigo queja.\",\n    \"crm_action\": \"El código de la queja ya existe registrado en la SFC. Verificar si la queja ya se radicó previamente.\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Error documento de identidad > 15",
@@ -786,13 +847,13 @@
                   ]
                 }
               },
-              "status": "Unprocessable Entity",
-              "code": 422,
+              "status": "Bad Request",
+              "code": 400,
               "_postman_previewlanguage": "json",
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 19:34:30 GMT"
+                  "value": "Wed, 29 Jul 2026 19:21:19 GMT"
                 },
                 {
                   "key": "server",
@@ -800,7 +861,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "173"
+                  "value": "298"
                 },
                 {
                   "key": "content-type",
@@ -808,7 +869,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"detail\": [\n        {\n            \"type\": \"string_too_long\",\n            \"loc\": [\n                \"body\",\n                \"id_number__c\"\n            ],\n            \"msg\": \"String should have at most 15 characters\",\n            \"input\": \"12345678901234567890\",\n            \"ctx\": {\n                \"max_length\": 15\n            }\n        }\n    ]\n}"
+              "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"CRM_PAYLOAD_VALIDATION_ERROR\",\n    \"sfc_field\": \"id_number__c\",\n    \"raw_message\": \"String should have at most 15 characters\",\n    \"crm_action\": \"Verifique el campo 'id_number__c' en el CRM/Salesforce. Asegúrese de cumplir con el tipo de dato, restricciones y catálogo permitido.\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Validacion documento sin numeros",
@@ -826,7 +887,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"TEST_NON_NUMERIC_DOC_003\",\n  \"Departamento__c\": \"Valle del Cauca\",\n  \"SC_municipio__c\": \"Cali\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\",\n  \"SuppliedName\": \"Diego Torres\",\n  \"SC_id_type__c\": \"PEP\",\n  \"id_number__c\": \"NOAPLICA\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Avenida 6N # 22-10\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento sin caracteres numéricos.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Email\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_NON_NUMERIC_DOC_004\",\n  \"Departamento__c\": \"Valle del Cauca\",\n  \"SC_municipio__c\": \"Cali\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\",\n  \"SuppliedName\": \"Diego Torres\",\n  \"SC_id_type__c\": \"PEP\",\n  \"id_number__c\": \"NOAPLICA\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Avenida 6N # 22-10\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"Prueba de documento sin caracteres numéricos.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"punto_recepcion\": \"Email\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -847,10 +908,29 @@
                   ]
                 }
               },
-              "_postman_previewlanguage": null,
-              "header": null,
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 20:24:45 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "331"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
               "cookie": [],
-              "body": null
+              "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"CRM_PAYLOAD_VALIDATION_ERROR\",\n    \"raw_message\": \"El número de identificación ('id_number__c') debe contener al menos un dígito numérico.\",\n    \"crm_action_friendly\": \"Verifique el campo 'id_number__c' en el CRM/Salesforce. Asegúrese de cumplir con el tipo de dato, restricciones y catálogo permitido.\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Validación de categoría",
@@ -889,10 +969,29 @@
                   ]
                 }
               },
-              "_postman_previewlanguage": null,
-              "header": null,
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 20:25:16 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "618"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
               "cookie": [],
-              "body": null
+              "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"CRM_PAYLOAD_VALIDATION_ERROR\",\n    \"raw_message\": \"El valor 'Cobro de Tarifa Por Saludar Al Asesor' no es válido para Categorias_COL__c. Valores soportados: ['Actualización equivocada de datos personales', 'Apertura de cuenta única de campañas políticas', 'Cobro de costos o tarifas en productos inactivos', 'Cobro por operaciones fallidas en cajeros electrónicos', 'Cobro por transacciones en internet']... (Total 97)\",\n    \"crm_action_friendly\": \"Verifique el campo 'Categorias_COL__c' en el CRM/Salesforce. Asegúrese de cumplir con el tipo de dato, restricciones y catálogo permitido.\"\n}"
             },
             {
               "name": "Enviar Queja Nueva - Solo campos base obligatorios",
@@ -910,7 +1009,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_003\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304051\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Radicación de queja base utilizando únicamente los campos obligatorios del esquema.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\"\n}",
+                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_115\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"123203214054\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Radicación de queja base utilizando únicamente los campos obligatorios del esquema.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Inconsistencias en los pagos a terceros\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -937,7 +1036,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 20:39:31 GMT"
+                  "value": "Wed, 29 Jul 2026 20:31:58 GMT"
                 },
                 {
                   "key": "server",
@@ -945,7 +1044,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "150"
+                  "value": "166"
                 },
                 {
                   "key": "content-type",
@@ -953,7 +1052,373 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286M2_BASE_MANDATORY_003\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M2_BASE_MANDATORY_115 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M2_BASE_MANDATORY_115\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - B2B con RUT y mapeo Smart_code",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Smart_Code__c\": \"1286TEST_M3_TRAMITE_MIN_152\",\n  \"SuppliedName\": \"Inversiones y Soluciones Logísticas SAS\",\n  \"SC_id_type__c\": \"NIT\",\n  \"id_number__c\": \"901234528\",\n  \"tipo_de_persona__c\": \"B2B\",\n  \"direccion__c\": \"Zona Franca Fontibón Bodega 4\",\n  \"punto_recepcion\": \"Email\",\n  \"Description\": \"Actualización ordinaria de trámite para cliente corporativo. Se omite Case_id y datos demográficos de persona natural.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Exchange\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 20:33:29 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "170"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_TRAMITE_MIN_152 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_TRAMITE_MIN_152\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - Unicamente creacion (Status: \"New\")",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Case_id\": \"TEST_M2_NEW_PPT_020\",\n  \"Status\": \"New\",\n  \"SuppliedName\": \"Yusneidy Coromoto Delgado\",\n  \"SC_id_type__c\": \"PPT\",\n  \"id_number__c\": \"60012398\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_Condicion_especial__c\": \"Víctima del conflicto armado\",\n  \"SuppliedPhone\": \"3009876543\",\n  \"SuppliedEmail\": \"yusneidy.delgado@test.com\",\n  \"direccion__c\": \"Calle 100 # 15-20 Apto 402\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellín\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Description\": \"Inconformidad con cobro de comisión no informada en transferencia móvil.\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Inconsistencia en el cobro de comisiones - Descuentos injustificados\",\n  \"smart_escalamiento_DCF__c\": \"No\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 15:27:18 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "148"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Queja y documentos transmitidos correctamente a la SFC de forma síncrona\",\n    \"Smart_Code__c\": \"1286TEST_M2_NEW_PPT_020\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - Test desde CRM",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n\"Smart_Code__c\": \"TEST-DIRECTO-SSV-202\",\n\"CreatedDate\": \"2026-07-29T10:25:00\",\n\"Status\": \"Closed\",\n\"ClosedDate\": \"2026-07-29\",\n\"SuppliedName\": \"Daniela Rojas Mock\",\n\"SC_id_type__c\": \"CC\",\n\"id_number__c\": \"1099001123\",\n\"sc_genero__c\": \"Femenino\",\n\"tipo_de_persona__c\": \"B2C\",\n\"sc_LGBTIQ__c\": \"No\",\n\"sc_Condicion_especial__c\": \"No aplica\",\n\"SuppliedPhone\": \"3104488899\",\n\"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n\"direccion__c\": \"Carrera 15 # 82-30\",\n\"Departamento__c\": \"Bogotá D.C.\",\n\"SC_municipio__c\": \"Bogotá D.C.\",\n\"canal__c\": \"Internet\",\n\"punto_recepcion\": \"Manual\",\n\"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n\"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n\"Description\": \"Prueba de creación de queja nueva directamente en estado de cierre con cuerpo final estilo hilo de correos Gmail.\",\n\"smart_anexo_queja__c\": false,\n\"Tutela__c\": \"No\",\n\"Queja_express__c\": \"No\",\n\"Ente_de_control__c\": \"Otros\",\n\"smart_escalamiento_DCF__c\": \"No\",\n\"Product__c\": \"P2P\",\n\"smart_Producto_nombre__c\": \"Global Account Digital\",\n\"Categorias_COL__c\": \"Remesas\",\n\"Favorabilidad__c\": \"Favorable\",\n\"Aceptacion__c\": \"Parcialmente favorable\",\n\"a_favor_de__c\": \"1\",\n\"Rectificacion__c\": \"No\",\n\"Prorroga__c\": 1,\n\"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'><title>Re: Respuesta final caso TEST-CIERRE-DIRECTO-SSV-002</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#202124;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px 28px;border:1px solid #E5E7EB;'><div style='font-size:20px;font-weight:600;color:#202124;margin-bottom:18px;'>Re: Respuesta final sobre tu reclamo - Global66</div><div style='border-bottom:1px solid #E5E7EB;padding-bottom:16px;margin-bottom:18px;'><table width='100%' cellpadding='0' cellspacing='0'><tr><td width='42' valign='top'><div style='width:36px;height:36px;border-radius:50%;background:#0b57d0;color:#ffffff;text-align:center;line-height:36px;font-weight:bold;'>MG</div></td><td valign='top'><div style='font-size:14px;color:#202124;'><strong>María González</strong> &lt;soporte@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;margin-top:2px;'>para Daniela Rojas Mock · 29 jul 2026, 10:25</div></td><td align='right' valign='top'><img src='https://dummyimage.com/110x30/ffffff/003B8F.png&text=Global66' alt='Global66' style='display:block;border:1px solid #E5E7EB;border-radius:6px;'></td></tr></table></div><div style='font-size:14px;line-height:22px;color:#202124;'><p>Hola Daniela,</p><p>Te escribimos para informarte el resultado final de la revisión asociada a tu reclamo por la transacción que no reconocías en tu cuenta Global66.</p><p>Después de revisar la trazabilidad de la operación, los registros de seguridad y la información que nos compartiste, confirmamos que tu solicitud fue resuelta de manera <strong>favorable</strong>. La aceptación queda registrada como <strong>parcialmente favorable</strong>, ya que acogimos la revisión principal solicitada, pero se mantiene registro de algunos antecedentes operacionales para efectos de trazabilidad y control interno.</p><p>Con esto, dejamos el caso cerrado y registrado con el número <strong>TEST-CIERRE-DIRECTO-SSV-002</strong>.</p><p>Saludos,</p><div style='margin-top:18px;padding-top:14px;border-top:1px solid #E5E7EB;'><table cellpadding='0' cellspacing='0'><tr><td valign='top' style='padding-right:12px;'><img src='https://dummyimage.com/64x64/003B8F/ffffff.png&text=G66' alt='Global66' style='border-radius:12px;display:block;'></td><td valign='top' style='font-size:13px;line-height:20px;color:#374151;'><strong style='font-size:14px;color:#111827;'>María González</strong><br>Ejecutiva de Atención al Cliente<br>Global66<br><span style='color:#0b57d0;'>soporte@global66.com</span><br><span style='color:#6b7280;'>www.global66.com</span></td></tr></table></div><div style='margin-top:18px;background:#f8fafc;border:1px solid #E5E7EB;border-radius:10px;padding:12px;color:#6b7280;font-size:12px;line-height:18px;'>Este mensaje y sus anexos pueden contener información confidencial. Si recibiste este correo por error, por favor elimínalo e informa al remitente. Este correo corresponde a una prueba técnica de integración SmartSupervisión.</div></div><div style='margin-top:28px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;font-size:13px;line-height:21px;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 10:13, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><div style='background:#ffffff;'><p>Hola María,</p><p>Gracias por la revisión. Entiendo que encontraron antecedentes para resolver mi caso y acepto que se deje como parcialmente favorable, pero necesito que quede constancia de que yo no reconocía inicialmente esa transacción.</p><p>También agradezco que me confirmen por escrito que el reclamo fue revisado y cerrado.</p><p>Saludos,<br>Daniela</p></div><div style='margin-top:18px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:58, María González &lt;soporte@global66.com&gt; escribió:</div><p>Hola Daniela,</p><p>Seguimos revisando tu caso con el equipo interno. Validamos la información de la transacción, la fecha, el estado de la cuenta y la evidencia que nos compartiste.</p><p>De forma preliminar, vemos que corresponde acoger tu solicitud principal. Antes del cierre, queremos confirmar contigo que recibiste esta actualización.</p><p>Saludos,<br>María González<br>Global66</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:41, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><p>Hola,</p><p>Adjunto captura del movimiento que no reconozco. Me preocupa que aparezca en mi cuenta porque no recuerdo haber autorizado esa operación.</p><div style='margin:12px 0;padding:10px;border:1px dashed #CBD5E1;border-radius:10px;background:#f8fafc;'><img src='https://dummyimage.com/600x160/f8fafc/334155.png&text=Captura+adjunta+por+cliente:+movimiento+no+reconocido' alt='Captura adjunta movimiento no reconocido' style='width:100%;max-width:600px;display:block;border-radius:8px;'></div><p>Quedo atenta.</p><p>Daniela</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:26, María González &lt;soporte@global66.com&gt; escribió:</div><p>Hola Daniela,</p><p>Gracias por contactarnos. Recibimos tu solicitud y abrimos la revisión correspondiente. Por favor envíanos la captura del movimiento y cualquier antecedente que tengas para completar el análisis.</p><p>Saludos,<br>María González<br>Global66</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 09:12, Daniela Rojas Mock &lt;daniela.rojas.mock@global66.test&gt; escribió:</div><p>Hola equipo Global66,</p><p>Reporto una transacción que no reconozco en mi cuenta. Necesito que revisen el movimiento y me indiquen cómo proceder.</p><p>Gracias,<br>Daniela Rojas</p></div></div></div></div></div></div></body></html>\",\n\"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 19:30:33 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "164"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-202 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-202\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - Test desde CRM, resolucion no favorable",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-DIRECTO-SSV-203\",\n  \"CreatedDate\": \"2026-07-29T11:00:00\",\n  \"Status\": \"Closed\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"SuppliedName\": \"Andrés Felipe Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001124\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3115554433\",\n  \"SuppliedEmail\": \"andres.mock@global66.test\",\n  \"direccion__c\": \"Calle 100 # 19-45\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba de respuesta final corta no favorable con hilo de correo extenso.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Queja_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"No favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero no aceptadas por la entidad\",\n  \"a_favor_de__c\": \"2\",\n  \"Rectificacion__c\": \"No\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'><title>Re: Respuesta caso TEST-DIRECTO-SSV-203</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px;'><div style='border-bottom:1px solid #E5E7EB;padding-bottom:12px;margin-bottom:18px;'><table width='100%'><tr><td valign='top'><div style='font-size:14px;'><strong>Soporte Global66</strong> &lt;soporte@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;'>para Andrés Felipe Mock · 29 jul 2026, 11:00</div></td></tr></table></div><div style='font-size:14px;line-height:20px;'><p>Hola Andrés,</p><p>Te informamos que tras validar los registros de seguridad, se confirmó que la transferencia fue autorizada con tu clave dinámica. Por esta razón, el caso <strong>TEST-DIRECTO-SSV-203</strong> concluye como <strong>no favorable</strong>.</p><p>Saludos,<br>Soporte Global66</p></div><div style='margin-top:28px;border-left:3px solid #DADCE0;padding-left:14px;color:#3c4043;font-size:13px;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 10:45, Andrés Felipe Mock &lt;andres.mock@global66.test&gt; escribió:</div><p>Hola, requiero que reconsideren la decisión sobre la comisión cobrada en el envío.</p><div style='margin-top:14px;border-left:3px solid #DADCE0;padding-left:14px;'><div style='color:#5f6368;margin-bottom:10px;'>El mié, 29 jul 2026 a las 10:15, Soporte Global66 &lt;soporte@global66.com&gt; escribió:</div><p>Hola Andrés, abrimos la revisión de tu caso para validar la traza de la operación.</p></div></div></div></body></html>\",\n  \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 19:44:56 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "164"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-203 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-203\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - Test desde CRM, respuesta 1 linea",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-DIRECTO-SSV-204\",\n  \"CreatedDate\": \"2026-07-29T11:15:00\",\n  \"Status\": \"Closed\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"SuppliedName\": \"Camila Torres Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001125\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3129998877\",\n  \"SuppliedEmail\": \"camila.mock@global66.test\",\n  \"direccion__c\": \"Avenida Chile # 7-10\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba con respuesta final de una sola línea.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Queja_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"a_favor_de__c\": \"1\",\n  \"Rectificacion__c\": \"No\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body style='font-family:Arial,sans-serif;'><div style='padding:20px;'><div style='border-bottom:1px solid #ccc;padding-bottom:10px;'><strong>Atención al Cliente Global66</strong> &lt;soporte@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Camila Torres Mock · 29 jul 2026, 11:15</span></div><p>Estimada Camila, confirmamos el abono de $120.000 COP a tu cuenta por concepto de reajuste y cerramos la solicitud TEST-DIRECTO-SSV-204.</p><div style='margin-top:20px;border-left:2px solid #ccc;padding-left:10px;'><div style='color:#666;'>El mié, 29 jul 2026 a las 11:00, Camila Torres Mock escribió:</div><p>Gracias por confirmar. Quedo atenta al reembolso del saldo pendiente.</p></div></div></body></html>\",\n  \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 19:47:46 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "164"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-204 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-204\"\n}"
+            },
+            {
+              "name": "Enviar Queja Nueva - Test desde CRM, hilo complejo de correo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-DIRECTO-SSV-205\",\n  \"CreatedDate\": \"2026-07-29T11:30:00\",\n  \"Status\": \"Closed\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"SuppliedName\": \"Mateo Gómez Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001126\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3154443322\",\n  \"SuppliedEmail\": \"mateo.mock@global66.test\",\n  \"direccion__c\": \"Carrera 7 # 72-21\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba estilo Microsoft Outlook.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Queja_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"a_favor_de__c\": \"1\",\n  \"Rectificacion__c\": \"No\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"<html><body><p>Hola Mateo,</p><p>Procesamos la solicitud requerida satisfactoriamente. Damos por concluido el caso TEST-DIRECTO-SSV-205.</p><p>Atentamente,<br>Equipo de Experiencia al Cliente<br>Global66</p><hr style='display:inline-block;width:98%'><div id='divRplyFwdMsg' dir='ltr'><font face='Calibri, sans-serif' color='#000000' size='2'><b>From:</b> Mateo Gómez Mock &lt;mateo.mock@global66.test&gt;<br><b>Sent:</b> Wednesday, July 29, 2026 11:10 AM<br><b>To:</b> soporte@global66.com<br><b>Subject:</b> Solicitud de aclaración de movimiento<br></font><br></div><div><p>Hola equipo, requiero confirmación del cierre de mi solicitud anterior.</p></div></body></html>\",\n  \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 19:47:46 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "164"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-204 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-204\"\n}"
             }
           ]
         }
@@ -962,6 +1427,471 @@
     {
       "name": "Momento 3: Gestión y Cierre (CRM -> SFC)",
       "item": [
+        {
+          "name": "Ejemplos fraude",
+          "item": [
+            {
+              "name": "Endpoint 2: Reporte de Fraude",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"Case_id\": \"128617851823129171\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"556363.pdf\",\n            \"s3_key\": \"quejas/128617851823129171/556363.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\"\n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 2: Reporte de Fraude con solo campos base",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_129\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"10252524051\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte y gestión de investigación de fraude para la transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M2_BASE_MANDATORY_001/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:38:21 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "166"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M2_BASE_MANDATORY_129 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M2_BASE_MANDATORY_129\"\n}"
+                },
+                {
+                  "name": "Endpoint 2: Reporte de Fraude - Falta de documento de fraude",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_002\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte y gestión de investigación de fraude para la transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:39:16 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "306"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status_code\": 400,\n    \"error_type\": \"CRM_PAYLOAD_VALIDATION_ERROR\",\n    \"raw_message\": \"No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).\",\n    \"crm_action_friendly\": \"Verifique el campo 'payload' en el CRM/Salesforce. Asegúrese de cumplir con el tipo de dato, restricciones y catálogo permitido.\"\n}"
+                },
+                {
+                  "name": "Endpoint 2: Reporte de Fraude - Testeo de todos los archivos en directorio",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST_M3_DIRECTORIO_032\",\n  \"SuppliedName\": \"Valeria Morales\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"10203042\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 15 # 80-10\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte de fraude procesando todos los archivos desde el directorio del caso.\",\n  \"Product__c\": \"Tarjeta Digital\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Sim Swapping\",\n  \"card_amount__c\": 2500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 2500000.0,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"directorio_s3\": \"caso/TEST_M3_DIRECTORIO_030/\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 17:13:55 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "168"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [
+                    {
+                      "expires": "Invalid Date",
+                      "domain": "",
+                      "path": ""
+                    }
+                  ],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_DIRECTORIO_032 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_DIRECTORIO_032\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 2: Reporte de Fraude junto con creacion",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Case_id\": \"5008b000021ABCXYZ\",\n  \"Status\": \"In Progress\",\n\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018273645\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n\n  \"SuppliedPhone\": \"3001234567\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"direccion__c\": \"Calle 100 # 15-20\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n\n  \"Description\": \"El cliente reporta una transferencia no autorizada desde su billetera digital por un monto de $500,000 COP.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": null,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": null,\n\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"nombre_archivo_fraude\": \"informe_investigacion_fraude.pdf\",\n\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"informe_investigacion_fraude.pdf\",\n      \"s3_key\": \"quejas/5008b000021ABCXYZ/informe_investigacion_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 2: Reporte de Fraude junto con creacion",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"M3_FRAUD_HEAL_372\",\n  \"SuppliedName\": \"Andrés Felipe Osorio\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"10304051251\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 53 # 10-20\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte de presunta suplantación de identidad en retiro no reconocido.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M3_FRAUD_HEAL_002/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 28 Jul 2026 19:39:36 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "158"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [
+                    {
+                      "expires": "Invalid Date",
+                      "domain": "",
+                      "path": ""
+                    }
+                  ],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M3_FRAUD_HEAL_002 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M3_FRAUD_HEAL_002\"\n}"
+                },
+                {
+                  "name": "Endpoint 2: Reporte de Fraude junto con creacion - Más de un archivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST_M3_FRAUD_MULTI_013\",\n  \"SuppliedName\": \"Sonia Esperanza Alarcón\",\n  \"SC_id_type__c\": \"PEP\",\n  \"id_number__c\": \"80123459\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 15 # 85-30\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Description\": \"Reporte de investigación de fraude por Sim Swapping con múltiples anexos en S3.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Interno\",\n  \"modalidad_fraude__c\": \"Sim Swapping\",\n  \"card_amount__c\": 15000000.50,\n  \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n  \"nombre_archivo_fraude\": \"informe_pericial_fraude.pdf\",\n  \"smart_anexo_queja__c\": true,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"comprobante_transaccional.pdf\",\n      \"s3_key\": \"quejas/TEST_M3_FRAUD_MULTI_010/comprobante_transaccional.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    },\n    {\n      \"nombre_archivo\": \"informe_pericial_fraude.pdf\",\n      \"s3_key\": \"quejas/TEST_M3_FRAUD_MULTI_010/informe_pericial_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 14:42:16 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_FRAUD_MULTI_013 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_FRAUD_MULTI_013\"\n}"
+                },
+                {
+                  "name": "Endpoint 2: Reporte de Fraude junto con creacion - Único archivo con phishing",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST_M3_FRAUD_PHISH_022\",\n  \"SuppliedName\": \"Clara Inés Tobón\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"41987654\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Avenida El Poblado # 10-12\",\n  \"punto_recepcion\": \"Email\",\n  \"Description\": \"Reporte técnico de fraude externo por captura de credenciales mediante portal falso de Phishing.\",\n  \"Product__c\": \"Tarjeta Digital\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 3500000.75,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1750000.0,\n  \"nombre_archivo_fraude\": \"analisis_phishing.pdf\",\n  \"smart_anexo_queja__c\": true,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_phishing.pdf\",\n      \"s3_key\": \"quejas/TEST_M3_FRAUD_PHISH_022/analisis_phishing.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 15:39:13 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_FRAUD_PHISH_022 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_FRAUD_PHISH_022\"\n}"
+                }
+              ]
+            }
+          ]
+        },
         {
           "name": "Ejemplos cierre",
           "item": [
@@ -1004,67 +1934,6 @@
                 "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
               },
               "response": [
-                {
-                  "name": "Endpoint 3: Cierre Definitivo",
-                  "originalRequest": {
-                    "method": "POST",
-                    "header": [
-                      {
-                        "key": "Content-Type",
-                        "value": "application/json"
-                      },
-                      {
-                        "key": "X-API-Key",
-                        "value": "{{api_key}}"
-                      }
-                    ],
-                    "body": {
-                      "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"CASO_OK_2026_002\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234567\",\n  \"SuppliedPhone\": \"3005551234\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"archivos_s3\": []\n}",
-                      "options": {
-                        "raw": {
-                          "language": "json"
-                        }
-                      }
-                    },
-                    "url": {
-                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-                      "host": [
-                        "{{base_url}}"
-                      ],
-                      "path": [
-                        "api",
-                        "v1",
-                        "quejas",
-                        "sync",
-                        "despacho"
-                      ]
-                    }
-                  },
-                  "status": "OK",
-                  "code": 200,
-                  "_postman_previewlanguage": "json",
-                  "header": [
-                    {
-                      "key": "date",
-                      "value": "Tue, 21 Jul 2026 17:19:45 GMT"
-                    },
-                    {
-                      "key": "server",
-                      "value": "uvicorn"
-                    },
-                    {
-                      "key": "content-length",
-                      "value": "148"
-                    },
-                    {
-                      "key": "content-type",
-                      "value": "application/json"
-                    }
-                  ],
-                  "cookie": [],
-                  "body": "{\n  \"status\": \"success\",\n  \"message\": \"Caso 16551509974606 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n  \"codigo_queja_sfc\": \"142316551509974606\"\n}"
-                },
                 {
                   "name": "Endpoint 3: Cierre Definitivo - Queja ya cerrada",
                   "originalRequest": {
@@ -1249,6 +2118,671 @@
                   ],
                   "cookie": [],
                   "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M3_CLOSE_HEAL_MIN_003 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286M3_CLOSE_HEAL_MIN_003\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Cierre Definitivo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST_M3_CLOSE_B2B_023\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Comercializadora Andina S.A.S.\",\n  \"SC_id_type__c\": \"NIT\",\n  \"id_number__c\": \"900555444\",\n  \"tipo_de_persona__c\": \"B2B\",\n  \"direccion__c\": \"Calle 26 # 68C-61 Oficina 501\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Cierre definitivo por acuerdo Favorable con el cliente corporativo sobre tarifa de cambio en divisas.\",\n  \"Product__c\": \"Exchange\",\n  \"Categorias_COL__c\": \"Demora en la atención o en el servicio requerido\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"cuerpo_respuesta_final\": \"<h3>Apreciados Señores:</h3><p>Nos complace informarles que su reclamo referente a la tasa cambiaria aplicada ha sido resuelto de manera <strong>favorable</strong>. Se ha realizado el ajuste correspondiente en su cuenta corporativa.</p>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 15:40:47 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "166"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [
+                    {
+                      "expires": "Invalid Date",
+                      "domain": "",
+                      "path": ""
+                    }
+                  ],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_CLOSE_B2B_023 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_CLOSE_B2B_023\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Cierre Definitivo - Directorio con archivos y cierre",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-CIERRE-DIRECTO-404\",\n  \"CreatedDate\": \"2026-07-29T10:25:00\",\n  \"Status\": \"Closed\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"SuppliedName\": \"Daniela Rojas Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001123\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3104488899\",\n  \"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n  \"direccion__c\": \"Carrera 15 # 82-30\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba de creación de queja nueva directamente en estado de cierre con cuerpo final estilo hilo de correos Gmail.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n  \"directorio_s3\": \"caso/TEST-CIERRE-DIRECTO-SSV-002/\",\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'><title>Re: Respuesta final caso TEST-CIERRE-DIRECTO-SSV-002</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#202124;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px 28px;border:1px solid #E5E7EB;'><div style='font-size:20px;font-weight:600;color:#202124;margin-bottom:18px;'>Re: Respuesta final sobre tu reclamo - Global66</div><div style='border-bottom:1px solid #E5E7EB;padding-bottom:16px;margin-bottom:18px;'><table width='100%' cellpadding='0' cellspacing='0'><tr><td width='42' valign='top'><div style='width:36px;height:36px;border-radius:50%;background:#0b57d0;color:#ffffff;text-align:center;line-height:36px;font-weight:bold;'>MG</div></td><td valign='top'><div style='font-size:14px;color:#202124;'><strong>María González</strong> &lt;soporte@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;margin-top:2px;'>para Daniela Rojas Mock · 29 jul 2026, 10:25</div></td><td align='right' valign='top'><img src='https://dummyimage.com/110x30/ffffff/003B8F.png&text=Global66' alt='Global66' style='display:block;border:1px solid #E5E7EB;border-radius:6px;'></td></tr></table></div><div style='font-size:14px;line-height:22px;color:#202124;'><p>Hola Daniela,</p><p>Te escribimos para informarte el resultado final de la revisión asociada a tu reclamo por la transacción que no reconocías en tu cuenta Global66.</p><p>Después de revisar la trazabilidad de la operación, los registros de seguridad y la información que nos compartiste, confirmamos que tu solicitud fue resuelta de manera <strong>favorable</strong>. La aceptación queda registrada de conformidad con las políticas de la entidad.</p><p>Con esto, dejamos el caso cerrado y registrado con el número <strong>TEST-CIERRE-DIRECTO-SSV-002</strong>.</p><p>Saludos,</p><div style='margin-top:18px;padding-top:14px;border-top:1px solid #E5E7EB;'><table cellpadding='0' cellspacing='0'><tr><td valign='top' style='padding-right:12px;'><img src='https://dummyimage.com/64x64/003B8F/ffffff.png&text=G66' alt='Global66' style='border-radius:12px;display:block;'></td><td valign='top' style='font-size:13px;line-height:20px;color:#374151;'><strong style='font-size:14px;color:#111827;'>María González</strong><br>Ejecutiva de Atención al Cliente<br>Global66<br><span style='color:#0b57d0;'>soporte@global66.com</span><br><span style='color:#6b7280;'>www.global66.com</span></td></tr></table></div></div></div></body></html>\",\n  \"archivos_s3\": []\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 19:18:19 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-CIERRE-DIRECTO-404 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-CIERRE-DIRECTO-404\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Case_id\": \"TEST_FULL_LIFECYCLE_99999\",\n  \"SuppliedName\": \"David Alejandro Gómez\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1015203043\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 10 # 72-33, Apto 301\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Prueba de integración local: Creación automática por Self-Healing, registro de fraude y cierre formal en un solo flujo.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 750000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 750000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/TEST_FULL_LIFECYCLE_999/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                },
+                "description": "Ejecuta la clausura definitiva del caso (Estado 4) mediante el endpoint unificado. El microservicio validará que venga la resolución final, le inyectará de forma oculta el afijo 'RESP_FINAL_SFC' al archivo en S3 y congelará la queja en la SFC."
+              },
+              "response": [
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Datos básicos",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"FULL_TEST_2026_0010\",\n  \"SuppliedName\": \"Mariana Alejandra Bermúdez\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"528491030\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \n  \"SuppliedPhone\": \"3159876543\",\n  \"SuppliedEmail\": \"mariana.bermudez@test.com\",\n  \"direccion__c\": \"Avenida 19 # 104-45, Apt 402\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellín\",\n  \n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"Tutela__c\": \"No\",\n  \n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet Digital Global66\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Description\": \"La clienta reporta una transferencia no autorizada enviada mediante la app móvil. Se realizó la investigación técnica de fraude y se emite la respuesta final favorable abonando el saldo devuelto.\",\n  \n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 1250000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1250000.0,\n  \"nombre_archivo_fraude\": \"dictamen_tecnico_fraude.pdf\",\n  \n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"Estimada Mariana:\\n\\nNos comunicamos del equipo de Atención al Consumidor Financiero de Global66. Tras revisar el informe técnico de seguridad sobre la transacción no reconocida, hemos resuelto el caso como FAVORABLE. Se procedió con la devolución total de $1.250.000 COP a su cuenta.\",\n  \n  \"smart_anexo_queja__c\": true,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"dictamen_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/FULL_TEST_2026_008/dictamen_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 28 Jul 2026 21:26:55 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "162"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286FULL_TEST_2026_0010 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286FULL_TEST_2026_0010\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Payload completo",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"FULL_TEST_2026_0010\",\n  \"SuppliedName\": \"Mariana Alejandra Bermúdez\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"528491030\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \n  \"SuppliedPhone\": \"3159876543\",\n  \"SuppliedEmail\": \"mariana.bermudez@test.com\",\n  \"direccion__c\": \"Avenida 19 # 104-45, Apt 402\",\n  \"Departamento__c\": \"Antioquia\",\n  \"SC_municipio__c\": \"Medellín\",\n  \n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"Tutela__c\": \"No\",\n  \n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet Digital Global66\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n  \"Description\": \"La clienta reporta una transferencia no autorizada enviada mediante la app móvil. Se realizó la investigación técnica de fraude y se emite la respuesta final favorable abonando el saldo devuelto.\",\n  \n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 1250000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1250000.0,\n  \"nombre_archivo_fraude\": \"dictamen_tecnico_fraude.pdf\",\n  \n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"Estimada Mariana:\\n\\nNos comunicamos del equipo de Atención al Consumidor Financiero de Global66. Tras revisar el informe técnico de seguridad sobre la transacción no reconocida, hemos resuelto el caso como FAVORABLE. Se procedió con la devolución total de $1.250.000 COP a su cuenta.\",\n  \n  \"smart_anexo_queja__c\": true,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"dictamen_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/FULL_TEST_2026_008/dictamen_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Tue, 28 Jul 2026 21:15:05 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "174"
+                    },
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json",
+                      "description": "",
+                      "type": "text"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso FULL_TEST_2026_0010 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"FULL_TEST_2026_0010\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST_M3_CLOSE_LIMITS_020\",\n  \"SuppliedName\": \"Guillermo León Valencia\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"79123464\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 10 # 5-12\",\n  \"punto_recepcion\": \"Manual\",\n  \"Description\": \"Cierre formal con resolución parcialmente favorable tras solicitud de prórroga máxima.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Tarjeta Fisica\",\n  \"Categorias_COL__c\": \"Cobro por operaciones fallidas en cajeros electrónicos\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"Favorabilidad__c\": \"Parcialmente favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero no aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n  \"cuerpo_respuesta_final\": \"<h3>Respuesta Formal de Servicio</h3><p>Estimado Consumidor:</p><p>Se ha revisado su caso referente al cobro en cajero. Se reconoce de manera <strong>parcial</strong> el importe reclamado por valor de $50.000 COP.</p>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 15:21:43 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "172"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [
+                    {
+                      "expires": "Invalid Date",
+                      "domain": "",
+                      "path": ""
+                    }
+                  ],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_CLOSE_LIMITS_020 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_CLOSE_LIMITS_020\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Directorio con archivos",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-405\",\n  \"SuppliedName\": \"Carlos Alberto Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1015888910\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \"SuppliedPhone\": \"3157778899\",\n  \"SuppliedEmail\": \"carlos.mendoza@test.com\",\n  \"direccion__c\": \"Calle 127 # 45-20 Apto 301\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba unificada completa: Reclamación por suplantación de identidad en tarjeta digital con dictamen de seguridad favorable y devolución total del saldo.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Tarjeta Digital\",\n  \"smart_Producto_nombre__c\": \"Global Card Digital\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 4800000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 4800000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-004/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'><title>Re: Cierre definitivo de caso TEST-ALL-IN-ONE-SSV-003</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#202124;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px 28px;border:1px solid #E5E7EB;'><div style='font-size:20px;font-weight:600;color:#202124;margin-bottom:18px;'>Re: Dictamen final sobre caso de suplantación - Global66</div><div style='border-bottom:1px solid #E5E7EB;padding-bottom:16px;margin-bottom:18px;'><table width='100%' cellpadding='0' cellspacing='0'><tr><td width='42' valign='top'><div style='width:36px;height:36px;border-radius:50%;background:#0b57d0;color:#ffffff;text-align:center;line-height:36px;font-weight:bold;'>GS</div></td><td valign='top'><div style='font-size:14px;color:#202124;'><strong>Gerencia de Seguridad y Riesgo</strong> &lt;seguridad@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;margin-top:2px;'>para Carlos Alberto Mendoza · 29 jul 2026, 11:00</div></td><td align='right' valign='top'><img src='https://dummyimage.com/110x30/ffffff/003B8F.png&text=Global66' alt='Global66' style='display:block;border:1px solid #E5E7EB;border-radius:6px;'></td></tr></table></div><div style='font-size:14px;line-height:22px;color:#202124;'><p>Estimado Don Carlos Alberto,</p><p>Le informamos que el área de Seguridad Operacional ha concluido la investigación técnica correspondiente a las transacciones no reconocidas en su Tarjeta Digital.</p><p>El análisis pericial confirmó que la operación respondió a un evento de <strong>Fraude Externo por Suplantación de Identidad</strong>. En consecuencia, su solicitud ha sido resuelta de manera <strong>FAVORABLE</strong> y se ha dispuesto el reembolso total por valor de <strong>$4.800.000 COP</strong> a su cuenta origen.</p><p>Adjunto a este envío encontrará la documentación de respaldo. Damos por concluido y clausurado el caso con el código <strong>TEST-ALL-IN-ONE-SSV-003</strong>.</p><p>Atentamente,</p><div style='margin-top:18px;padding-top:14px;border-top:1px solid #E5E7EB;'><table cellpadding='0' cellspacing='0'><tr><td valign='top' style='padding-right:12px;'><img src='https://dummyimage.com/64x64/003B8F/ffffff.png&text=G66' alt='Global66' style='border-radius:12px;display:block;'></td><td valign='top' style='font-size:13px;line-height:20px;color:#374151;'><strong style='font-size:14px;color:#111827;'>Gerencia de Experiencia y Seguridad</strong><br>Global66 Colombia<br><span style='color:#0b57d0;'>contacto@global66.com</span></td></tr></table></div></div></div></body></html>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 19:28:41 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-405 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-405\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Directorio con archivos 2",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-501\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Elena Rostova\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"529883011\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Discapacidad visual\",\n  \"SuppliedPhone\": \"3124445566\",\n  \"SuppliedEmail\": \"elena.rostova@test.com\",\n  \"direccion__c\": \"Carrera 7 # 114-33 Apto 502\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Reporte de vulneración de wallet digital mediante phishing. El cliente no autorizó la transferencia realizada hacia un tercero.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Global Wallet Colombia\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 1200000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1200000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body style='font-family:Arial,sans-serif;'><div style='padding:20px;'><div style='border-bottom:1px solid #E5E7EB;padding-bottom:10px;'><strong>Gerencia de Riesgo Operacional</strong> &lt;seguridad@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Elena Rostova · 29 jul 2026, 09:30</span></div><p>Estimada Elena,</p><p>Tras completar el análisis pericial del evento de Phishing reportado, confirmamos la resolución <strong>FAVORABLE</strong> del caso TEST-ALL-IN-ONE-SSV-501. Se abonó la suma de <strong>$1.200.000 COP</strong> a su Wallet.</p><p>Atentamente,<br>Global66 Colombia</p></div></body></html>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:01:20 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-501 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-501\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Directorio con archivos 3",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-503\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Inversiones y Servicios Tech SAS\",\n  \"SC_id_type__c\": \"PPT\",\n  \"id_number__c\": \"901455822\",\n  \"sc_genero__c\": \"No binario\",\n  \"tipo_de_persona__c\": \"B2B\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3008889900\",\n  \"SuppliedEmail\": \"contacto@inversiones-tech.test\",\n  \"direccion__c\": \"Calle 93B # 13-14 Oficina 401\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Email\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Inconformidad por duplicación de transferencias masivas salientes debido a una inconsistencia técnica en el motor de pagos B2B.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Transactions\",\n  \"smart_Producto_nombre__c\": \"Global Pay B2B\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Interno\",\n  \"modalidad_fraude__c\": \"Errores operativos de la entidad que hayan propiciado o facilitado el fraude\",\n  \"card_amount__c\": 8500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 4250000.0,\n\n  \"Favorabilidad__c\": \"Parcialmente favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><body><p>Estimados señores Inversiones y Servicios Tech SAS,</p><p>Les informamos que se emitió dictamen <strong>PARCIALMENTE FAVORABLE</strong> para el caso TEST-ALL-IN-ONE-SSV-502. Se realizó la reversión técnica de $4.250.000 COP correspondientes al tramo no compensado.</p><p>Atentamente,<br>Departamento de Solución de Controversias B2B<br>Global66</p><hr><div id='divRplyFwdMsg'><b>From:</b> contacto@inversiones-tech.test<br><b>Subject:</b> Solicitud de ajuste por transferencia duplicada<br></div></body></html>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:04:50 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-503 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-503\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Directorio con archivos 4",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-504\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Guillermo León Ramírez\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"14209988\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Pensionado\",\n  \"SuppliedPhone\": \"3153332211\",\n  \"SuppliedEmail\": \"guillermo.ramirez@test.com\",\n  \"direccion__c\": \"Avenida 19 # 102-15\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Centro de atención telefónica (Call center/Contact center)\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Reclamación por consumos en datáfono físico con tarjeta débito no reconocida en establecimiento comercial.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Tarjeta Fisica\",\n  \"smart_Producto_nombre__c\": \"Global Mastercard Física\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Skimming\",\n  \"card_amount__c\": 2100000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n\n  \"Favorabilidad__c\": \"No favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero no aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><body><div style='padding:20px;'><p>Estimado Don Guillermo,</p><p>Le informamos que tras revisar los registros de la franquicia, la transacción por $2.100.000 COP fue procesada presencialmente con chip y clave secreta. Por este motivo, el caso TEST-ALL-IN-ONE-SSV-503 concluye como <strong>NO FAVORABLE</strong>.</p><p>Saludos,<br>Atención al Cliente Global66</p></div></body></html>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:07:21 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-504 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-504\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Directorio con archivos 5",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-506\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Luz Marina Palacios\",\n  \"SC_id_type__c\": \"DNI\",\n  \"id_number__c\": \"1098765432\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Víctima del conflicto armado\",\n  \"SuppliedPhone\": \"3201112233\",\n  \"SuppliedEmail\": \"luz.palacios@test.com\",\n  \"direccion__c\": \"Calle 63 # 24-10 Apto 201\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Asistente virtual\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Apropiación de cuenta y desvío de remesa internacional mediante duplicación de línea celular (Sim Swapping).\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Remesas P2P\",\n  \"Categorias_COL__c\": \"Transaccion no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Sim Swapping\",\n  \"card_amount__c\": 3000000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 3000000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body><div style='max-width:700px;padding:20px;'><div style='border-bottom:1px solid #ccc;padding-bottom:10px;'><strong>Experiencia al Cliente</strong> &lt;contacto@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Luz Marina Palacios · 29 jul 2026, 12:30</span></div><p>Hola Luz Marina,</p><p>Validamos el incidente de Sim Swapping y confirmamos que la solicitud TEST-ALL-IN-ONE-SSV-504 ha sido resuelta de manera <strong>FAVORABLE</strong>. Se acreditó el valor de <strong>$3.000.000 COP</strong> a su cuenta origen.</p><p>Saludos,<br>Global66 Colombia</p><div style='margin-top:20px;border-left:2px solid #ccc;padding-left:10px;color:#666;'>El mié, 29 jul 2026 a las 11:20, Luz Marina Palacios escribió:<br><p>Por favor ayúdenme, me cambiaron el SIM de mi celular y enviaron mi dinero a otra cuenta.</p></div></div></body></html>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "date",
+                      "value": "Wed, 29 Jul 2026 20:11:12 GMT"
+                    },
+                    {
+                      "key": "server",
+                      "value": "uvicorn"
+                    },
+                    {
+                      "key": "content-length",
+                      "value": "170"
+                    },
+                    {
+                      "key": "content-type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-506 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-506\"\n}"
                 }
               ]
             }
@@ -1270,7 +2804,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"Smart_Code__c\": \"1286178516792806186\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/1286178516792806186/AWS.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\",\n            \"nombre_archivo\": \"AWS.pdf\"\n        }\n    ]\n}",
+              "raw": "{\n    \"Smart_Code__c\": \"1286178516792806186\",\n    \"SuppliedName\": \"Consumidor Natural Global66\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1000024622\",\n    \"SuppliedPhone\": \"3005551236\",\n    \"SuppliedEmail\": \"juan.camargo@global66.com\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_genero__c\": \"Masculino\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Test numero 2 para verificar conexión inicial con sfc\",\n    \"smart_anexo_queja__c\": false,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"smart_Producto_nombre__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"producto_digital__c\": \"Si\",\n    \"archivos_s3\": [\n        {\n            \"s3_key\": \"quejas/1286178516792806186/AWS.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\",\n            \"nombre_archivo\": \"AWS.pdf\"\n        }\n    ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1353,50 +2887,9 @@
               ],
               "cookie": [],
               "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M2_BASE_MANDATORY_002 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M2_BASE_MANDATORY_002\"\n}"
-            }
-          ]
-        },
-        {
-          "name": "Endpoint 2: Reporte de Fraude",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-API-Key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"Case_id\": \"128617851823129171\",\n    \"Status\": \"In Progress\",\n    \"SuppliedName\": \"Camila Salas\",\n    \"SC_id_type__c\": \"CC\",\n    \"id_number__c\": \"1040011014\",\n    \"sc_genero__c\": \"Femenino\",\n    \"tipo_de_persona__c\": \"B2C\",\n    \"sc_LGBTIQ__c\": \"No\",\n    \"sc_Condicion_especial__c\": \"No aplica\",\n    \"direccion__c\": \"Calle 93 # 11-11\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"canal__c\": \"Internet\",\n    \"punto_recepcion\": \"Manual\",\n    \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n    \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n    \"Description\": \"Reporte de investigación de fraude por Sim Swapping.\",\n    \"smart_anexo_queja__c\": true,\n    \"Tutela__c\": \"No\",\n    \"Ente_de_control__c\": \"Otros\",\n    \"smart_escalamiento_DCF__c\": \"No\",\n    \"Product__c\": \"Cuenta perfil\",\n    \"Categorias_COL__c\": \"Transacción no reconocida\",\n    \"tipo_fraude__c\": \"Interno\",\n    \"modalidad_fraude__c\": \"Sim Swapping\",\n    \"card_amount__c\": 500000.0,\n    \"Total_Devuelto_por_Desconocimiento__c\": 0.0,\n    \"archivos_s3\": [\n        {\n            \"nombre_archivo\": \"556363.pdf\",\n            \"s3_key\": \"quejas/128617851823129171/556363.pdf\",\n            \"bucket\": \"global66-sfc-bucket-local\"\n        }\n    ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             },
-            "url": {
-              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "quejas",
-                "sync",
-                "despacho"
-              ]
-            },
-            "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
-          },
-          "response": [
             {
-              "name": "Endpoint 2: Reporte de Fraude",
+              "name": "Endpoint 1: Actualización General  - Creación y Actualización con variedad en campos",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -1411,7 +2904,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_002\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte y gestión de investigación de fraude para la transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M2_BASE_MANDATORY_001/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_M3_TRAMITE_MAX_149\",\n  \"SuppliedName\": \"Jean Paul Sartre Dupuis\",\n  \"SC_id_type__c\": \"PPT\",\n  \"id_number__c\": \"550012313\",\n  \"sc_genero__c\": \"No binario\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"Si\",\n  \"sc_Condicion_especial__c\": \"Discapacidad física\",\n  \"SuppliedPhone\": \"3119876543\",\n  \"SuppliedEmail\": \"jean.sartre@test.org\",\n  \"direccion__c\": \"Calle 45 # 13-22 Apto 201\",\n  \"Departamento__c\": \"Cundinamarca\",\n  \"SC_municipio__c\": \"Soacha\",\n  \"canal__c\": \"Asistente virtual\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Actualización de trámite con descripción detallada. El cliente remite soportes adicionales sobre la inconsistencia en su transferencia internacional. Se adjuntan guías de trazabilidad y certificaciones bancarias externas para análisis por parte de la entidad vigilada.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"Si\",\n  \"Ente_de_control__c\": \"Procuraduría\",\n  \"smart_escalamiento_DCF__c\": \"Si\",\n  \"marcacion__c\": \"1\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Plataforma P2P Global66\",\n  \"Categorias_COL__c\": \"Transferencias no ejecutadas\",\n  \"producto_digital__c\": \"Si\",\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"soporte_traza_1.pdf\",\n      \"s3_key\": \"quejas/TEST_M3_TRAMITE_MAX_005/soporte_traza_1.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    },\n    {\n      \"nombre_archivo\": \"soporte_traza_2.pdf\",\n      \"s3_key\": \"quejas/TEST_M3_TRAMITE_MAX_005/soporte_traza_2.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1438,7 +2931,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 19:36:01 GMT"
+                  "value": "Wed, 29 Jul 2026 20:46:15 GMT"
                 },
                 {
                   "key": "server",
@@ -1446,7 +2939,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "166"
+                  "value": "170"
                 },
                 {
                   "key": "content-type",
@@ -1454,10 +2947,10 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M2_BASE_MANDATORY_002 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M2_BASE_MANDATORY_002\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_TRAMITE_MAX_149 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_TRAMITE_MAX_149\"\n}"
             },
             {
-              "name": "Endpoint 2: Reporte de Fraude - Falta de documento de fraude",
+              "name": "Endpoint 1: Actualización General - Actualización con Status definido (\"In progress\")",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -1472,109 +2965,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M2_BASE_MANDATORY_002\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Laura Sofía Restrepo\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304050\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Carrera 7 # 32-16, Piso 4\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte y gestión de investigación de fraude para la transacción no reconocida.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n  ]\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "quejas",
-                    "sync",
-                    "despacho"
-                  ]
-                }
-              },
-              "status": "Unprocessable Entity",
-              "code": 422,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Tue, 21 Jul 2026 17:16:26 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "1155"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"detail\": [\n    {\n      \"type\": \"value_error\",\n      \"loc\": [\n        \"body\"\n      ],\n      \"msg\": \"Value error, No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).\",\n      \"input\": {\n        \"Smart_Code__c\": \"TRIGGER_ERR_M3_NO_DOC\",\n        \"CreatedDate\": \"2026-07-16T12:00:00\",\n        \"Status\": \"In Progress\",\n        \"tipo_operacion\": \"FRAUDE\",\n        \"SuppliedName\": \"Camila Salas\",\n        \"SC_id_type__c\": \"CC\",\n        \"id_number__c\": \"1040011014\",\n        \"sc_genero__c\": \"Femenino\",\n        \"tipo_de_persona__c\": \"B2C\",\n        \"sc_LGBTIQ__c\": \"No\",\n        \"sc_Condicion_especial__c\": \"No aplica\",\n        \"direccion__c\": \"Calle 93 # 11-11\",\n        \"Departamento__c\": \"Bogotá D.C.\",\n        \"SC_municipio__c\": \"Bogotá D.C.\",\n        \"canal__c\": \"Internet\",\n        \"punto_recepcion\": \"Manual\",\n        \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n        \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n        \"Description\": \"Prueba de validación: Intento de reportar fraude sin adjuntos.\",\n        \"smart_anexo_queja__c\": false,\n        \"Tutela__c\": \"No\",\n        \"Ente_de_control__c\": \"Otros\",\n        \"smart_escalamiento_DCF__c\": \"No\",\n        \"Product__c\": \"Cuenta perfil\",\n        \"Categorias_COL__c\": \"Transacción no reconocida\",\n        \"tipo_fraude__c\": \"Interno\",\n        \"modalidad_fraude__c\": \"Vishing\",\n        \"card_amount__c\": 12345,\n        \"Total_Devuelto_por_Desconocimiento__c\": 12345,\n        \"archivos_s3\": []\n      },\n      \"ctx\": {\n        \"error\": {}\n      }\n    }\n  ]\n}"
-            }
-          ]
-        },
-        {
-          "name": "Endpoint 2: Reporte de Fraude junto con creacion",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-API-Key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"Case_id\": \"5008b000021ABCXYZ\",\n  \"Status\": \"In Progress\",\n\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018273645\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n\n  \"SuppliedPhone\": \"3001234567\",\n  \"SuppliedEmail\": \"carlos.mendoza@email.com\",\n  \"direccion__c\": \"Calle 100 # 15-20\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n\n  \"Description\": \"El cliente reporta una transferencia no autorizada desde su billetera digital por un monto de $500,000 COP.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": null,\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": null,\n\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"producto_digital__c\": \"Si\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"nombre_archivo_fraude\": \"informe_investigacion_fraude.pdf\",\n\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"informe_investigacion_fraude.pdf\",\n      \"s3_key\": \"quejas/5008b000021ABCXYZ/informe_investigacion_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "quejas",
-                "sync",
-                "despacho"
-              ]
-            },
-            "description": "Reporta fraude de un caso en curso al endpoint unificado. El microservicio identificará la operación de fraude, buscará el archivo objetivo, le inyectará el afijo 'INV_FRAUDE_SFC' automáticamente de forma oculta para el CRM y transmitirá el hito a la SFC."
-          },
-          "response": [
-            {
-              "name": "Endpoint 2: Reporte de Fraude junto con creacion",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "X-API-Key",
-                    "value": "{{api_key}}"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"M3_FRAUD_HEAL_003\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Andrés Felipe Osorio\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1030405062\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"direccion__c\": \"Calle 53 # 10-20\",\n  \"punto_recepcion\": \"Web\",\n  \"Description\": \"Reporte de presunta suplantación de identidad en retiro no reconocido.\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 500000.0,\n  \"archivos_s3\": [\n    {\n      \"nombre_archivo\": \"analisis_tecnico_fraude.pdf\",\n      \"s3_key\": \"quejas/M3_FRAUD_HEAL_002/analisis_tecnico_fraude.pdf\",\n      \"bucket\": \"global66-sfc-bucket-local\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"Case_id\": \"TEST_M3_TRAMITE_ELDER_021\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"José Antonio Galán\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"35012345\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_Condicion_especial__c\": \"Adulto mayor\",\n  \"direccion__c\": \"Carrera 7 # 12-45\",\n  \"Departamento__c\": \"Santander\",\n  \"SC_municipio__c\": \"Bucaramanga\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Defensor del consumidor financiero\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Ente_de_control__c\": \"Defensoría del pueblo\",\n  \"Description\": \"Actualización de trámite en revisión por el DCF con solicitud formal de prórroga para recabar extractos históricos.\",\n  \"Product__c\": \"Cuenta perfil\",\n  \"Categorias_COL__c\": \"Dificultad en el acceso a la información\",\n  \"Prorroga__c\": 1,\n  \"smart_escalamiento_DCF__c\": \"Si\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1601,7 +2992,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Tue, 28 Jul 2026 19:39:36 GMT"
+                  "value": "Wed, 29 Jul 2026 15:33:20 GMT"
                 },
                 {
                   "key": "server",
@@ -1609,21 +3000,76 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "158"
+                  "value": "174"
                 },
                 {
                   "key": "content-type",
                   "value": "application/json"
                 }
               ],
-              "cookie": [
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST_M3_TRAMITE_ELDER_021 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST_M3_TRAMITE_ELDER_021\"\n}"
+            },
+            {
+              "name": "Endpoint 1: Actualización General - Creación y mandar archivos desde directorio",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-TRAMITE-SSV-001\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Daniela Rojas Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001122\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3104488899\",\n  \"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n  \"direccion__c\": \"Carrera 15 # 82-30\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Actualización intermedia de trámite con recolección de soportes desde la carpeta S3 del caso.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Prorroga__c\": 1,\n  \"directorio_s3\": \"caso/TEST-TRAMITE-SSV-001/\",\n  \"archivos_s3\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "despacho"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
                 {
-                  "expires": "Invalid Date",
-                  "domain": "",
-                  "path": ""
+                  "key": "date",
+                  "value": "Wed, 29 Jul 2026 17:19:34 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "164"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
                 }
               ],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286M3_FRAUD_HEAL_002 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286M3_FRAUD_HEAL_002\"\n}"
+              "cookie": [],
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-TRAMITE-SSV-001 actualizado exitosamente en el Momento 3 (Estado SFC 2)\",\n    \"codigo_queja_sfc\": \"1286TEST-TRAMITE-SSV-001\"\n}"
             }
           ]
         }

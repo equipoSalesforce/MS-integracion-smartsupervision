@@ -1,8 +1,9 @@
+# app/api/routes_quejas.py
 import logging
 import httpx
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 from app.api.dependencies import (
     get_sfc_client, 
@@ -43,32 +44,24 @@ async def ejecutar_sync_momento_1(
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):
-    """
-    Endpoint síncrono que el CRM local consume para jalar quejas nuevas.
-    Retorna la lista de quejas mapeadas sin realizar la confirmación (ACK) ante la SFC.
-    """
     try:
         servicio = SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
-        resultado = await servicio.ejecutar_flujo_completo_momento_1()
-        return resultado
+        return await servicio.ejecutar_flujo_completo_momento_1()
         
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en Momento 1: {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
+    except SfcIntegrationException:
+        raise  # 🎯 El Handler global en main.py se encarga de formatear
+        
     except Exception as e:
         logger.error(f"Fallo crítico en endpoint de Sincronización de Momento 1: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al sincronizar quejas de la SFC: {str(e)}"
+            content={
+                "status_code": 500,
+                "error_type": "MOMENTO_1_SYNC_ERROR",
+                "sfc_field": "system",
+                "raw_message": f"Error al sincronizar quejas de la SFC: {str(e)}",
+                "crm_action_friendly": "Contactar al equipo de soporte/backend para revisar logs de sincronización de Momento 1."
+            }
         )
 
 
@@ -81,32 +74,24 @@ async def confirmar_ack_momento_1(
     payload: ConfirmacionAckInput,
     sfc_client: SfcClient = Depends(get_sfc_client)
 ):
-    """
-    Endpoint invocado por el CRM tras haber guardado exitosamente las quejas en su BD.
-    Notifica en lote (ACK) a la SFC para sacar esas quejas de la cola pendiente.
-    """
     try:
         servicio = SincronizacionService(sfc_client=sfc_client)
-        resultado = await servicio.confirmar_recepcion_ack(ids_quejas=payload.ids_quejas)
-        return resultado
+        return await servicio.confirmar_recepcion_ack(ids_quejas=payload.ids_quejas)
         
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC al enviar ACK: {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
+    except SfcIntegrationException:
+        raise
+
     except Exception as e:
         logger.error(f"Fallo crítico al reportar ACK de Momento 1: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al enviar confirmación ACK a la SFC: {str(e)}"
+            content={
+                "status_code": 500,
+                "error_type": "MOMENTO_1_ACK_ERROR",
+                "sfc_field": "ids_quejas",
+                "raw_message": f"Error al enviar confirmación ACK a la SFC: {str(e)}",
+                "crm_action_friendly": "Verifique los IDs de quejas enviados y reintente el despacho de confirmación ACK."
+            }
         )
 
 
@@ -123,21 +108,22 @@ async def despachar_queja_crm(
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):
-    """
-    Endpoint síncrono unificado consumido por el CRM. Si la SFC no se encuentra disponible 
-    (servidor caído o falla de red), intercepta el error, almacena la transacción 
-    en SQLite y responde un HTTP 202 Accepted.
-    """
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c}")
     orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
     
     try:
         resultado = await orquestador.procesar_despacho(payload=payload)
         
-        if resultado.get("status") == "error":
-            raise HTTPException(
+        if isinstance(resultado, dict) and resultado.get("status") == "error":
+            return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=resultado.get("message", "Error durante el despacho o actualización del caso ante la SFC")
+                content={
+                    "status_code": 400,
+                    "error_type": "DESPACHO_ORCHESTRATION_ERROR",
+                    "sfc_field": "payload",
+                    "raw_message": resultado.get("message", "Error durante el despacho o actualización del caso ante la SFC."),
+                    "crm_action_friendly": "Revise los campos enviados en el caso y valide que cumplan con la normativa."
+                }
             )
             
         return resultado
@@ -171,18 +157,9 @@ async def despachar_queja_crm(
                 }
             )
 
-        # 🚨 Si es un error de datos/validación del cliente (< 500), se rechaza inmediatamente sin encolar
+        # 🚨 Si es un error de datos/validación del cliente (< 500), se re-lanza para que el handler global lo procese
         logger.warning(f"Error controlado de validación de la SFC durante el despacho: {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
+        raise
 
     except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as net_err:
         # 🛡️ Intercepta caídas directas de red/puerto inalcanzable
@@ -192,7 +169,7 @@ async def despachar_queja_crm(
             queue_service = QueueService(session)
             await queue_service.encolar_despacho(
                 smart_code=payload.Smart_Code__c,
-                tipo_operacion=payload.tipo_operacion or "AUTO",
+                tipo_operacion="AUTO",  # 🎯 CORREGIDO: Se pasó la cadena fija "AUTO"
                 payload_json=payload.model_dump(mode="json"),
                 error_inicial=str(net_err)
             )
@@ -212,15 +189,19 @@ async def despachar_queja_crm(
             }
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Fallo crítico no controlado en orquestador de despacho para caso {payload.Smart_Code__c}: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del microservicio al despachar el caso a la Superintendencia: {str(e)}"
+            content={
+                "status_code": 500,
+                "error_type": "UNEXPECTED_SERVER_ERROR",
+                "sfc_field": "system",
+                "raw_message": f"Error interno del microservicio al despachar el caso a la Superintendencia: {str(e)}",
+                "crm_action_friendly": "Contactar al equipo técnico. Revisar la traza completa de logs en el microservicio."
+            }
         )
-        
+
 
 @router.get(
     "/queue",
@@ -230,9 +211,6 @@ async def despachar_queja_crm(
 async def consultar_cola_local(
     estado: Optional[str] = None
 ):
-    """
-    Endpoint de diagnóstico para consultar las quejas encoladas en SQLite local.
-    """
     async with AsyncSessionLocal() as session:
         queue_service = QueueService(session)
         registros = await queue_service.obtener_todos_los_encolados(estado=estado)
@@ -252,8 +230,8 @@ async def consultar_cola_local(
             }
             for r in registros
         ]
-        
-        
+
+
 # ======================================================================
 # 📥 MOMENTO 4: Actualización y ACK de usuarios
 # ======================================================================
@@ -266,32 +244,24 @@ async def consultar_cola_local(
 async def actualizar_usuarios(
     sfc_client: SfcClient = Depends(get_sfc_client),
 ):
-    """
-    Endpoint consumido por el CRM para obtener las actualizaciones de datos de los 
-    consumidores financieros. Retorna la lista mapeada sin enviar el ACK a la SFC.
-    """
     try:
         servicio = UserSync(sfc_client=sfc_client)
-        resultado = await servicio.sincronizar_usuarios()
-        return resultado
+        return await servicio.sincronizar_usuarios()
     
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC en Momento 4: {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
+    except SfcIntegrationException:
+        raise
+
     except Exception as e:
         logger.error(f"Fallo crítico en endpoint de Sincronización de Momento 4: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al sincronizar usuarios de la SFC: {str(e)}"
+            content={
+                "status_code": 500,
+                "error_type": "MOMENTO_4_SYNC_ERROR",
+                "sfc_field": "system",
+                "raw_message": f"Error al sincronizar usuarios de la SFC: {str(e)}",
+                "crm_action_friendly": "Contactar al equipo técnico. Revisar la comunicación con el endpoint del Momento 4 de la SFC."
+            }
         )
 
 
@@ -304,30 +274,22 @@ async def confirmar_ack_momento_4(
     payload: ConfirmacionAckUsuariosInput,
     sfc_client: SfcClient = Depends(get_sfc_client)
 ):
-    """
-    Endpoint invocado por el CRM tras actualizar la información de los usuarios en su BD.
-    Notifica en lote (ACK) a la SFC para quitar las actualizaciones pendientes de la cola.
-    """
     try:
         servicio = UserSync(sfc_client=sfc_client)
-        resultado = await servicio.confirmar_recepcion_ack_usuarios(numeros_id_cf=payload.numeros_id_cf)
-        return resultado
+        return await servicio.confirmar_recepcion_ack_usuarios(numeros_id_cf=payload.numeros_id_cf)
         
-    except SfcIntegrationException as exc:
-        logger.warning(f"Error controlado de la SFC al enviar ACK de usuarios: {exc.raw_message}")
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                "status": "error",
-                "error_type": exc.error_type,
-                "sfc_field": exc.sfc_field,
-                "raw_sfc_message": exc.raw_message,
-                "crm_action_friendly": exc.crm_action
-            }
-        )
+    except SfcIntegrationException:
+        raise
+
     except Exception as e:
         logger.error(f"Fallo crítico al reportar ACK de Momento 4: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al enviar confirmación ACK de usuarios a la SFC: {str(e)}"
+            content={
+                "status_code": 500,
+                "error_type": "MOMENTO_4_ACK_ERROR",
+                "sfc_field": "numeros_id_cf",
+                "raw_message": f"Error al enviar confirmación ACK de usuarios a la SFC: {str(e)}",
+                "crm_action_friendly": "Verifique la lista de identificaciones procesadas e intente nuevamente la confirmación ACK de Momento 4."
+            }
         )

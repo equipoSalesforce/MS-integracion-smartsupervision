@@ -4,7 +4,7 @@ from typing import Dict, Any
 from pydantic import ValidationError
 
 from app.integrations.sfc_client import SfcClient
-from app.schemas.crm_payloads import QuejaUnificadaCrmInput
+from app.schemas.crm_payloads import ArchivoS3Schema, QuejaUnificadaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.services.momento_3_sync import Momento3SincronizacionService
 from app.services.email_service import EmailAlertService
@@ -39,6 +39,19 @@ class DespachoQuejaOrquestador:
         smart_code = payload.Smart_Code__c
         status_raw = (payload.Status or "").strip().lower()
 
+        
+        if payload.directorio_s3 and not payload.archivos_s3:
+            s3_service = self.m3_service.s3_service
+            archivos_remotos = await s3_service.listar_archivos_en_directorio(prefix=payload.directorio_s3)
+            
+            if archivos_remotos:
+                logger.info(f"📂 [Orquestador] Encontrados {len(archivos_remotos)} archivos en directorio '{payload.directorio_s3}'")
+                payload.archivos_s3 = [
+                    ArchivoS3Schema(**a) for a in archivos_remotos
+                ]
+            else:
+                logger.warning(f"⚠️ [Orquestador] No se encontraron archivos en el directorio S3 '{payload.directorio_s3}'")    
+        
         es_cierre = (
             status_raw in ("closed", "cerrado") or 
             payload.ClosedDate is not None or 
@@ -48,19 +61,30 @@ class DespachoQuejaOrquestador:
             payload.tipo_fraude__c is not None or 
             payload.modalidad_fraude__c is not None
         )
+        
+        tiene_campos_m3 = any([
+            payload.sc_genero__c is not None,
+            payload.sc_LGBTIQ__c is not None,
+            payload.sc_Condicion_especial__c is not None,
+            payload.producto_digital__c is not None,
+            payload.admision_col__c != "No Aplica"
+        ])
+        
+        es_m2_puro = (status_raw in ("new", "nuevo")) and not tiene_campos_m3 and not es_fraude and not es_cierre
 
         logger.info(
             f"[Orquestador] Procesando solicitud para el caso {smart_code} "
-            f"(Es Cierre: {es_cierre}, Es Fraude: {es_fraude}, Status: '{payload.Status}')"
+            f"(Es Cierre: {es_cierre}, Es Fraude: {es_fraude}, Es M2 Puro: {es_m2_puro})"
         )
 
         try:
             # 1. Caso de Alta Nueva Puro (Creación inicial vía Momento 2)
-            if not es_cierre and not es_fraude and status_raw in ("new", "nuevo"):
+            if es_m2_puro:
                 logger.info(f"[Orquestador] Ejecutando despacho directo de QUEJA NUEVA (M2) para {smart_code}")
                 return await self.m2_service.ejecutar_envio_momento_2(payload=payload)
 
-            # 2. Intento inicial de Momento 3 (Trámite, Fraude o Cierre)
+            # 2. Intento de Momento 3 (Trámite, Fraude o Cierre)
+            # Si el caso no existe en SFC, saltará el 404 y el bloque except ejecutará el Self-Healing (M2 -> M3)
             return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
 
         except SfcIntegrationException as exc:
@@ -82,14 +106,19 @@ class DespachoQuejaOrquestador:
                     f"Iniciando secuencia de auto-recuperación (Momento 2 -> Momento 3)..."
                 )
 
-                # Paso A: Crear la queja base en la SFC vía Momento 2
+                # 🎯 Paso A: Crear la queja base vía Momento 2 OMITIENDO adjuntos para que M3 los transmita con afijo
                 logger.info(f"[Auto-Recuperación 1/2] Radicando queja base vía Momento 2 para {smart_code}...")
-                res_m2 = await self.m2_service.ejecutar_envio_momento_2(payload=payload)
+                
+                payload_m2_sin_adjuntos = payload.model_copy()
+                payload_m2_sin_adjuntos.archivos_s3 = []
+                payload_m2_sin_adjuntos.directorio_s3 = None
+                
+                res_m2 = await self.m2_service.ejecutar_envio_momento_2(payload=payload_m2_sin_adjuntos)
 
                 if res_m2.get("status") != "success":
                     return res_m2
 
-                # Paso B: Aplicar la actualización de Momento 3
+                # Paso B: Aplicar la actualización de Momento 3 (procesa adjuntos con sus afijos normativos)
                 logger.info(f"[Auto-Recuperación 2/2] Re-ejecutando pipeline de Momento 3 para {smart_code}...")
                 return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
             

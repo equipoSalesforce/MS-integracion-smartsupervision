@@ -1,7 +1,7 @@
 # app/services/s3_service.py
 import asyncio
 import logging
-from typing import Optional
+from typing import Dict, List, Optional
 from botocore.exceptions import ClientError
 
 from app.core.config import settings
@@ -132,3 +132,57 @@ class S3StorageService:
                 raw_message=f"No se pudo guardar la copia del archivo en S3: {str(e)}",
                 crm_action="Revisar permisos del bucket y conectividad con el servicio de almacenamiento."
             )
+            
+    async def listar_archivos_en_directorio(
+        self, 
+        prefix: str, 
+        bucket: Optional[str] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Escanea un directorio/prefix en S3/MinIO y retorna la lista de archivos encontrados.
+        """
+        target_bucket = bucket or self.default_bucket
+        prefix_clean = prefix.strip()
+        if not prefix_clean.endswith("/"):
+            prefix_clean += "/"
+
+        if not self.s3_client:
+            if self.is_local:
+                logger.info(f"[LOCAL S3 MOCK] Listando archivos simulados para prefix: {prefix_clean}")
+                return [
+                    {
+                        "nombre_archivo": "informe_pericial_fraude.pdf",
+                        "s3_key": f"{prefix_clean}informe_pericial_fraude.pdf",
+                        "bucket": target_bucket
+                    },
+                    {
+                        "nombre_archivo": "comprobante_transaccion.pdf",
+                        "s3_key": f"{prefix_clean}comprobante_transaccion.pdf",
+                        "bucket": target_bucket
+                    }
+                ]
+            return []
+
+        def _listar():
+            response = self.s3_client.list_objects_v2(Bucket=target_bucket, Prefix=prefix_clean)
+            objetos = response.get("Contents", [])
+            
+            archivos = []
+            for obj in objetos:
+                key = obj.get("Key", "")
+                # Ignorar el propio directorio si S3 lo lista como objeto
+                if key.endswith("/"):
+                    continue
+                file_name = key.split("/")[-1]
+                archivos.append({
+                    "nombre_archivo": file_name,
+                    "s3_key": key,
+                    "bucket": target_bucket
+                })
+            return archivos
+
+        try:
+            return await asyncio.to_thread(_listar)
+        except Exception as e:
+            logger.error(f"❌ [S3 Storage] Error al listar prefix '{prefix_clean}' en bucket '{target_bucket}': {e}")
+            return []

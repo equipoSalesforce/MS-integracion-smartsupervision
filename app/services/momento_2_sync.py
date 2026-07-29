@@ -42,6 +42,12 @@ class Momento2SincronizacionService:
             sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
             sfc_id_largo = payload.Smart_Code__c if not isinstance(payload, dict) else smart_code
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
+            
+            directorio_s3 = getattr(payload, "directorio_s3", None) or crm_dict.get("directorio_s3")
+            
+            if not archivos_s3_raw and directorio_s3:
+                archivos_s3_raw = await self.s3_service.listar_archivos_en_directorio(prefix=directorio_s3)
+                logger.info(f"📂 Encontrados {len(archivos_s3_raw)} archivos en el directorio S3 '{directorio_s3}'")
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 

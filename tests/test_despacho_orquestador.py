@@ -196,34 +196,31 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
 
         mock_404_error = SfcIntegrationException(
-            404,                 # status_code
-            "NOT_FOUND_ERROR",   # error_type
-            None,                # sfc_field
-            "Not found",         # raw_message
-            "Queja no encontrada" # crm_action
+            404, "NOT_FOUND_ERROR", None, "Not found", "Queja no encontrada"
         )
 
-        # 1er Intento M3 Fraude: Falla con 404 (SFC no conoce el caso)
-        # 2do Intento M3 Fraude: Retorna éxito tras la creación
         self.orquestador.m3_service.ejecutar_gestion_fraude.side_effect = [
             mock_404_error,
             {"status": "success", "message": "Fraude actualizado"}
         ]
 
-        # Creación M2 exitosa
         self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
             "status": "success", "codigo_queja_sfc": "1423999000111222"
         }
 
-        # Cierre M3 exitoso
         self.orquestador.m3_service.ejecutar_cierre_definitivo.return_value = {
             "status": "success", "message": "Caso cerrado definitivamente"
         }
 
+        # 🎯 Payload esperado para M2 con archivos_s3=[]
+        payload_esperado_m2 = payload.model_copy()
+        payload_esperado_m2.archivos_s3 = []
+        payload_esperado_m2.directorio_s3 = None
+
         resultado = await self.orquestador.procesar_despacho(payload)
 
         self.assertEqual(resultado["status"], "success")
-        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once_with(payload=payload)
+        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once_with(payload=payload_esperado_m2)
         self.assertEqual(self.orquestador.m3_service.ejecutar_gestion_fraude.call_count, 2)
         self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_called_once_with(payload=payload)
 

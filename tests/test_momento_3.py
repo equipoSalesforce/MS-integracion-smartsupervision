@@ -94,7 +94,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         
         response = self.client.post("/api/v1/quejas/sync/despacho", json=payload_ambiguo)
         
-        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Es obligatorio especificar 'nombre_archivo_fraude'", response.text)
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")

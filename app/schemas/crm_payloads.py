@@ -66,7 +66,7 @@ class Momento2QuejaCrmInput(BaseModel):
         None, 
         description="Fecha/Hora de creación ISO. Si se omite o es null, se autogenera en hora Bogotá (UTC-5)."
     )
-    Status: Optional[str] = Field("New", description="Estado del caso dentro del CRM")
+    Status: Optional[str] = Field(None, description="Estado del caso dentro del CRM")
 
     # Campos de Picklist validados dinámicamente desde el Mapper/JSON
     SuppliedName: str = Field(..., description="Nombre completo del cliente")
@@ -181,6 +181,10 @@ class Momento2QuejaCrmInput(BaseModel):
         }
 
         cat_key = field_to_catalog.get(info.field_name)
+        
+        if info.field_name == "SC_id_type__c" and value.upper() in ("NIT", "N.I.T."):
+            return "RUT"
+        
         if cat_key:
             allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
             if value not in allowed:
@@ -246,10 +250,18 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\nPara nosotros es un placer haberte atendido, tu solicitud ha sido atendida de acuerdo con lo requerido, para nosotros es un placer atenderte.\nSi tienes alguna duda adicional puedes comunicarte al correo contacto@global66.com, por medio de nuestro centro de ayuda en nuestra página web o por medio de nuestro canal de WhatsApp.",
         description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
     )
+    
+    # --- Soporte para carpetas S3 ---
+    directorio_s3: Optional[str] = Field(
+        None, 
+        description="Ruta/Prefix del directorio en S3 donde se alojan todos los archivos del caso (ej: 'caso/1286TEST_012/')"
+    )
 
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
+        
+        tiene_directorio = bool(self.directorio_s3 and self.directorio_s3.strip())
         
         # 🎯 Normalización de Status protegiendo contra None
         status_clean = (self.Status or "").strip().lower()
@@ -286,17 +298,19 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
         # Validaciones para intenciones de FRAUDE
         if es_evento_fraude:
-            if num_archivos == 0:
+            if num_archivos == 0 and not tiene_directorio:
                 raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
-            if not self.nombre_archivo_fraude:
-                if num_archivos == 1:
-                    self.nombre_archivo_fraude = self.archivos_s3[0].nombre_archivo
+            
+            if not tiene_directorio and num_archivos > 0:
+                if not self.nombre_archivo_fraude:
+                    if num_archivos == 1:
+                        self.nombre_archivo_fraude = self.archivos_s3[0].nombre_archivo
+                    else:
+                        raise ValueError(f"Se recibieron {num_archivos} archivos. Es obligatorio especificar 'nombre_archivo_fraude'.")
                 else:
-                    raise ValueError(f"Se recibieron {num_archivos} archivos. Es obligatorio especificar 'nombre_archivo_fraude'.")
-            else:
-                nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
-                if self.nombre_archivo_fraude not in nombres_en_lista:
-                    raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
+                    nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
+                    if self.nombre_archivo_fraude not in nombres_en_lista:
+                        raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
 
         return self
 

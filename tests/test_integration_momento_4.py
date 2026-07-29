@@ -68,7 +68,6 @@ class TestMomento4Integration(unittest.TestCase):
 
     def test_endpoint_get_sync_momento_4_falla_sfc(self):
         """Valida el manejo traducido cuando la SFC devuelve una excepción controlada."""
-        # 🎯 FIX: Instanciación respetando la firma exacta de SfcIntegrationException
         exc = SfcIntegrationException(
             status_code=401,
             error_type="AUTH_ERROR",
@@ -81,9 +80,9 @@ class TestMomento4Integration(unittest.TestCase):
         response = self.client.get(f"{self.base_url}/sync/momento-4")
 
         self.assertEqual(response.status_code, 401)
-        detail = response.json()["detail"]
+        detail = response.json()
         self.assertEqual(detail["error_type"], "AUTH_ERROR")
-        self.assertEqual(detail["raw_sfc_message"], "Token expirado")
+        self.assertEqual(detail["raw_message"], "Token expirado")
 
 
 if __name__ == "__main__":

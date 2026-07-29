@@ -87,15 +87,13 @@ class TestMomento2Integration(unittest.TestCase):
 
     def test_endpoint_despacho_momento_2_fallo_red(self):
         """Verifica el control de errores en caso de fallo en la red de la SFC al crear queja."""
-        # Simulamos una caída de red o timeout con la SFC
         self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=Exception("Timeout en conexión con SFC"))
 
-        # Enviamos el payload al endpoint unificado
         response = self.client.post("/api/v1/quejas/sync/despacho", json=self.mock_crm_payload)
         
         self.assertEqual(response.status_code, 400)
         data = response.json()
-        self.assertIn("Pipeline interrumpido", data["detail"])
+        self.assertIn("Timeout en conexión con SFC", data["raw_message"])
 
 if __name__ == "__main__":
     unittest.main()

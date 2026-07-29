@@ -1,195 +1,251 @@
 # app/utils/email_parser.py
 import html
-from html.parser import HTMLParser
 import re
+from dataclasses import dataclass
+from typing import List, Optional
 from bs4 import BeautifulSoup
 
 
-class HTMLToPlainTextParser(HTMLParser):
-    """Parseador HTML nativo para extraer texto plano conservando la estructura de párrafos."""
+# ======================================================================
+# 1. MODELO DE DATOS
+# ======================================================================
 
-    def __init__(self):
-        super().__init__()
-        self.reset()
-        self.fed = []
-        self.skip = False
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if tag in ("script", "style"):
-            self.skip = True
-        elif tag in ("br", "tr"):
-            self.fed.append("\n")
-        elif tag in ("p", "div", "h1", "h2", "h3", "h4", "li"):
-            self.fed.append("\n")
-
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        if tag in ("script", "style"):
-            self.skip = False
-        elif tag in ("p", "div", "h1", "h2", "h3", "h4"):
-            self.fed.append("\n")
-
-    def handle_data(self, d):
-        if not self.skip:
-            self.fed.append(d)
-
-    def get_data(self) -> str:
-        return "".join(self.fed)
+@dataclass
+class MensajeHilo:
+    indice: int             # 0 = Más reciente (arriba), N = Más antiguo (abajo)
+    remitente_cabecera: str # Texto del encabezado / remitente detectado
+    cuerpo_texto: str       # Mensaje limpio sin encabezado ni metadatos de UI
+    es_soporte: bool        # True si pertenece a Global66
 
 
-def aplicar_guillotina_de_hilo_y_footer(texto_plano: str) -> str:
-    """Aplica guillotina sobre texto plano para eliminar cabeceras de hilos o avisos legales."""
-    if not texto_plano or not texto_plano.strip():
-        return ""
+# ======================================================================
+# 2. CONVERTIDOR DE HTML Y LIMPIADOR DE DOM
+# ======================================================================
 
-    # 1. GUILLOTINA SUPERIOR: Si el texto arranca con "... escribió:", "... wrote:" o "... escreveu:"
-    patron_superior = r"\b(?:escribi[óo]|wrote|escreveu):\s*"
-    if re.search(patron_superior, texto_plano, flags=re.IGNORECASE):
-        texto_plano = re.sub(f"(?is)^.*?{patron_superior}", "", texto_plano)
-
-    # 2. GUILLOTINA INFERIOR: Cortar si encuentra cabeceras de hilos o disclaimers
-    patrones_corte_inferior = [
-        r"\n\s*El\s+[^\n]*?\b(?:escribi[óo]|wrote|escreveu):.*",
-        r"\n\s*On\s+[^\n]*?\bwrote:.*",
-        r"\n\s*Em\s+[^\n]*?\bescreveu:.*",
-        r"\n\s*(?:De|From|Para|To|Enviado el|Sent|Data):\s+[^\n]+",
-        r"\n\s*Subject:\s+[^\n]+",
-        r"\n\s*Asunto:\s+[^\n]+",
-        r"\n\s*AVISO DE CONFIDENCIALIDAD.*",
-        r"\n\s*CONFIDENTIALITY NOTICE.*",
-        r"\n\s*En cumplimiento del literal a.*",
-        r"¿Tienes dudas\?.*",
-        r"Centro de ayuda.*",
-        r"Help center.*",
-        r"You received this message because.*",
-        r"To unsubscribe from this group.*",
-        r"thread::.*",
-    ]
-
-    patron_unificado = "|".join(f"(?:{p})" for p in patrones_corte_inferior)
-    partes = re.split(patron_unificado, texto_plano, flags=re.IGNORECASE | re.DOTALL)
-    texto_limpio = partes[0]
-
-    # 3. Normalizar párrafos y espacios vacíos
-    lineas = [l.strip() for l in texto_limpio.splitlines() if l.strip()]
-    return "\n\n".join(lineas).strip()
-
-
-def extraer_y_limpiar_dom(soup_node) -> str:
-    """Elimina imágenes, scripts y clases de citas del DOM antes de extraer texto plano."""
-    node_copy = BeautifulSoup(str(soup_node), "html.parser")
-
-    for el in node_copy.find_all(["img", "script", "style"]):
-        el.decompose()
-
-    selectores_hilos = [
-        ".gmail_quote", ".x_gmail_quote", ".gmail_attr", ".gmail_signature",
-        "#divRplyFwdMsg", "#appendonsend", ".yahoo_quoted", ".AppleMailSignature",
-        "[id*='isGmailWithSsl']"
-    ]
-    for sel in selectores_hilos:
-        for match in node_copy.select(sel):
-            match.decompose()
-
-    for hr in node_copy.find_all("hr"):
-        for sibling in list(hr.next_siblings):
-            if hasattr(sibling, "decompose"):
-                sibling.decompose()
-        hr.decompose()
-
-    texto_crudo = node_copy.get_text(separator="\n")
-    return aplicar_guillotina_de_hilo_y_footer(texto_crudo)
-
-
-def limpiar_cita_interna_dom(cita_dom) -> str:
-    """Procesa un blockquote eliminando cualquier cita anidada o encabezado interno."""
-    cita_copy = BeautifulSoup(str(cita_dom), "html.parser")
-
-    for inner_bq in cita_copy.find_all("blockquote"):
-        inner_bq.decompose()
-
-    selectores_hilos = [
-        ".gmail_quote", ".x_gmail_quote", ".gmail_attr", ".gmail_signature",
-        "#divRplyFwdMsg", "#appendonsend", ".yahoo_quoted", ".AppleMailSignature"
-    ]
-    for sel in selectores_hilos:
-        for match in cita_copy.select(sel):
-            match.decompose()
-
-    texto_crudo = cita_copy.get_text(separator="\n")
-    return aplicar_guillotina_de_hilo_y_footer(texto_crudo)
-
-
-def es_replica_corta_cliente(texto: str) -> bool:
-    """Detecta si un bloque corresponde a un acuse corto del cliente (ej: 'Gracias, ya funciona')."""
-    if not texto:
-        return False
-    
-    texto_lower = texto.lower()
-    frases_cliente = [
-        "gracias", "muchas gracias", "ya funciona", "ya pude", "ya quedo",
-        "de acuerdo", "perfecto", "resuelto", "thank you", "obrigado"
-    ]
-    return len(texto) < 200 and any(f in texto_lower for f in frases_cliente)
-
-
-def extraer_texto_limpio_de_html(html_str: str) -> str:
-    """Recibe un HTML o texto plano y retorna el texto limpio formateado."""
+def _html_a_texto_estructurado(html_str: str) -> str:
+    """Convierte HTML a texto plano conservando estructuras de párrafo y saltos de línea."""
     if not html_str or not html_str.strip():
         return ""
 
-    raw_html = html.unescape(html_str)
+    soup = BeautifulSoup(html_str, "html.parser")
 
-    if not any(tag in raw_html.lower() for tag in ("<html", "<p", "<div", "<br", "<span")):
-        texto_base = raw_html.strip()
-    else:
-        parser = HTMLToPlainTextParser()
-        parser.feed(raw_html)
-        texto_base = parser.get_data()
+    # Eliminar scripts, estilos, imágenes y etiquetas <head>/<title>
+    for el in soup.find_all(["script", "style", "img", "head", "title"]):
+        el.decompose()
 
-    return aplicar_guillotina_de_hilo_y_footer(texto_base)
+    # Reemplazar únicamente los tags <br> por saltos de línea reales
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+
+    # Agregar salto de línea al final de bloques contenedores
+    for block in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "li", "tr"]):
+        block.append("\n")
+
+    texto = soup.get_text()
+    
+    # Normalizar múltiples saltos de línea continuos
+    lineas = [linea.strip() for linea in texto.splitlines()]
+    return "\n".join(lineas)
 
 
-def limpiar_texto_para_campo_pdf(html_str: str) -> str:
-    """Extrae la ÚLTIMA RESPUESTA ENVIADA POR @GLOBAL66.COM para el PDF de la SFC.
+# ======================================================================
+# 3. LIMPIADOR DE CABECERAS Y METADATOS DE UI DE WEBMAIL
+# ======================================================================
 
-    Garantiza que si el usuario envió un mensaje final de agradecimiento (ej: 'Gracias por solucionar'),
-    el parser descienda al hilo (blockquote) y extraiga la resolución oficial de Global66.
+def _limpiar_cabeceras_superiores(texto: str) -> str:
+    """Elimina metadatos de destinatarios ('para Daniela...'), remitentes ('María <soporte@...>'), títulos e iniciales."""
+    if not texto:
+        return ""
+
+    lineas = texto.splitlines()
+    lineas_limpias = []
+    
+    for linea in lineas:
+        l_strip = linea.strip()
+        if not l_strip:
+            lineas_limpias.append("")
+            continue
+
+        # 🎯 1. Eliminar líneas de destinatario tipo 'para Daniela Rojas Mock · 29 jul 2026, 10:25' o 'to John...'
+        if re.match(r"^(?:para|to)\s+.*(?:·|\b\d{1,2}\b)", l_strip, flags=re.IGNORECASE):
+            continue
+        if "·" in l_strip and re.match(r"^(?:para|to)\s+", l_strip, flags=re.IGNORECASE):
+            continue
+
+        # 🎯 2. Eliminar líneas de asunto duplicadas al inicio (ej: 'Re: Respuesta final...')
+        if re.match(r"^Re:\s+", l_strip, flags=re.IGNORECASE) and len(lineas_limpias) < 3:
+            continue
+
+        # 🎯 3. Eliminar iniciales de avatar de 2 letras al inicio (ej: 'MG', 'GS')
+        if re.match(r"^[A-Z]{2}$", l_strip) and len(lineas_limpias) < 5:
+            continue
+
+        # 🎯 4. NUEVA: Eliminar cabecera del remitente tipo 'María González <soporte@global66.com>' o '<soporte@global66.com>'
+        if re.search(r"<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}>", l_strip) and len(lineas_limpias) < 5:
+            continue
+        if re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", l_strip) and len(lineas_limpias) < 5:
+            continue
+
+        lineas_limpias.append(linea)
+
+    texto_resultante = "\n".join(lineas_limpias)
+    lineas_finales = [l.strip() for l in texto_resultante.splitlines() if l.strip()]
+    return "\n\n".join(lineas_finales).strip()
+
+
+# ======================================================================
+# 4. SEGMENTADOR DE HILOS (LOOKAHEAD REGEX SPLITTER)
+# ======================================================================
+
+def _segmentar_hilo_en_bloques(texto_completo: str) -> List[str]:
+    """
+    Divide el texto completo del correo en bloques independientes utilizando Lookahead Regex.
+    Conserva la cabecera original en el inicio de cada bloque resultante.
+    """
+    patron_frontera = (
+        r"(?="
+        r"\n\s*(?:El|On|Em)\s+[^\n]+?\b(?:escribi[óo]|wrote|escreveu):"
+        r"|\n\s*(?:De|From|Enviado el|Sent|Date):\s+[^\n]+"
+        r"|\n\s*-{3,}\s*(?:Mensaje original|Original Message)\s*-{3,}"
+        r")"
+    )
+
+    bloques_raw = re.split(patron_frontera, texto_completo, flags=re.IGNORECASE | re.DOTALL)
+    
+    return [b for roving in bloques_raw if (b := roving.strip())]
+
+
+# ======================================================================
+# 5. CLASIFICADOR DE AUTORÍA (GLOBAL66 VS CLIENTE)
+# ======================================================================
+
+def _clasificar_autor_bloque(bloque_texto: str, es_bloque_superior: bool) -> tuple[bool, str, str]:
+    """
+    Determina si un bloque del hilo fue escrito por el equipo de Soporte/Global66.
+    Retorna: (es_soporte, remitente_cabecera, cuerpo_sin_cabecera)
+    """
+    lineas = [l for l in bloque_texto.splitlines() if l.strip()]
+    if not lineas:
+        return False, "", ""
+
+    cabecera = "\n".join(lineas[:4]) # Primeras 4 líneas como candidatos a cabecera
+    
+    # Patrones que identifican la autoría de Global66
+    dominios_soporte = ["@global66.com", "global66.com", "global66", "global 66"]
+    
+    # 🎯 CASO A: Es una cita previa (ej: 'El mié, 29 jul... Daniela escribió:')
+    match_cita = re.search(
+        r"(?:El|On|Em)\s+([^\n]+?)\b(?:escribi[óo]|wrote|escreveu):", 
+        cabecera, 
+        flags=re.IGNORECASE
+    )
+    
+    if match_cita:
+        autor_cita = match_cita.group(1).lower()
+        es_soporte = any(d in autor_cita for d in dominios_soporte)
+        cuerpo = re.sub(
+            r"^(?:El|On|Em)\s+[^\n]+?\b(?:escribi[óo]|wrote|escreveu):\s*", 
+            "", 
+            bloque_texto, 
+            flags=re.IGNORECASE | re.DOTALL
+        ).strip()
+        return es_soporte, autor_cita, cuerpo
+
+    # 🎯 CASO B: Cabecera 'De: / From:'
+    match_de = re.search(r"(?:De|From):\s*([^\n]+)", cabecera, flags=re.IGNORECASE)
+    if match_de:
+        remitente = match_de.group(1).lower()
+        es_soporte = any(d in remitente for d in dominios_soporte)
+        cuerpo = re.sub(r"^(?:De|From):\s*[^\n]+\s*", "", bloque_texto, flags=re.IGNORECASE).strip()
+        return es_soporte, remitente, cuerpo
+
+    # 🎯 CASO C: Bloque Superior (Llegó al inicio sin prefijo 'El ... escribió')
+    if es_bloque_superior:
+        bloque_lower = bloque_texto.lower()
+        es_soporte = any(d in bloque_lower for d in dominios_soporte)
+        return es_soporte, "Mensaje Superior Directo", bloque_texto
+
+    return False, "Desconocido", bloque_texto
+
+
+# ======================================================================
+# 6. SANITIZADOR DE FIRMAS Y DISCLAIMERS LEGALES
+# ======================================================================
+
+def _limpiar_disclaimers_y_footers(texto: str) -> str:
+    """Remueve avisos de confidencialidad, footers automáticos y firmas legales al final del mensaje."""
+    patrones_disclaimers = [
+        r"\n\s*(?:Este mensaje y sus anexos|AVISO DE CONFIDENCIALIDAD|CONFIDENTIALITY NOTICE|En cumplimiento del).*$",
+        r"\n\s*¿Tienes dudas\?.*$",
+        r"\n\s*(?:Centro de ayuda|Help center).*$",
+        r"\n\s*You received this message because.*$",
+        r"\n\s*thread::.*$"
+    ]
+    
+    patron_unificado = "|".join(f"(?:{p})" for p in patrones_disclaimers)
+    partes = re.split(patron_unificado, texto, maxsplit=1, flags=re.IGNORECASE | re.DOTALL)
+    
+    lineas = [l.strip() for l in partes[0].splitlines() if l.strip()]
+    return "\n\n".join(lineas).strip()
+
+
+# ======================================================================
+# 7. ORQUESTADOR PRINCIPAL DEL PARSER
+# ======================================================================
+
+def extraer_texto_limpio_de_html(html_str: str) -> str:
+    """
+    Parseador estructurado de hilos de correo.
+    Segmenta la conversación, clasifica la autoría y extrae LA ÚLTIMA RESPUESTA OFICIAL
+    emitida por el soporte de Global66.
     """
     if not html_str or not html_str.strip():
         return ""
 
-    raw_html = html.unescape(html_str)
+    # 1. Convertir a texto limpio estructurado
+    texto_estructurado = _html_a_texto_estructurado(html_str)
 
-    # Si es texto plano directo
-    if not any(
-        tag in raw_html.lower()
-        for tag in ("<html", "<p", "<div", "<br", "<span", "<table", "<blockquote")
-    ):
-        return aplicar_guillotina_de_hilo_y_footer(raw_html)
+    # 2. Segmentar el hilo en bloques cronológicos (0 = Más reciente)
+    bloques_raw = _segmentar_hilo_en_bloques(texto_estructurado)
+    
+    if not bloques_raw:
+        texto_limpio = _limpiar_cabeceras_superiores(texto_estructurado)
+        return _limpiar_disclaimers_y_footers(texto_limpio)
 
-    soup = BeautifulSoup(raw_html, "html.parser")
+    # 3. Construir lista de objetos 'MensajeHilo'
+    mensajes_hilo: List[MensajeHilo] = []
+    
+    for idx, bloque_raw in enumerate(bloques_raw):
+        es_soporte, remitente, cuerpo = _clasificar_autor_bloque(
+            bloque_texto=bloque_raw, 
+            es_bloque_superior=(idx == 0)
+        )
+        
+        cuerpo_limpio = _limpiar_cabeceras_superiores(cuerpo)
+        cuerpo_limpio = _limpiar_disclaimers_y_footers(cuerpo_limpio)
+        
+        mensajes_hilo.append(
+            MensajeHilo(
+                indice=idx,
+                remitente_cabecera=remitente,
+                cuerpo_texto=cuerpo_limpio,
+                es_soporte=es_soporte
+            )
+        )
 
-    # 1. Candidato Superior (Fuera de blockquotes)
-    soup_top = BeautifulSoup(str(soup), "html.parser")
-    for bq in soup_top.find_all("blockquote"):
-        bq.decompose()
-    cand_top = extraer_y_limpiar_dom(soup_top)
+    # 4. Seleccionar la respuesta de Global66 más reciente (menor índice)
+    for msg in mensajes_hilo:
+        if msg.es_soporte and msg.cuerpo_texto.strip():
+            return msg.cuerpo_texto
 
-    # 2. Candidato en la Cita Anterior (Dentro del primer blockquote)
-    cita_hilo = soup.find("blockquote")
-    cand_quote = ""
-    if cita_hilo:
-        cand_quote = limpiar_cita_interna_dom(cita_hilo)
+    # Fallback: Si no se logró clasificar explícitamente, retornar el primer bloque limpio
+    if mensajes_hilo:
+        return mensajes_hilo[0].cuerpo_texto
+    
+    texto_limpio = _limpiar_cabeceras_superiores(texto_estructurado)
+    return _limpiar_disclaimers_y_footers(texto_limpio)
 
-    # 3. CRITERIO DE AUTORÍA @GLOBAL66.COM:
-    if cita_hilo and cand_quote:
-        top_es_cliente = es_replica_corta_cliente(cand_top)
-        quote_es_global = "global66.com" in str(cita_hilo).lower() or "global66" in cand_quote.lower() or "global 66" in cand_quote.lower()
 
-        if top_es_cliente or quote_es_global:
-            return cand_quote
-
-    # Por defecto, retornamos el texto superior
-    return cand_top if cand_top.strip() else aplicar_guillotina_de_hilo_y_footer(raw_html)
+def limpiar_texto_para_campo_pdf(html_str: str) -> str:
+    """Fachada pública para generar la respuesta oficial en el PDF de la SFC."""
+    return extraer_texto_limpio_de_html(html_str)

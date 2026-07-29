@@ -118,7 +118,13 @@ class SfcSalesforceMapper:
     def get_crm_allowed_values(cls, catalog_key: str) -> Set[str]:
         if not cls.CATALOGOS:
             cls.cargar_catalogos()
-        return set(cls.CATALOGOS.get(catalog_key, {}).values())
+            
+        allowed = set(cls.CATALOGOS.get(catalog_key, {}).values())
+        
+        if catalog_key == "tipo_id":
+            allowed.update(["NIT", "N.I.T.", "R.U.T."])
+            
+        return allowed
 
 
 SfcSalesforceMapper.cargar_catalogos()
@@ -271,7 +277,7 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         
         return str(cat_inverse_pais.get(normalized_country, "170"))
 
-    if sf_key in ("Aceptacion__c", "Rectificacion__c", "Tutela__c", "Quejas_express__c"):
+    if sf_key in ("Tutela__c", "Quejas_express__c"):
         v_clean = str(sf_value).lower().strip()
         if v_clean in ("si", "sí", "true", "1"): return 1
         if v_clean in ("no", "false", "2"): return 2
@@ -282,6 +288,9 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         return v_clean in ("si", "sí", "true", "1")
 
     normalized = cls._normalize_text(str(sf_value))
+    
+    if sf_key == "Aceptacion__c":
+        logger.info(f"El valor de aceptación recibido es: {sf_value}")
 
     sf_to_cat = {
         "sc_genero__c": ("genero", 10),
@@ -301,7 +310,9 @@ def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         "Modalidad_Fraude__c": ("modalidad_fraude", 90),
         "punto_recepcion": ("punto_recepcion", 1),
         "Categorias_COL__c": ("macro_motivo", 940),
-        "Product__c": ("producto_cod", 207)
+        "Product__c": ("producto_cod", 207),
+        "Aceptacion__c": ("aceptacion", 1),
+        "Rectificacion__c": ("rectificacion", 2),
     }
 
     if sf_key in sf_to_cat:
@@ -352,6 +363,18 @@ def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
                 crm_data[crm_key] = cls.PRODUCTO_SFC_TEXTO_TO_SF.get(normalized_prod, "Cuenta perfil")
             else:
                 crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
+    
+    tipo_id_raw = str(sfc_data.get("tipo_id_CF", "")).strip()
+    tipo_persona_raw = str(sfc_data.get("tipo_persona", "")).strip()
+
+    if tipo_id_raw == "3":
+        # 2 = B2B / Persona Jurídica en el catálogo de la SFC
+        if tipo_persona_raw == "2":
+            crm_data["SC_id_type__c"] = "NIT"
+        else:
+            crm_data["SC_id_type__c"] = "RUT"
+    
+    
     return crm_data
 
 
@@ -433,6 +456,15 @@ def crm_entity_to_sfc_momento2_payload(cls, entity: Any) -> Dict[str, Any]:
 
     return payload_obj.model_dump()
 
+@classmethod
+def _safe_int(cls, value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Sólida conversión a int que maneja None de forma segura sin lanzar TypeError."""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 @classmethod
 def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
@@ -472,31 +504,31 @@ def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
 
     payload_obj = SfcActualizarQuejaPayload(
         codigo_queja=str(codigo_queja),
-        sexo=int(cls._translate_value_to_sfc("sc_genero__c", cls._get_sf_field_value(entity, "sc_genero__c")) or 2),
-        lgbtiq=int(cls._translate_value_to_sfc("sc_LGBTIQ__c", cls._get_sf_field_value(entity, "sc_LGBTIQ__c")) or 2),
-        condicion_especial=int(cls._translate_value_to_sfc("sc_Condicion_especial__c", cls._get_sf_field_value(entity, "sc_Condicion_especial__c")) or 98),
-        canal_cod=int(cls._translate_value_to_sfc("canal__c", cls._get_sf_field_value(entity, "canal__c")) or 13),
-        producto_cod=int(cls._translate_value_to_sfc("Product__c", cls._get_sf_field_value(entity, "Product__c")) or 207),
-        macro_motivo_cod=int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")) or 940),
-        estado_cod=int(estado_cod_val),
+        sexo=cls._safe_int(cls._translate_value_to_sfc("sc_genero__c", cls._get_sf_field_value(entity, "sc_genero__c"))),
+        lgbtiq=cls._safe_int(cls._translate_value_to_sfc("sc_LGBTIQ__c", cls._get_sf_field_value(entity, "sc_LGBTIQ__c"))),
+        condicion_especial=cls._safe_int(cls._translate_value_to_sfc("sc_Condicion_especial__c", cls._get_sf_field_value(entity, "sc_Condicion_especial__c"))),
+        canal_cod=cls._safe_int(cls._translate_value_to_sfc("canal__c", cls._get_sf_field_value(entity, "canal__c")), default=13),
+        producto_cod=cls._safe_int(cls._translate_value_to_sfc("Product__c", cls._get_sf_field_value(entity, "Product__c")), default=207),
+        macro_motivo_cod=cls._safe_int(cls._translate_value_to_sfc("Categorias_COL__c", cls._get_sf_field_value(entity, "Categorias_COL__c")), default=940),
+        estado_cod=cls._safe_int(estado_cod_val, default=2),
         fecha_actualizacion=fecha_act,
-        producto_digital=int(cls._translate_value_to_sfc("producto_digital__c", cls._get_sf_field_value(entity, "producto_digital__c")) or 1),
-        admision=int(cls._translate_value_to_sfc("admision_col__c", cls._get_sf_field_value(entity, "admision_col__c")) or 1),
+        producto_digital=cls._safe_int(cls._translate_value_to_sfc("producto_digital__c", cls._get_sf_field_value(entity, "producto_digital__c"))),
+        admision=cls._safe_int(cls._translate_value_to_sfc("admision_col__c", cls._get_sf_field_value(entity, "admision_col__c"))),
         desistimiento_queja=2,
         anexo_queja=bool(cls._get_sf_field_value(entity, "smart_anexo_queja__c") or False),
-        tutela=int(cls._translate_value_to_sfc("Tutela__c", cls._get_sf_field_value(entity, "Tutela__c")) or 2),
-        ente_control=int(cls._translate_value_to_sfc("Ente_de_control__c", cls._get_sf_field_value(entity, "Ente_de_control__c")) or 99),
-        queja_expres=1,
+        tutela=cls._safe_int(cls._translate_value_to_sfc("Tutela__c", cls._get_sf_field_value(entity, "Tutela__c"))),
+        ente_control=cls._safe_int(cls._translate_value_to_sfc("Ente_de_control__c", cls._get_sf_field_value(entity, "Ente_de_control__c"))),
+        queja_expres=cls._safe_int(cls._translate_value_to_sfc("Quejas_express__c", cls._get_sf_field_value(entity, "Quejas_express__c")), 2),
 
-        a_favor_de=cls._translate_value_to_sfc("Favorabilidad__c", cls._get_sf_field_value(entity, "Favorabilidad__c")),
-        aceptacion_queja=cls._translate_value_to_sfc("Aceptacion__c", cls._get_sf_field_value(entity, "Aceptacion__c")),
-        rectificacion_queja=cls._translate_value_to_sfc("Rectificacion__c", cls._get_sf_field_value(entity, "Rectificacion__c")),
-        prorroga_queja=cls._translate_value_to_sfc("Prorroga__c", cls._get_sf_field_value(entity, "Prorroga__c")),
+        a_favor_de=cls._safe_int(cls._translate_value_to_sfc("Favorabilidad__c", cls._get_sf_field_value(entity, "Favorabilidad__c"))),
+        aceptacion_queja=cls._safe_int(cls._translate_value_to_sfc("Aceptacion__c", cls._get_sf_field_value(entity, "Aceptacion__c"))),
+        rectificacion_queja=cls._safe_int(cls._translate_value_to_sfc("Rectificacion__c", cls._get_sf_field_value(entity, "Rectificacion__c"))),
+        prorroga_queja=cls._safe_int(cls._translate_value_to_sfc("Prorroga__c", cls._get_sf_field_value(entity, "Prorroga__c"))),
         documentacion_rta_final=doc_rta_final_val,
         fecha_cierre=fecha_cierre_val,
-        marcacion=cls._translate_value_to_sfc("marcacion__c", cls._get_sf_field_value(entity, "marcacion__c")),
-        tipo_fraude=cls._translate_value_to_sfc("tipo_fraude__c", cls._get_sf_field_value(entity, "tipo_fraude__c")),
-        modalidad_fraude=cls._translate_value_to_sfc("modalidad_fraude__c", cls._get_sf_field_value(entity, "modalidad_fraude__c")),
+        marcacion=cls._safe_int(cls._translate_value_to_sfc("marcacion__c", cls._get_sf_field_value(entity, "marcacion__c"))),
+        tipo_fraude=cls._safe_int(cls._translate_value_to_sfc("tipo_fraude__c", cls._get_sf_field_value(entity, "tipo_fraude__c"))),
+        modalidad_fraude=cls._safe_int(cls._translate_value_to_sfc("modalidad_fraude__c", cls._get_sf_field_value(entity, "modalidad_fraude__c"))),
         monto_reclamado=cls._get_sf_field_value(entity, "card_amount__c"),
         monto_reconocido=cls._get_sf_field_value(entity, "Total_Devuelto_por_Desconocimiento__c")
     )
@@ -520,3 +552,4 @@ SfcSalesforceMapper.sfc_user_payload_to_db_dict = sfc_user_payload_to_db_dict
 SfcSalesforceMapper.crm_entity_to_sfc_momento2_payload = crm_entity_to_sfc_momento2_payload
 SfcSalesforceMapper.crm_entity_to_sfc_momento3_payload = crm_entity_to_sfc_momento3_payload
 SfcSalesforceMapper.crm_entity_to_sfc_payload = crm_entity_to_sfc_payload
+SfcSalesforceMapper._safe_int = _safe_int
