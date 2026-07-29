@@ -117,7 +117,7 @@ async def pydantic_validation_exception_handler(
         content={
             "status_code": 400,
             "error_type": "CRM_PAYLOAD_VALIDATION_ERROR",
-            "raw_message": field_name,
+            "sfc_field": field_name,
             "raw_message": raw_msg,
             "crm_action_friendly": crm_action
         }
