@@ -59,8 +59,8 @@ class QuejaMapeadaCrmResponse(BaseModel):
 
 class Momento2QuejaCrmInput(BaseModel):
     # 🎯 ID Interno y Smart Code son opcionales individualmente, pero al menos uno debe estar presente
-    Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce")
-    Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision")
+    Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=26)
+    Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision", max_length=30)
 
     CreatedDate: Optional[str] = Field(
         None, 
@@ -69,7 +69,7 @@ class Momento2QuejaCrmInput(BaseModel):
     Status: Optional[str] = Field(None, description="Estado del caso dentro del CRM")
 
     # Campos de Picklist validados dinámicamente desde el Mapper/JSON
-    SuppliedName: str = Field(..., description="Nombre completo del cliente")
+    SuppliedName: str = Field(..., description="Nombre completo del cliente", max_length=100)
     SC_id_type__c: str = Field(..., description="Tipo de identificación")
     id_number__c: str = Field(..., max_length=15, description="Número de identificación sólo dígitos")
     sc_genero__c: Optional[str] = Field(None, description="Género, es opcional y puede ser None")
@@ -78,8 +78,8 @@ class Momento2QuejaCrmInput(BaseModel):
     sc_Condicion_especial__c: Optional[str] = Field(None, description="Condición de vulnerabilidad, es opcional y puede ser None")
 
     # Ubicación y Contacto
-    SuppliedPhone: Optional[str] = Field(None, description="Teléfono de contacto")
-    SuppliedEmail: Optional[str] = Field(None, description="Correo electrónico del cliente")
+    SuppliedPhone: Optional[str] = Field(None, description="Teléfono de contacto", max_length=15)
+    SuppliedEmail: Optional[str] = Field(None, description="Correo electrónico del cliente", max_length=100)
     direccion__c: str = Field(..., description="Dirección física de correspondencia")
     Departamento__c: Optional[str] = Field(None, description="Departamento, opcional si no es de Colombia")
     SC_municipio__c: Optional[str] = Field(None, description="Municipio, opcional si no es de Colombia")
@@ -100,8 +100,8 @@ class Momento2QuejaCrmInput(BaseModel):
 
     # Tipificación
     Product__c: str = Field(..., description="Línea de producto")
-    smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre del producto digital")
-    Categorias_COL__c: str = Field(..., description="Motivo de reclamación")
+    smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre del producto digital", max_length=100)
+    Categorias_COL__c: str = Field(..., description="Motivo de reclamación", max_length=150)
 
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
