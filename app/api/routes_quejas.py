@@ -1,7 +1,7 @@
 # app/api/routes_quejas.py
 import logging
 import httpx
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 
@@ -104,7 +104,122 @@ async def confirmar_ack_momento_1(
     summary="Trigger Unificado de Despacho con Cola de Contingencia SQLite",
 )
 async def despachar_queja_crm(
-    payload: QuejaUnificadaCrmInput,
+    payload: QuejaUnificadaCrmInput = Body(
+        ...,
+        openapi_examples={
+            "creacion_queja_nueva": {
+                "summary": "1. Creación de Queja Nueva (M2)",
+                "description": "Alta inicial de una queja ordinaria por cobro de comisiones.",
+                "value": {
+                    "Case_id": "TEST-NOFILE-M2-001",
+                    "Smart_Code__c": "TEST-NOFILE-M2-001",
+                    "Status": "New",
+                    "SuppliedName": "Andrés Felipe Gómez",
+                    "SC_id_type__c": "CC",
+                    "id_number__c": "1015443322",
+                    "sc_genero__c": "Masculino",
+                    "tipo_de_persona__c": "B2C",
+                    "SuppliedPhone": "3114445566",
+                    "SuppliedEmail": "andres.gomez@test.com",
+                    "direccion__c": "Calle 127 # 45-20 Apto 301",
+                    "Departamento__c": "Bogotá D.C.",
+                    "SC_municipio__c": "Bogotá D.C.",
+                    "canal__c": "Internet",
+                    "punto_recepcion": "Web",
+                    "Description": "El cliente presenta inconformidad por un cobro de comisión no informado.",
+                    "smart_anexo_queja__c": False,
+                    "Product__c": "Wallet",
+                    "Categorias_COL__c": "Inconsistencia en el cobro de comisiones - Descuentos injustificados",
+                    "archivos_s3": []
+                }
+            },
+            "actualizacion_tramite": {
+                "summary": "2. Actualización de Trámite (M3 Ordinario)",
+                "description": "Actualización de información del caso mientras está en gestión.",
+                "value": {
+                    "Case_id": "TEST-NOFILE-M3-002",
+                    "Smart_Code__c": "TEST-NOFILE-M3-002",
+                    "Status": "In Progress",
+                    "SuppliedName": "Luz Marina Palacios",
+                    "SC_id_type__c": "CE",
+                    "id_number__c": "529883011",
+                    "sc_genero__c": "Femenino",
+                    "tipo_de_persona__c": "B2C",
+                    "sc_Condicion_especial__c": "Adulto mayor",
+                    "SuppliedPhone": "3201112233",
+                    "SuppliedEmail": "luz.palacios@test.com",
+                    "direccion__c": "Carrera 7 # 114-33",
+                    "Departamento__c": "Bogotá D.C.",
+                    "SC_municipio__c": "Bogotá D.C.",
+                    "canal__c": "Aplicaciones móviles",
+                    "punto_recepcion": "WhatsApp",
+                    "Description": "Demora en la acreditación de envío de remesa desde el exterior.",
+                    "Product__c": "P2P",
+                    "Categorias_COL__c": "Remesas",
+                    "archivos_s3": []
+                }
+            },
+            "cierre_favorable_b2c": {
+                "summary": "3. Cierre Definitivo Favorable (B2C)",
+                "description": "Respuesta final favorable con PDF auto-generado.",
+                "value": {
+                    "Case_id": "TEST-NOFILE-CIERRE-003",
+                    "Smart_Code__c": "TEST-NOFILE-CIERRE-003",
+                    "Status": "Closed",
+                    "ClosedDate": "2026-07-30",
+                    "SuppliedName": "Carlos Eduardo Mendoza",
+                    "SC_id_type__c": "CC",
+                    "id_number__c": "1018234563",
+                    "sc_genero__c": "Masculino",
+                    "tipo_de_persona__c": "B2C",
+                    "SuppliedPhone": "3101234567",
+                    "SuppliedEmail": "carlos.mendoza@test.com",
+                    "direccion__c": "Calle 100 # 15-20 Apto 502",
+                    "Departamento__c": "Bogotá D.C.",
+                    "SC_municipio__c": "Bogotá D.C.",
+                    "canal__c": "Internet",
+                    "punto_recepcion": "Web",
+                    "Description": "Reclamación por débito duplicado en transacción de envío.",
+                    "Product__c": "Wallet",
+                    "Categorias_COL__c": "Transferencias erradas o duplicadas",
+                    "Favorabilidad__c": "Favorable",
+                    "a_favor_de__c": "1",
+                    "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+                    "cuerpo_respuesta_final": "<html><body><p>Estimado Don Carlos,</p><p>Se realizó el ajuste técnico por la transferencia duplicada y el caso concluye de forma FAVORABLE.</p></body></html>",
+                    "archivos_s3": []
+                }
+            },
+            "cierre_no_favorable_b2b": {
+                "summary": "4. Cierre Definitivo No Favorable (B2B)",
+                "description": "Respuesta final no favorable para persona jurídica.",
+                "value": {
+                    "Case_id": "TEST-NOFILE-CIERRE-004",
+                    "Smart_Code__c": "TEST-NOFILE-CIERRE-004",
+                    "Status": "Closed",
+                    "ClosedDate": "2026-07-30",
+                    "SuppliedName": "Inversiones y Soluciones Tech SAS",
+                    "SC_id_type__c": "NIT",
+                    "id_number__c": "901455822",
+                    "tipo_de_persona__c": "B2B",
+                    "SuppliedPhone": "3008889900",
+                    "SuppliedEmail": "contacto@inversiones-tech.test",
+                    "direccion__c": "Calle 93B # 13-14 Oficina 401",
+                    "Departamento__c": "Bogotá D.C.",
+                    "SC_municipio__c": "Bogotá D.C.",
+                    "canal__c": "Internet",
+                    "punto_recepcion": "Email",
+                    "Description": "Solicitud de reliquidación por diferencia en tasa de cambio.",
+                    "Product__c": "Transactions",
+                    "Categorias_COL__c": "Diferencias en monetización",
+                    "Favorabilidad__c": "No favorable",
+                    "a_favor_de__c": "2",
+                    "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+                    "cuerpo_respuesta_final": "<html><body><p>Validada la transacción corporativa, la tasa aplicada correspondió a la cotización pactada. El caso concluye como NO FAVORABLE.</p></body></html>",
+                    "archivos_s3": []
+                }
+            }
+        }
+    ),
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):

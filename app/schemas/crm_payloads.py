@@ -148,10 +148,18 @@ class Momento2QuejaCrmInput(BaseModel):
 
     @field_validator("Smart_Code__c", "Case_id", mode="before")
     @classmethod
-    def limpiar_espacios_y_caracteres(cls, v: Optional[str]) -> Optional[str]:
+    def limpiar_espacios_y_caracteres(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
         if isinstance(v, str):
             cleaned = v.strip()
-            return cleaned if cleaned else None
+            if cleaned:
+                # Permite alfanuméricos, guion bajo (_) y guion medio (-)
+                if not re.match(r"^[a-zA-Z0-9_-]+$", cleaned):
+                    raise ValueError(
+                        f"El identificador '{info.field_name}' con valor '{cleaned}' contiene caracteres no permitidos. "
+                        f"Únicamente se aceptan letras, números, guiones medios (-) y guiones bajos (_)."
+                    )
+                return cleaned
+            return None
         return v
 
     @field_validator(
