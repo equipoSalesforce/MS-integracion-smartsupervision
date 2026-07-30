@@ -1,6 +1,7 @@
 # app/main.py
 import logging
 from contextlib import asynccontextmanager
+import httpx
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,29 +26,43 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida de la aplicación.
-    Inicializa la base de datos SQLite local y el motor de reintentos
-    en segundo plano (APScheduler) antes de recibir tráfico.
+    Inicializa el pool global de conexiones HTTP, la base de datos SQLite local,
+    el motor de reintentos en segundo plano (APScheduler) y la matriz de errores.
     """
     logger.info(
         f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
         f"con Cola Local SQLite + APScheduler activos."
     )
 
-    # 1. Crear la tabla SQLite de la cola si no existe
+    # 1. Inicializar Pool Global de cliente HTTP con timeouts y límites de pool
+    timeout = httpx.Timeout(
+        connect=5.0,  # Máximo 5s para establecer conexión TCP
+        read=30.0,    # Máximo 30s esperando respuesta
+        write=15.0,   # Máximo 15s enviando payload/adjuntos
+        pool=10.0
+    )
+    limits = httpx.Limits(
+        max_keepalive_connections=20, 
+        max_connections=100
+    )
+    app.state.http_client = httpx.AsyncClient(timeout=timeout, limits=limits)
+    logger.info("📡 Pool global de HTTP Client inicializado correctamente.")
+
+    # 2. Crear la tabla SQLite de la cola si no existe
     try:
         await init_db()
         logger.info("Base de datos SQLite local inicializada correctamente.")
     except Exception as e:
         logger.error(f"Error crítico al inicializar SQLite local: {str(e)}")
 
-    # 2. Encender el scheduler de reintentos
+    # 3. Encender el scheduler de reintentos
     try:
         iniciar_scheduler()
         logger.info("Scheduler de reintentos para la SFC iniciado exitosamente.")
     except Exception as e:
         logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
     
-    # 3. Cargar matriz de errores en RAM
+    # 4. Cargar matriz de errores en RAM
     try:
         await SfcErrorTranslator.obtener_matriz_errores()
     except Exception as e:
@@ -55,8 +70,14 @@ async def lifespan(app: FastAPI):
     
     yield
 
+    # 5. Cierre limpio de recursos
     logger.info("Deteniendo scheduler de reintentos...")
     detener_scheduler()
+
+    if hasattr(app.state, "http_client"):
+        await app.state.http_client.aclose()
+        logger.info("📡 Pool global de HTTP Client cerrado limpiamente.")
+
     logger.info(f"Apagando {settings.PROJECT_NAME} limpiamente...")
 
 
@@ -137,6 +158,25 @@ async def sfc_integration_exception_handler(request: Request, exc: SfcIntegratio
             "sfc_field": exc.sfc_field,
             "raw_message": exc.raw_message,
             "crm_action_friendly": exc.crm_action
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Manejador global para cualquier error no capturado (500).
+    Evita exponer tracebacks internos y retorna un formato estructurado para el CRM.
+    """
+    logger.critical(f"🔥 Error no controlado en endpoint '{request.url.path}': {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "status_code": 500,
+            "error_type": "INTERNAL_SERVER_ERROR",
+            "sfc_field": None,
+            "raw_message": "Ocurrió un error interno no esperado en el microservicio.",
+            "crm_action_friendly": "Reintente la operación más tarde o contacte al administrador de integración."
         }
     )
 

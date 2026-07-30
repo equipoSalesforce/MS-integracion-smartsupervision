@@ -2,6 +2,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
+from zoneinfo import ZoneInfo
 from sqlalchemy import delete, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +44,9 @@ class QueueService:
             intentos=1,
             max_intentos=settings.QUEUE_MAX_RETRIES,
             ultimo_error=error_inicial,
-            proximo_reintento_at=datetime.utcnow() + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
+            proximo_reintento_at = datetime.now(ZoneInfo("America/Bogota")) + timedelta(
+                minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES
+            )
         )
         self.db.add(item)
         await self.db.commit()
