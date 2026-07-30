@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 from app.services.queue_service import QueueService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
@@ -91,39 +92,69 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True):
             sfc_mock = MagicMock()
             
+            # 1. Crear excepción de integración no mapeada
             exc = SfcIntegrationException(
-                "Error desconocido desde la SFC",
-                "UNKNOWN_ERROR",
-                None,
-                "Error desconocido desde la SFC",
-                "Revisar payload"
+                status_code=400,
+                error_type="UNKNOWN_ERROR",
+                sfc_field=None,
+                raw_message="Error desconocido desde la SFC",
+                crm_action="Revisar payload"
             )
-            exc.status_code = 400
             exc.is_unmapped = True
 
-            m2_mock = AsyncMock()
-            m2_mock.ejecutar_envio_momento_2.side_effect = exc
+            # 2. Configurar AMBOS métodos de la SFC como AsyncMock con la excepción
+            sfc_mock.post_nueva_queja = AsyncMock(side_effect=exc)
+            sfc_mock.put_actualizar_queja = AsyncMock(side_effect=exc)
+            sfc_mock.post_adjunto_queja = AsyncMock()
 
-            orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock)
-            orquestador.m2_service = m2_mock
+            # 3. Inicializar el orquestador real
+            orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock, s3_client=MagicMock())
 
-            payload_mock = MagicMock()
-            payload_mock.Smart_Code__c = "142399988877"
-            payload_mock.Status = "New"
-            payload_mock.ClosedDate = None
-            payload_mock.Favorabilidad__c = None
-            payload_mock.tipo_fraude__c = None
-            payload_mock.modalidad_fraude__c = None
+            # 4. Payload canónico completo de CRM
+            smart_code = "999000111222"
+            payload_dict = {
+                "Case_id": smart_code,
+                "CreatedDate": "2026-07-21T10:00:00",
+                "Status": "New",
+                "status": "New",
+                "SuppliedName": "Juan Perez",
+                "SC_id_type__c": "CC",
+                "id_number__c": "123456789",
+                "sc_genero__c": "No Aplica",
+                "tipo_de_persona__c": "B2C",
+                "sc_LGBTIQ__c": "No",
+                "sc_Condicion_especial__c": "No aplica",
+                "SuppliedPhone": "3001234567",
+                "SuppliedEmail": "juan@test.com",
+                "direccion__c": "Calle 123",
+                "Departamento__c": "Bogotá D.C.",
+                "SC_municipio__c": "Bogotá D.C.",
+                "canal__c": "Internet",
+                "punto_recepcion": "Manual",
+                "Instancia_de_recepcion__c": "Entidad vigilada",
+                "admision_col__c": "No Aplica",
+                "Description": "Prueba error no mapeado",
+                "smart_anexo_queja__c": False,
+                "Tutela__c": "No",
+                "Ente_de_control__c": "Otros",
+                "smart_escalamiento_DCF__c": "No",
+                "Product__c": "Cuenta perfil",
+                "smart_Producto_nombre__c": "Ahorro",
+                "Categorias_COL__c": "Transacción no reconocida",
+                "archivos_s3": []
+            }
 
+            payload_obj = QuejaUnificadaCrmInput.model_validate(payload_dict)
+
+            # 5. Ejecutar y verificar que se re-lance la excepción y se dispare el correo
             with self.assertRaises(SfcIntegrationException):
-                await orquestador.procesar_despacho(payload=payload_mock)
+                await orquestador.procesar_despacho(payload=payload_obj)
 
-            # 🎯 FIX: Se ajusta raw_message para incluir el prefijo [UNKNOWN_ERROR]
             mock_no_mapeado.assert_called_once_with(
                 status_code=400,
                 raw_message="[UNKNOWN_ERROR] Error desconocido desde la SFC",
                 sfc_field=None,
-                smart_code="142399988877"
+                smart_code=f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{smart_code}"
             )
 
     async def test_scheduler_dispara_digest_sla_y_recuperacion(self):

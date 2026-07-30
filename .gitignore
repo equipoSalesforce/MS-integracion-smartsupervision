@@ -45,7 +45,7 @@ tmp/
 *.docx
 
 # Para que suba la plantilla 
-!app/resources/*.pdf
+!app/resources/plantilla_respuesta_final.pdf
 
 #DB local para queue
 cola_local.db

@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import date
 
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
@@ -20,24 +19,37 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             s3_client=self.mock_s3_client
         )
 
-        # Mocks asíncronos para aislar las llamadas de servicios
-        self.orquestador.m2_service.ejecutar_envio_momento_2 = AsyncMock()
-        self.orquestador.m3_service.ejecutar_gestion_fraude = AsyncMock()
-        self.orquestador.m3_service.ejecutar_cierre_definitivo = AsyncMock()
-        self.orquestador.m3_service.ejecutar_actualizacion_tramite = AsyncMock()
+        # Mocks asíncronos con return_value por defecto
+        self.orquestador.m2_service.ejecutar_envio_momento_2 = AsyncMock(
+            return_value={"status": "success", "codigo_queja_sfc": "1423999000111222"}
+        )
+        self.orquestador.m3_service.ejecutar_gestion_fraude = AsyncMock(
+            return_value={"status": "success", "message": "Fraude actualizado"}
+        )
+        self.orquestador.m3_service.ejecutar_cierre_definitivo = AsyncMock(
+            return_value={"status": "success", "message": "Caso cerrado"}
+        )
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite = AsyncMock(
+            return_value={"status": "success", "message": "Tramite actualizado"}
+        )
 
-        # Payload base canónico válido
+        # 🎯 Payload base canónico de CREACIÓN PURA M2 (Campos exclusivos M3 en None)
         self.base_payload_dict = {
             "Smart_Code__c": "999000111222",
             "CreatedDate": "2026-07-21T10:00:00",
             "Status": "New",
+            "status": "New",
             "SuppliedName": "Juan Perez",
             "SC_id_type__c": "CC",
             "id_number__c": "123456789",
-            "sc_genero__c": "No Aplica",
+            "sc_genero__c": None,               # 👈 Debe ser None para M2 Puro
             "tipo_de_persona__c": "B2C",
-            "sc_LGBTIQ__c": "No",
-            "sc_Condicion_especial__c": "No aplica",
+            "sc_LGBTIQ__c": None,               # 👈 Debe ser None para M2 Puro
+            "sc_Condicion_especial__c": None,   # 👈 Debe ser None para M2 Puro
+            "producto_digital__c": None,        # 👈 Debe ser None para M2 Puro
+            "admision_col__c": "No Aplica",
+            "SuppliedPhone": "3001234567",
+            "SuppliedEmail": "juan@test.com",
             "direccion__c": "Calle 123",
             "Departamento__c": "Bogotá D.C.",
             "SC_municipio__c": "Bogotá D.C.",
@@ -45,6 +57,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "punto_recepcion": "WhatsApp",
             "Instancia_de_recepcion__c": "Entidad vigilada",
             "Product__c": "Cuenta perfil",
+            "smart_Producto_nombre__c": "Ahorro",
             "Categorias_COL__c": "Transacción no reconocida",
             "Description": "Prueba de orquestador unificado",
             "smart_anexo_queja__c": False,
@@ -58,9 +71,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
     async def test_1_despacho_momento_2_creacion_pura(self):
         """Valida que una queja nueva (Status=New) sin fraude ni cierre vaya directo a Momento 2."""
         payload = QuejaUnificadaCrmInput.model_validate(self.base_payload_dict)
-        self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
-            "status": "success", "codigo_queja_sfc": "1423999000111222"
-        }
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
@@ -76,12 +86,12 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
     async def test_2_despacho_actualizacion_tramite_directo(self):
         """Valida que un estado intermedio ('In Progress') sin fraude/cierre llame a trámite M3."""
         tramite_dict = self.base_payload_dict.copy()
-        tramite_dict["Status"] = "In Progress"
+        tramite_dict.update({
+            "Status": "In Progress",
+            "status": "In Progress",
+            "sc_genero__c": "Masculino"  # Inyecta campo M3
+        })
         payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
-
-        self.orquestador.m3_service.ejecutar_actualizacion_tramite.return_value = {
-            "status": "success", "message": "Tramite actualizado"
-        }
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
@@ -97,16 +107,14 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         fraude_dict = self.base_payload_dict.copy()
         fraude_dict.update({
             "Status": "In Progress",
+            "status": "In Progress",
+            "sc_genero__c": "Masculino",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
             "archivos_s3": [{"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}]
         })
         payload = QuejaUnificadaCrmInput.model_validate(fraude_dict)
-
-        self.orquestador.m3_service.ejecutar_gestion_fraude.return_value = {
-            "status": "success", "message": "Fraude actualizado"
-        }
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
@@ -122,6 +130,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
             "Status": "Closed",
+            "status": "Closed",
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
@@ -129,10 +138,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "archivos_s3": []
         })
         payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
-
-        self.orquestador.m3_service.ejecutar_cierre_definitivo.return_value = {
-            "status": "success", "message": "Caso cerrado"
-        }
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
@@ -148,6 +153,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         completo_dict = self.base_payload_dict.copy()
         completo_dict.update({
             "Status": "Closed",
+            "status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
@@ -161,9 +167,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         })
         payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
 
-        self.orquestador.m3_service.ejecutar_gestion_fraude.return_value = {"status": "success"}
-        self.orquestador.m3_service.ejecutar_cierre_definitivo.return_value = {"status": "success"}
-
         resultado = await self.orquestador.procesar_despacho(payload)
 
         self.assertEqual(resultado["status"], "success")
@@ -175,13 +178,13 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
     # ======================================================================
     async def test_6_auto_recuperacion_secuencia_completa_404(self):
         """
-        🔥 TEST PRINCIPAL DE SELF-HEALING:
         Si llega un cierre+fraude de una queja que NO existe en la SFC (404/NOT_FOUND_ERROR),
         debe crear el caso en M2 y re-ejecutar Fraude y Cierre automáticamente.
         """
         completo_dict = self.base_payload_dict.copy()
         completo_dict.update({
             "Status": "Closed",
+            "status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
@@ -204,15 +207,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             {"status": "success", "message": "Fraude actualizado"}
         ]
 
-        self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
-            "status": "success", "codigo_queja_sfc": "1423999000111222"
-        }
-
-        self.orquestador.m3_service.ejecutar_cierre_definitivo.return_value = {
-            "status": "success", "message": "Caso cerrado definitivamente"
-        }
-
-        # 🎯 Payload esperado para M2 con archivos_s3=[]
         payload_esperado_m2 = payload.model_copy()
         payload_esperado_m2.archivos_s3 = []
         payload_esperado_m2.directorio_s3 = None
@@ -232,6 +226,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
             "Status": "Closed",
+            "status": "Closed",
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
@@ -248,10 +243,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "Queja no encontrada"
         )
 
-        # Cierre M3 da 404
         self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = mock_404_error
-
-        # Creación M2 falla
         self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
             "status": "error", "message": "Pipeline interrumpido: Timeout"
         }

@@ -1,13 +1,10 @@
-# app/services/momento_2_sync.py
-import asyncio
 import logging
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, Union
 
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
-from app.schemas.crm_payloads import ArchivoS3Schema, QuejaUnificadaCrmInput, Momento2QuejaCrmInput
+from app.schemas.crm_payloads import QuejaUnificadaCrmInput, Momento2QuejaCrmInput
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
-from app.core.config import settings
 from app.core.mapping import SfcSalesforceMapper
 from app.core.exceptions import SfcIntegrationException
 from app.services.email_service import EmailAlertService
@@ -36,39 +33,36 @@ class Momento2SincronizacionService:
         if not smart_code:
             return {"status": "error", "message": "Falta el campo obligatorio 'Smart_Code__c' en el payload."}
 
-        logger.info(f"[Momento 2] Iniciando pipeline de despacho síncrono para el caso: {smart_code}")
+        logger.info(f"[Momento 2] Iniciando transmisión del caso: {smart_code}")
 
         try:
             sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict)
-            sfc_id_largo = payload.Smart_Code__c if not isinstance(payload, dict) else smart_code
-            sfc_raw_payload["codigo_queja"] = sfc_id_largo
+            sfc_raw_payload["codigo_queja"] = smart_code
             
             directorio_s3 = getattr(payload, "directorio_s3", None) or crm_dict.get("directorio_s3")
-            
             if not archivos_s3_raw and directorio_s3:
                 archivos_s3_raw = await self.s3_service.listar_archivos_en_directorio(prefix=directorio_s3)
-                logger.info(f"📂 Encontrados {len(archivos_s3_raw)} archivos en el directorio S3 '{directorio_s3}'")
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
-            logger.info(f"[Momento 2] Enviando queja a la SFC con código regulatorio: {sfc_id_largo}")
+            # 1. Crear la queja en la SFC
             await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
             
+            # 2. 🎯 DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS
             if archivos_s3_raw:
-                archivos_schema = [
-                    a if isinstance(a, ArchivoS3Schema) else ArchivoS3Schema(**a)
-                    for a in archivos_s3_raw
-                ]
-                await self._procesar_y_enviar_adjuntos_s3(archivos=archivos_schema, sfc_code=sfc_id_largo)
+                await self.s3_service.transferir_lote_s3_a_sfc(
+                    sfc_client=self.sfc_client,
+                    sfc_codigo_queja=smart_code,
+                    adjuntos_crm=archivos_s3_raw
+                )
 
             return {
                 "status": "success",
                 "message": "Queja y documentos transmitidos correctamente a la SFC de forma síncrona",
-                "Smart_Code__c": sfc_id_largo
+                "Smart_Code__c": smart_code
             }
 
         except SfcIntegrationException as exc:
-            logger.error(f"Error al enviar queja con codigo {smart_code}")
             if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
                 await EmailAlertService.notificar_error_no_mapeado(
                     status_code=getattr(exc, "status_code", 500),
@@ -81,31 +75,3 @@ class Momento2SincronizacionService:
         except Exception as e:
             logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
-
-    async def _procesar_y_enviar_adjuntos_s3(self, archivos: List[ArchivoS3Schema], sfc_code: str):
-        """Procesa y envía concurrentemente los anexos del caso utilizando S3StorageService."""
-        async def _procesar_un_adjunto(archivo: ArchivoS3Schema):
-            s3_key = archivo.s3_key
-            if not s3_key:
-                return
-
-            file_name = archivo.nombre_archivo or (s3_key.split("/")[-1] if "/" in s3_key else s3_key)
-            file_type = file_name.split(".")[-1] if "." in file_name else "pdf"
-
-            # 1. Obtener bytes mediante el servicio unificado de S3
-            file_bytes = await self.s3_service.obtener_bytes_archivo(
-                s3_key=s3_key, 
-                bucket=archivo.bucket
-            )
-
-            # 2. Transmitir adjunto a la SFC
-            logger.info(f"[Momento 2] Transmitiendo adjunto '{file_name}' a la SFC para caso {sfc_code}.")
-            return await self.sfc_client.post_adjunto_queja(
-                sfc_codigo_queja=sfc_code,
-                file_bytes=file_bytes,
-                file_type=file_type,
-                file_name=file_name
-            )
-
-        tareas = [_procesar_un_adjunto(archivo) for archivo in archivos]
-        await asyncio.gather(*tareas)

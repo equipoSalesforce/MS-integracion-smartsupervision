@@ -1,6 +1,6 @@
 # app/services/despacho_queja_orchestrator.py
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from pydantic import ValidationError
 
 from app.integrations.sfc_client import SfcClient
@@ -20,11 +20,20 @@ class DespachoQuejaOrquestador:
     Incluye lógica de inferencia automática y auto-recuperación (Self-Healing).
     """
 
-    def __init__(self, sfc_client: SfcClient, s3_client=None):
+    def __init__(
+        self, 
+        sfc_client: SfcClient, 
+        s3_client=None,
+        m2_service: Optional[Momento2SincronizacionService] = None,
+        m3_service: Optional[Momento3SincronizacionService] = None
+    ):
         self.sfc_client = sfc_client
         self.s3_client = s3_client
-        self.m2_service = Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
-        self.m3_service = Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
+        # 🎯 Inyección de Dependencias con Fallback por defecto:
+        # Si se pasan instancias (ej. Mocks en tests), usa esas; si vienen en None (en producción),
+        # instancia los servicios reales usando sfc_client y s3_client.
+        self.m2_service = m2_service or Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
+        self.m3_service = m3_service or Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
 
     async def procesar_despacho_raw_json(self, payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Rehidrata un diccionario/JSON desde SQLite al esquema Pydantic 'QuejaUnificadaCrmInput'."""
@@ -39,7 +48,7 @@ class DespachoQuejaOrquestador:
         smart_code = payload.Smart_Code__c
         status_raw = (payload.Status or "").strip().lower()
 
-        
+        # Inspección y listado dinámico desde S3 si viene solo la ruta del directorio
         if payload.directorio_s3 and not payload.archivos_s3:
             s3_service = self.m3_service.s3_service
             archivos_remotos = await s3_service.listar_archivos_en_directorio(prefix=payload.directorio_s3)
@@ -84,7 +93,7 @@ class DespachoQuejaOrquestador:
                 return await self.m2_service.ejecutar_envio_momento_2(payload=payload)
 
             # 2. Intento de Momento 3 (Trámite, Fraude o Cierre)
-            # Si el caso no existe en SFC, saltará el 404 y el bloque except ejecutará el Self-Healing (M2 -> M3)
+            # Si el caso no existe en la SFC, saltará el 404 y el bloque except ejecutará el Self-Healing (M2 -> M3)
             return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
 
         except SfcIntegrationException as exc:
@@ -106,7 +115,7 @@ class DespachoQuejaOrquestador:
                     f"Iniciando secuencia de auto-recuperación (Momento 2 -> Momento 3)..."
                 )
 
-                # 🎯 Paso A: Crear la queja base vía Momento 2 OMITIENDO adjuntos para que M3 los transmita con afijo
+                # Paso A: Crear la queja base vía Momento 2 OMITIENDO adjuntos para que M3 los transmita con afijo
                 logger.info(f"[Auto-Recuperación 1/2] Radicando queja base vía Momento 2 para {smart_code}...")
                 
                 payload_m2_sin_adjuntos = payload.model_copy()
@@ -122,15 +131,10 @@ class DespachoQuejaOrquestador:
                 logger.info(f"[Auto-Recuperación 2/2] Re-ejecutando pipeline de Momento 3 para {smart_code}...")
                 return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
             
-            # ⚠️ EVALUACIÓN DE ERROR NO MAPEADO (NOTIFICAR A DEV)
+            # ⚠️ EVALUACIÓN DE ERROR NO MAPEADO
             if is_unmapped:
                 logger.warning(f"⚠️ [Orquestador] Se detectó un error no mapeado en SFC para el caso {smart_code}.")
-                await EmailAlertService.notificar_error_no_mapeado(
-                    status_code=getattr(exc, "status_code", 500),
-                    raw_message=str(exc),
-                    sfc_field=getattr(exc, "sfc_field", None),
-                    smart_code=smart_code
-                )
+                raise 
 
             raise
 

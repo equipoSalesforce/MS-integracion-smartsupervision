@@ -3,9 +3,11 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.main import app
-from app.core.config import settings  # 👈 Importamos la configuración para obtener la API Key
+from app.core.config import settings
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.integrations.sfc_client import SfcClient
+from app.services.s3_service import S3StorageService
+
 
 class TestMomento1Integration(unittest.TestCase):
 
@@ -20,13 +22,13 @@ class TestMomento1Integration(unittest.TestCase):
         
         self.client = TestClient(app)
         
-        # 🎯 INYECCIÓN DE API KEY: Permite al cliente HTTP de pruebas pasar la barrera de seguridad
+        # 🎯 INYECCIÓN DE API KEY
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    @patch("app.services.momento_1_sync.SincronizacionService._descargar_y_subir_a_s3", new_callable=AsyncMock)
+    @patch.object(S3StorageService, "transferir_lote_sfc_a_s3", new_callable=AsyncMock)
     def test_cron_sync_multiple_quejas_mixed_attachments_sin_ack_automatico(self, mock_descarga_s3):
         """
         Prueba el endpoint de integración de sincronización de punta a punta.
@@ -34,12 +36,14 @@ class TestMomento1Integration(unittest.TestCase):
         las quejas perfectamente traducidas al CRM en el HTTP Response Body, 
         Garantizando que NO se envíe el ACK de manera automática (ACK diferido).
         """
-        # Configuramos que S3 simule retornar datos válidos cuando se ejecute la descarga
-        mock_descarga_s3.return_value = {
-            "nombre_archivo": "soporte.pdf",
-            "s3_key": "quejas/11111111111/soporte_pdf",
-            "bucket": "mi-bucket-smartsupervision"
-        }
+        # 🎯 S3StorageService.transferir_lote_sfc_a_s3 retorna una LISTA de adjuntos procesados
+        mock_descarga_s3.return_value = [
+            {
+                "nombre_archivo": "soporte.pdf",
+                "s3_key": "quejas/11111111111/soporte_pdf",
+                "bucket": "mi-bucket-smartsupervision"
+            }
+        ]
 
         # JSON de respuesta con estructura nativa de la SFC (2 registros)
         mock_quejas_response = {
@@ -114,7 +118,7 @@ class TestMomento1Integration(unittest.TestCase):
             }
         }
 
-        # Simulación de respuesta de adjuntos para que no llegue vacía
+        # Simulación de respuesta de adjuntos
         mock_adjuntos_response = {
             "Response": {
                 "count": 1,
@@ -130,25 +134,19 @@ class TestMomento1Integration(unittest.TestCase):
             }
         }
 
-        # Configuración de los retornos asíncronos en los mocks
         self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=mock_quejas_response)
         self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=mock_adjuntos_response)
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
 
-        # Hacemos la petición POST al endpoint de sincronización
         response = self.client.get("/api/v1/quejas/sync/momento-1")
         
-        # --- VERIFICACIONES SÍNCRONAS ---
         self.assertEqual(response.status_code, 200)
-        
-        # 🚨 REGLA CRÍTICA: Validamos que NO se haya llamado al ACK de la SFC durante el consumo
         self.sfc_client_mock.send_ack_batch.assert_not_called()
         
-        # Obtenemos la lista directamente del Response Body
         quejas_mapeadas = response.json()
         self.assertEqual(len(quejas_mapeadas), 2)
 
-        # Registro 1 (Traducido)
+        # Registro 1
         self.assertEqual(quejas_mapeadas[0]["Smart_Code__c"], "11111111111")
         self.assertEqual(quejas_mapeadas[0]["sc_genero__c"], "Femenino")
         self.assertEqual(quejas_mapeadas[0]["canal__c"], "Internet")
@@ -157,7 +155,7 @@ class TestMomento1Integration(unittest.TestCase):
         self.assertEqual(quejas_mapeadas[0]["tipo_de_persona__c"], "B2B")
         self.assertEqual(len(quejas_mapeadas[0]["archivos_s3"]), 1)
 
-        # Registro 2 (Traducido)
+        # Registro 2
         self.assertEqual(quejas_mapeadas[1]["Smart_Code__c"], "22222222222")
         self.assertEqual(quejas_mapeadas[1]["sc_genero__c"], "Masculino")
         self.assertEqual(quejas_mapeadas[1]["canal__c"], "Oficinas")
@@ -168,11 +166,9 @@ class TestMomento1Integration(unittest.TestCase):
 
     def test_confirmacion_ack_momento_1_exitoso(self):
         """
-        Prueba de integración del nuevo endpoint de ACK:
+        Prueba de integración del endpoint de ACK:
         POST /api/v1/quejas/sync/momento-1/ack
-        Verifica que reciba el arreglo de IDs confirmados por el CRM y comunique el ACK a la SFC.
         """
-        # Mapeamos la respuesta del mock de la SFC
         self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={
             "Response": {
                 "message": "Código actualizado",
@@ -183,13 +179,9 @@ class TestMomento1Integration(unittest.TestCase):
         ids_a_confirmar = ["11111111111", "22222222222"]
         payload = {"ids_quejas": ids_a_confirmar}
 
-        # Consumimos el endpoint
         response = self.client.post("/api/v1/quejas/sync/momento-1/ack", json=payload)
 
-        # Verificaciones HTTP y Payload
         self.assertEqual(response.status_code, 200)
-        
-        # Verificamos que el cliente HTTP invocara el cliente SFC con los IDs esperados
         self.sfc_client_mock.send_ack_batch.assert_called_once_with(ids_a_confirmar)
         
         data = response.json()

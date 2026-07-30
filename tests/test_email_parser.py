@@ -82,7 +82,7 @@ class TestEmailParser(unittest.TestCase):
         self.assertIn("Estimado Don Carlos Alberto", resultado)
         self.assertIn("Fraude Externo por Suplantación de Identidad", resultado)
         self.assertIn("$4.800.000 COP", resultado)
-        self.assertIn("Gerencia de Seguridad y Riesgo", resultado)
+        self.assertIn("Gerencia de Experiencia y Seguridad", resultado)
 
     def test_parser_estilo_outlook(self):
         """Verifica el corte limpio de cabeceras en formato Outlook (From: / Sent: / To:)."""
