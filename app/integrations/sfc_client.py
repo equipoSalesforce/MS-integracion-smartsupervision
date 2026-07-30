@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, Union
 from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator
 from app.core.auth import SfcAuthManager 
+from app.core.constants import SfcEndpoints, SmartStatus
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def _sanitizar_payload(data: Any) -> Any:
 async def log_request(request: httpx.Request):
     # --- FILTRO DE LOGS DE ARCHIVOS ---
     is_file_request = (
-        "/api/storage/" in str(request.url) 
+        SfcEndpoints.STORAGE.value in str(request.url) 
         or "multipart/form-data" in request.headers.get("content-type", "")
     )
     enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
@@ -104,7 +105,7 @@ async def log_request(request: httpx.Request):
 async def log_response(response: httpx.Response):
     # --- FILTRO DE LOGS DE ARCHIVOS ---
     is_file_response = (
-        "/api/storage/" in str(response.url)
+        SfcEndpoints.STORAGE.value in str(response.url)
         or (response.request and "multipart/form-data" in response.request.headers.get("content-type", ""))
     )
     enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
@@ -153,7 +154,7 @@ class SfcClient:
 
     async def fetch_quejas_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de quejas."""
-        target_url = url if url else f"{self.base_url}/api/queja/"
+        target_url = url if url else f"{self.base_url}{SfcEndpoints.QUEJA.value}"
         try:
             response = await self.client.get(target_url)
             if response.status_code not in (200, 201):
@@ -166,7 +167,7 @@ class SfcClient:
 
     async def get_adjuntos_list(self, codigo_queja: str) -> Dict[str, Any]:
         """Obtiene el listado de archivos adjuntos asociados a una queja."""
-        target_url = f"{self.base_url}/api/storage/?codigo_queja__codigo_queja={codigo_queja}"
+        target_url = f"{self.base_url}{SfcEndpoints.STORAGE.value}?codigo_queja__codigo_queja={codigo_queja}"
         try:
             response = await self.client.get(target_url)
             if response.status_code not in (200, 201):
@@ -179,7 +180,7 @@ class SfcClient:
 
     async def send_ack_batch(self, pqrs_ids: list) -> Dict[str, Any]:
         """Envía el lote de confirmación de recibidos (ACK)."""
-        target_url = f"{self.base_url}/api/complaint/ack"
+        target_url = f"{self.base_url}{SfcEndpoints.ACK_COMPLAINT.value}"
         payload = {"pqrs": pqrs_ids}
         try:
             response = await self.client.post(target_url, json=payload)
@@ -195,7 +196,7 @@ class SfcClient:
         """
         Envía la información estructurada de una queja nueva a la SFC.
         """
-        url = f"{self.base_url}/api/queja/"
+        url = f"{self.base_url}{SfcEndpoints.QUEJA.value}"
         logger.info(f"[SfcClient] Enviando metadatos de queja a: {url}")
         logger.info(f"Enviando POST de datos de queja regulatoria: {payload_mapeado.get('codigo_queja')}")
         
@@ -217,7 +218,8 @@ class SfcClient:
         Envía un archivo binario asociado a una queja hacia la SFC utilizando multipart/form-data.
         Bypassea el interceptor automático usando auth=None para mitigar errores de streaming.
         """
-        url = f"{self.base_url}/api/storage/"
+        endpoint = SfcEndpoints.STORAGE.value
+        url = f"{self.base_url}{endpoint}"
         logger.info(f"[SfcClient] Enviando metadatos de adjuntos a: {url}")
         
         if not file_name:
@@ -229,7 +231,7 @@ class SfcClient:
         token = await self.interceptor.get_valid_token()
         signature = self.interceptor.signature_context.get_signature(
             method="POST",
-            url="/api/storage/",
+            url=endpoint,
             payload={
                 "codigo_queja": sfc_codigo_queja,
                 "type": file_type
@@ -273,7 +275,7 @@ class SfcClient:
         Envía la actualización completa de estado, fraudes o cierre (Momento 3)
         hacia la SFC utilizando el verbo PATCH/PUT de forma síncrona.
         """
-        url = f"{self.base_url}/api/queja/{sfc_codigo_queja}/"
+        url = f"{self.base_url}{SfcEndpoints.QUEJA.value}{sfc_codigo_queja}/"
         logger.info(f"[SfcClient] Enviando actualización de estado M3 a: {url}")
         
         try:
@@ -292,7 +294,7 @@ class SfcClient:
     
     async def fetch_usuarios_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de usuarios actualizados (Momento 4)."""
-        target_url = url if url else f"{self.base_url}/api/usuarios/info/"
+        target_url = url if url else f"{self.base_url}{SfcEndpoints.USUARIOS.value}"
         try:
             response = await self.client.get(target_url)
             if response.status_code not in (200, 201):
@@ -305,7 +307,7 @@ class SfcClient:
 
     async def send_user_ack_batch(self, numeros_id_cf: list) -> Dict[str, Any]:
         """Envía el lote de confirmación de recibido para usuarios (Momento 4 ACK)."""
-        target_url = f"{self.base_url}/api/usuarios/ack/"
+        target_url = f"{self.base_url}{SfcEndpoints.USUARIOS_ACK.value}"
         payload = {"numero_id_CF": numeros_id_cf}
         try:
             response = await self.client.post(target_url, json=payload)

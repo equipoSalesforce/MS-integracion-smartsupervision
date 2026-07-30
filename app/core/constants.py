@@ -17,3 +17,11 @@ class SmartStatus(str, Enum):
     SEND_UPDATE_SMART_ERROR = "SendUpdateSmart-Error"   # Error al actualizar información a la SFC
     FINAL_DOCUMENT_UPLOAD_OK = "FinalDocumentUpload-OK" # Éxito al subir documento de cierre
     FINAL_DOCUMENT_UPLOAD_ERROR = "FinalDocumentUpload-Error" # Error al subir documento de cierre
+    
+
+class SfcEndpoints(str, Enum):
+    QUEJA = "/api/queja/"
+    STORAGE = "/api/storage/"
+    ACK_COMPLAINT = "/api/complaint/ack"
+    USUARIOS = "/api/usuarios/info/"
+    USUARIOS_ACK = "/api/usuarios/ack/"
