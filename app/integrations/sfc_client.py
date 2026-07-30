@@ -62,6 +62,17 @@ def _sanitizar_payload(data: Any) -> Any:
 
 # 🛠️ Hook Sanitizado para Registrar Peticiones Salientes (Request)
 async def log_request(request: httpx.Request):
+    # --- FILTRO DE LOGS DE ARCHIVOS ---
+    is_file_request = (
+        "/api/storage/" in str(request.url) 
+        or "multipart/form-data" in request.headers.get("content-type", "")
+    )
+    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
+
+    if is_file_request and not enable_file_logs:
+        return  # Omitir el log de archivos
+    # -----------------------------------
+
     headers_clean = _sanitizar_headers(request.headers)
     headers_formatted = "\n".join([f"  {k}: {v}" for k, v in headers_clean.items()])
 
@@ -91,6 +102,17 @@ async def log_request(request: httpx.Request):
 
 # 🛠️ Hook Sanitizado para Registrar Respuestas Entrantes (Response)
 async def log_response(response: httpx.Response):
+    # --- FILTRO DE LOGS DE ARCHIVOS ---
+    is_file_response = (
+        "/api/storage/" in str(response.url)
+        or (response.request and "multipart/form-data" in response.request.headers.get("content-type", ""))
+    )
+    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
+
+    if is_file_response and not enable_file_logs:
+        return  # Omitir el log de archivos
+    # -----------------------------------
+
     await response.aread()
 
     headers_clean = _sanitizar_headers(response.headers)
