@@ -128,11 +128,14 @@ class Momento2QuejaCrmInput(BaseModel):
 
     @field_validator("id_number__c", mode="before")
     @classmethod
-    def limpiar_id_solo_numeros(cls, v: str) -> str:
+    def limpiar_id_caracteres_especiales(cls, v: str) -> str:
         if isinstance(v, str):
-            cleaned = re.sub(r"\D", "", v)
+            # Conserva letras (A-Z, a-z) y números (0-9), eliminando caracteres especiales y espacios
+            cleaned = re.sub(r"[^a-zA-Z0-9]", "", v)
             if not cleaned:
-                raise ValueError("El número de identificación ('id_number__c') debe contener al menos un dígito numérico.")
+                raise ValueError(
+                    "El número de identificación ('id_number__c') debe contener al menos un carácter alfanumérico válido."
+                )
             return cleaned
         return v
 
