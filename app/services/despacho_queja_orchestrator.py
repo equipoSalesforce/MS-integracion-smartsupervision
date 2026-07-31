@@ -71,6 +71,15 @@ class DespachoQuejaOrquestador:
             payload.modalidad_fraude__c is not None
         )
         
+        if es_fraude and not payload.archivos_s3:
+            raise SfcIntegrationException(
+                status_code=400,
+                error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+                sfc_field="archivos_s3",
+                raw_message="No se encontraron documentos de investigación de fraude (INV_FRAUDE_SFC) en S3.",
+                crm_action="Asegúrese de cargar los documentos de soporte de la investigación de fraude en S3 antes de enviar el caso."
+            )
+        
         tiene_campos_m3 = any([
             payload.sc_genero__c is not None,
             payload.sc_LGBTIQ__c is not None,
