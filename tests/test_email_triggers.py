@@ -1,3 +1,4 @@
+# tests/test_email_triggers.py
 import asyncio
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -18,17 +19,12 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        db_mock = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_result.scalars.return_value.one_or_none.return_value = None
-        db_mock.execute.return_value = mock_result
-        db_mock.add = MagicMock()
-        db_mock.commit = AsyncMock()
-        db_mock.refresh = AsyncMock()
+        redis_mock = AsyncMock()
+        redis_mock.scard = AsyncMock(return_value=0)
+        redis_mock.incr = AsyncMock(return_value=1)
+        redis_mock.set = AsyncMock(return_value=True)
 
-        queue_service = QueueService(db_session=db_mock)
-        # 🎯 Retorna 0 para simular la primera falla (cola vacía)
+        queue_service = QueueService(redis_client=redis_mock)
         queue_service.contar_pendientes = AsyncMock(return_value=0)
 
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
@@ -44,7 +40,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             
             await asyncio.sleep(0)
 
-            # Debe llamarse a alerta de infraestructura y NO a la de umbral
             mock_falla.assert_called_once_with(
                 smart_code=smart_code,
                 error_msg=error_msg
@@ -56,17 +51,12 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        db_mock = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_result.scalars.return_value.one_or_none.return_value = None
-        db_mock.execute.return_value = mock_result
-        db_mock.add = MagicMock()
-        db_mock.commit = AsyncMock()
-        db_mock.refresh = AsyncMock()
+        redis_mock = AsyncMock()
+        redis_mock.scard = AsyncMock(return_value=99)
+        redis_mock.incr = AsyncMock(return_value=100)
+        redis_mock.set = AsyncMock(return_value=True)
 
-        queue_service = QueueService(db_session=db_mock)
-        # 🎯 Retorna 99 para que con el nuevo caso sume 100
+        queue_service = QueueService(redis_client=redis_mock)
         queue_service.contar_pendientes = AsyncMock(return_value=99)
 
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
@@ -82,7 +72,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             
             await asyncio.sleep(0)
 
-            # NO debe llamarse a alerta de infraestructura (ya había casos), pero SÍ a la de umbral
             mock_falla.assert_not_called()
             mock_umbral.assert_called_once_with(total_pendientes=100)
 
@@ -92,7 +81,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True):
             sfc_mock = MagicMock()
             
-            # 1. Crear excepción de integración no mapeada
             exc = SfcIntegrationException(
                 status_code=400,
                 error_type="UNKNOWN_ERROR",
@@ -102,15 +90,12 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             )
             exc.is_unmapped = True
 
-            # 2. Configurar AMBOS métodos de la SFC como AsyncMock con la excepción
             sfc_mock.post_nueva_queja = AsyncMock(side_effect=exc)
             sfc_mock.put_actualizar_queja = AsyncMock(side_effect=exc)
             sfc_mock.post_adjunto_queja = AsyncMock()
 
-            # 3. Inicializar el orquestador real
             orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock, s3_client=MagicMock())
 
-            # 4. Payload canónico completo de CRM
             smart_code = "999000111222"
             payload_dict = {
                 "Case_id": smart_code,
@@ -146,7 +131,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
             payload_obj = QuejaUnificadaCrmInput.model_validate(payload_dict)
 
-            # 5. Ejecutar y verificar que se re-lance la excepción y se dispare el correo
             with self.assertRaises(SfcIntegrationException):
                 await orquestador.procesar_despacho(payload=payload_obj)
 
@@ -172,17 +156,18 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         reg.smart_code = "1423111"
         reg.payload_json = {"Smart_Code__c": "1423111"}
 
+        redis_mock = AsyncMock()
+        redis_mock.set = AsyncMock(return_value=True)
+        redis_mock.delete = AsyncMock(return_value=1)
+
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
              patch.object(EmailAlertService, "notificar_casos_vencimiento_sla", new_callable=AsyncMock) as mock_sla, \
              patch.object(EmailAlertService, "notificar_recuperacion_sfc", new_callable=AsyncMock) as mock_recuperacion, \
-             patch("app.workers.scheduler.AsyncSessionLocal") as mock_session_local, \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
              patch("app.workers.scheduler.get_sfc_client"), \
              patch("app.workers.scheduler.get_s3_client"), \
              patch("app.workers.scheduler.QueueService") as MockQueueService, \
              patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
-
-            session_mock = AsyncMock()
-            mock_session_local.return_value.__aenter__.return_value = session_mock
 
             instance_qs = MockQueueService.return_value
             instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=casos_vencidos)

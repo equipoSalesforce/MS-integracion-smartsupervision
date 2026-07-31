@@ -70,30 +70,38 @@ class Settings(BaseSettings):
         description="Orígenes permitidos para CORS"
     )
 
-    # --- 🛠️ Configuración de Cola Local (SQLite + APScheduler) ---
-    SQLITE_DB_URL: str = Field(
-        default="sqlite+aiosqlite:///./cola_local.db",
-        description="Cadena de conexión asíncrona para la base de datos SQLite local"
+    # --- 🛠️ Configuración de Cola Centralizada con Redis --- #
+    REDIS_HOST: str = Field(
+        default="localhost",
+        description="Host del servidor Redis para la cola centralizada"
     )
-    QUEUE_RETRY_INTERVAL_MINUTES: int = Field(
-        default=5,
-        description="Frecuencia en minutos con la que el scheduler busca reintentar casos pendientes"
+    REDIS_PORT: int = Field(
+        default=6379,
+        description="Puerto del servidor Redis"
     )
-    QUEUE_MAX_RETRIES: int = Field(
-        default=10,
-        description="Número máximo de reintentos antes de congelar un registro como FALLIDO_DEFINITIVO"
+    REDIS_PASSWORD: Optional[str] = Field(
+        default=None,
+        description="Contraseña de autenticación de Redis (si aplica)"
     )
-    QUEUE_ENABLED: bool = Field(
-        default=True,
-        description="Permite habilitar o deshabilitar la ejecución automática del Scheduler de reintentos"
+    REDIS_DB: int = Field(
+        default=0,
+        description="Número de base de datos de Redis"
     )
+    REDIS_SSL: bool = Field(
+        default=False,
+        description="Activa el cifrado TLS/SSL para la conexión a Redis (ej. AWS ElastiCache)"
+    )
+    REDIS_URL: Optional[str] = Field(
+        default=None,
+        description="URL de conexión completa a Redis (opcional, sobrescribe host/port/db)"
+    )
+
+    QUEUE_RETRY_INTERVAL_MINUTES: int = Field(default=5)
+    QUEUE_MAX_RETRIES: int = Field(default=10)
+    QUEUE_ENABLED: bool = Field(default=True)
+    QUEUE_RETENTION_DAYS: int = Field(default=7)
     
-    QUEUE_RETENTION_DAYS: int = Field(
-        default=7,
-        description="Días de retención para registros EXITOSOS en SQLite antes de ser purgados"
-    )
-    
-    # -- Configuración de SMTP para avisar por correo de problemas técnicos -- #
+    # -- Configuración de SMTP alertas -- #
     
     SMTP_HOST: str = Field(default="smtp.gmail.com", description="Servidor SMTP (ej. smtp.gmail.com o smtp.office365.com)")
     SMTP_PORT: int = Field(default=587, description="Puerto TLS estándar (587) o SSL (465)")
@@ -113,5 +121,25 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: Optional[str] = None
     GOOGLE_SPREADSHEET_ID: Optional[str] = None
     GOOGLE_SHEET_RANGE: Optional[str] = None
+    
+    # --- Control de Throttling (Mini-retries) ---
+    SFC_MINI_RETRY_ATTEMPTS: int = Field(
+        default=2,
+        description="Número de mini-retries inmediatos cuando la SFC responde 429 Throttled/Quota Exceeded"
+    )
+    SFC_MINI_RETRY_DELAY_SECONDS: float = Field(
+        default=5.5,
+        description="Pausa en segundos (mini-delay) entre cada mini-retry por throttling"
+    )
+    
+    # --- 🔔 Webhook de Confirmación de Creación hacia el CRM ---
+    CRM_WEBHOOK_URL: Optional[str] = Field(
+        default=None,
+        description="URL del endpoint POST en el CRM para notificar la creación exitosa en la SFC"
+    )
+    CRM_WEBHOOK_API_KEY: Optional[str] = Field(
+        default=None,
+        description="API Key enviada en la cabecera X-API-Key hacia el CRM"
+    )
     
 settings = Settings()

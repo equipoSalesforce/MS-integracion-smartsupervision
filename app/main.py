@@ -16,8 +16,7 @@ from app.core.middleware import CorrelationIdMiddleware
 from app.core.mapping import SfcSalesforceMapper
 from app.integrations.sfc_client import ssl_context, log_request, log_response
 
-# 🛠️ Imports para SQLite y Scheduler
-from app.db.database import init_db
+from app.db.redis import init_redis, close_redis
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 
 setup_logging()
@@ -54,7 +53,7 @@ async def lifespan(app: FastAPI):
 
     # 2. Crear la tabla SQLite de la cola si no existe
     try:
-        await init_db()
+        await init_redis()
         logger.info("Base de datos SQLite local inicializada correctamente.")
     except Exception as e:
         logger.error(f"Error crítico al inicializar SQLite local: {str(e)}")
@@ -83,6 +82,8 @@ async def lifespan(app: FastAPI):
     # 6. Cierre limpio de recursos
     logger.info("Deteniendo scheduler de reintentos...")
     detener_scheduler()
+    
+    await close_redis()
 
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()

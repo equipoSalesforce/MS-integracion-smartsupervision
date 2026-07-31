@@ -1,14 +1,16 @@
 # app/integrations/sfc_client.py
+import asyncio
+import functools
 import ssl
 import httpx
 import json
 import logging
 from typing import Dict, Any, Optional, Union
 from app.core.config import settings
-from app.core.exceptions import SfcErrorTranslator
+from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager 
 from app.core.constants import SfcEndpoints, SmartStatus
-from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload  # 👈 Importación centralizada
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +51,12 @@ async def log_request(request: httpx.Request):
             body_str = f"<[Contenido No-JSON / Raw: {len(request.content)} bytes]>" if request.content else "<Vacio>"
 
     logger.info(
-        f"\n==================== [AUDIT HTTP OUTGOING REQUEST] ====================\n"
+        "\n==================== [AUDIT HTTP OUTGOING REQUEST] ====================\n"
         f"Method  : {request.method}\n"
         f"URL     : {request.url}\n"
         f"Headers :\n{headers_formatted}\n"
         f"Body    :\n{body_str}\n"
-        f"=========================================================================="
+        "=========================================================================="
     )
 
 
@@ -87,13 +89,55 @@ async def log_response(response: httpx.Response):
         body_str = response.text or "<Vacio>"
 
     logger.info(
-        f"\n==================== [AUDIT HTTP INCOMING RESPONSE] ====================\n"
+        "\n==================== [AUDIT HTTP INCOMING RESPONSE] ====================\n"
         f"Status  : {response.status_code} {response.reason_phrase}\n"
         f"URL     : {response.url}\n"
         f"Headers :\n{headers_formatted}\n"
         f"Body    :\n{body_str}\n"
-        f"=========================================================================="
+        "=========================================================================="
     )
+
+
+def handle_sfc_throttling(func):
+    """
+    Decorador asíncrono para métodos de SfcClient.
+    Captura respuestas 429 / Throttling / Quota Exceeded y ejecuta un mini-delay
+    transparente antes de reintentar la operación hasta N veces.
+    Si se agotan los reintentos, la excepción se relanza para que el orquestador
+    o router la capture y la guarde en la cola de contingencia (Redis).
+    """
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        attempts = 0
+        max_retries = getattr(settings, "SFC_MINI_RETRY_ATTEMPTS", 2)
+        delay = getattr(settings, "SFC_MINI_RETRY_DELAY_SECONDS", 5.5)
+
+        while True:
+            try:
+                return await func(*args, **kwargs)
+            except SfcIntegrationException as exc:
+                raw_msg_lower = str(getattr(exc, "raw_message", "") or "").lower()
+                error_type_str = str(getattr(exc, "error_type", "") or "").upper()
+                
+                is_throttled = (
+                    exc.status_code == 429 or 
+                    error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR", "INFRASTRUCTURE_ERROR") or
+                    "throttled" in raw_msg_lower or
+                    "quota" in raw_msg_lower or
+                    "resource_exhausted" in raw_msg_lower
+                )
+
+                if is_throttled and attempts < max_retries:
+                    attempts += 1
+                    logger.warning(
+                        f"⏳ [SfcClient] Solicitud regulada / cuota superada por la SFC (429 Throttled/Quota). "
+                        f"Ejecutando mini-delay de {delay}s antes del reintento {attempts}/{max_retries}..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+    return wrapper
 
 
 class SfcClient:
@@ -113,6 +157,7 @@ class SfcClient:
                 }
             )
 
+    @handle_sfc_throttling
     async def fetch_quejas_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de quejas."""
         target_url = url if url else f"{self.base_url}{SfcEndpoints.QUEJA.value}"
@@ -126,6 +171,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
+    @handle_sfc_throttling
     async def get_adjuntos_list(self, codigo_queja: str) -> Dict[str, Any]:
         """Obtiene el listado de archivos adjuntos asociados a una queja."""
         target_url = f"{self.base_url}{SfcEndpoints.STORAGE.value}?codigo_queja__codigo_queja={codigo_queja}"
@@ -139,6 +185,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
+    @handle_sfc_throttling
     async def send_ack_batch(self, pqrs_ids: list) -> Dict[str, Any]:
         """Envía el lote de confirmación de recibidos (ACK)."""
         target_url = f"{self.base_url}{SfcEndpoints.ACK_COMPLAINT.value}"
@@ -153,6 +200,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
+    @handle_sfc_throttling
     async def post_nueva_queja(self, payload_mapeado: Dict[str, Any]) -> Dict[str, Any]:
         """
         Envía la información estructurada de una queja nueva a la SFC.
@@ -174,6 +222,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
+    @handle_sfc_throttling
     async def post_adjunto_queja(self, sfc_codigo_queja: str, file_bytes: bytes, file_type: str, file_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Envía un archivo binario asociado a una queja hacia la SFC utilizando multipart/form-data.
@@ -231,6 +280,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
+    @handle_sfc_throttling
     async def put_actualizar_queja(self, sfc_codigo_queja: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Envía la actualización completa de estado, fraudes o cierre (Momento 3)
@@ -253,6 +303,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
+    @handle_sfc_throttling
     async def fetch_usuarios_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de usuarios actualizados (Momento 4)."""
         target_url = url if url else f"{self.base_url}{SfcEndpoints.USUARIOS.value}"
@@ -266,6 +317,7 @@ class SfcClient:
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
+    @handle_sfc_throttling
     async def send_user_ack_batch(self, numeros_id_cf: list) -> Dict[str, Any]:
         """Envía el lote de confirmación de recibido para usuarios (Momento 4 ACK)."""
         target_url = f"{self.base_url}{SfcEndpoints.USUARIOS_ACK.value}"

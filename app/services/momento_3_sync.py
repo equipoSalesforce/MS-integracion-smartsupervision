@@ -6,6 +6,8 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.core.exceptions import SfcIntegrationException
@@ -144,9 +146,15 @@ class Momento3SincronizacionService:
                 )
             raise
 
+        # 🚨 Relanzar errores de red/conexión para que sean capturados por routes_quejas.py y encolados en Redis
+        except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
+            logger.error(f"❌ [Momento 3] Fallo de red/conexión para {smart_code}: {net_err}")
+            raise net_err
+
         except Exception as e:
             logger.error(f"Fallo en pipeline de M3 para {smart_code}: {str(e)}")
             return {"status": "error", "message": f"Pipeline M3 interrumpido: {str(e)}"}
+
 
     async def _generar_y_enviar_pdf_respuesta_final(
         self,

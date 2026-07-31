@@ -1,11 +1,13 @@
+# app/workers/scheduler.py
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.db.database import AsyncSessionLocal
+from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
 from app.api.dependencies import get_sfc_client, get_s3_client
+from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -13,13 +15,28 @@ scheduler = AsyncIOScheduler()
 
 
 async def reintentar_despachos_pendientes_job():
-    """Job que consume los pendientes de SQLite, reintenta la comunicación con la SFC,
-    audita el tiempo de retención (SLA) y notifica la autorrecuperación cuando la cola se vacía.
     """
-    async with AsyncSessionLocal() as session:
-        queue_service = QueueService(session)
+    Job que consume los pendientes de Redis, reintenta la comunicación con la SFC,
+    audita el tiempo de retención (SLA) y notifica la autorrecuperación cuando la cola se vacía.
+    Utiliza un Lock Distribuido para ejecuciones multicontenedor seguras.
+    """
+    redis = get_redis_client()
+    if not redis:
+        logger.warning("⚠️ [Scheduler Job] Cliente Redis no disponible. Omitiendo ciclo de reintentos.")
+        return
 
-        # ⏳ 1. Control de SLA: Evaluar e informar casos con > 12 horas retenidos
+    # 🔒 1. CERROJO DISTRIBUIDO (Lock con expiración automática de 55s)
+    LOCK_KEY = "sfc:queue:lock:retry_job"
+    acquired = await redis.set(LOCK_KEY, "locked", nx=True, px=55000)
+
+    if not acquired:
+        logger.info("🔒 [Scheduler Job] Cerrojo activo en otra réplica/contenedor. Omitiendo ejecución en este nodo.")
+        return
+
+    try:
+        queue_service = QueueService(redis)
+
+        # ⏳ 2. Control de SLA: Evaluar e informar casos con > 12 horas retenidos
         try:
             casos_vencidos = await queue_service.obtener_casos_vencidos_sla(horas_limite=12)
             if casos_vencidos:
@@ -28,15 +45,14 @@ async def reintentar_despachos_pendientes_job():
         except Exception as e:
             logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
 
-        # 🔄 2. Obtener los registros pendientes cuya fecha de reintento ya venció
+        # 🔄 3. Obtener los registros pendientes cuya fecha de reintento ya venció
         pendientes = await queue_service.obtener_pendientes_para_reintento()
 
         if not pendientes:
             return
 
-        logger.info(f"🔄 [Scheduler Job] Se encontraron {len(pendientes)} despachos pendientes en SQLite. Iniciando reintentos...")
+        logger.info(f"🔄 [Scheduler Job] Se encontraron {len(pendientes)} despachos pendientes en Redis. Iniciando reintentos...")
 
-        # Instanciamos dependencias base de infraestructura
         sfc_client = get_sfc_client()
         s3_client = get_s3_client()
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
@@ -45,13 +61,20 @@ async def reintentar_despachos_pendientes_job():
 
         for item in pendientes:
             try:
-                # Reintento directo usando el JSON crudo almacenado
                 resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
 
                 if resultado.get("status") != "error":
                     await queue_service.marcar_exitoso(item.id)
                     casos_despachados_exito += 1
-                    logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde la cola.")
+                    
+                    # Envío asíncrono al CRM para notificar creación exitosa en la SFC
+                    case_id_crm = item.payload_json.get("Case_id") or item.smart_code
+                    await CrmWebhookService.notificar_creacion_exitosa(
+                        case_id_crm=case_id_crm,
+                        smart_code=item.smart_code
+                    )
+                    
+                    logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde Redis.")
                 else:
                     await queue_service.registrar_fallo(item.id, error_msg=resultado.get("message"))
 
@@ -59,30 +82,34 @@ async def reintentar_despachos_pendientes_job():
                 logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {str(exc)}")
                 await queue_service.registrar_fallo(item.id, error_msg=str(exc))
 
-        # ✅ 3. Notificación de Autorrecuperación (Si hubo entregas y la cola quedó totalmente vacía)
+        # ✅ 4. Notificación de Autorrecuperación
         try:
             totales_restantes = await queue_service.contar_pendientes()
             if casos_despachados_exito > 0 and totales_restantes == 0:
                 logger.info(
-                    f"✅ [Scheduler Job] Cola completamente vaciada ({casos_despachados_exito} entregados). "
+                    f"✅ [Scheduler Job] Cola de Redis completamente vaciada ({casos_despachados_exito} entregados). "
                     f"Enviando notificación de autorrecuperación..."
                 )
                 await EmailAlertService.notificar_recuperacion_sfc(total_despachados=casos_despachados_exito)
         except Exception as e:
             logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
 
+    finally:
+        # Liberación limpia del lock
+        await redis.delete(LOCK_KEY)
+
 
 async def purgar_cola_job():
-    """Job diario que elimina registros 'EXITOSO' antiguos de la BD SQLite."""
-    async with AsyncSessionLocal() as session:
-        queue_service = QueueService(session)
+    """Job diario que elimina registros 'EXITOSO' antiguos de la cola Redis."""
+    redis = get_redis_client()
+    if redis:
+        queue_service = QueueService(redis)
         await queue_service.purgar_registros_antiguos(dias_retencion=settings.QUEUE_RETENTION_DAYS)
 
 
 def iniciar_scheduler():
     """Inicializa los trabajos programados de APScheduler si la cola está habilitada."""
     if settings.QUEUE_ENABLED and not scheduler.running:
-        # 1. Job de Reintentos y SLA (Corre cada N minutos con protección de concurrencia)
         scheduler.add_job(
             reintentar_despachos_pendientes_job,
             trigger="interval",
@@ -93,7 +120,6 @@ def iniciar_scheduler():
             coalesce=True
         )
 
-        # 2. Job de Purga Nocturna (Corre todos los días a las 00:00 UTC)
         scheduler.add_job(
             purgar_cola_job,
             trigger="cron",
@@ -106,7 +132,7 @@ def iniciar_scheduler():
 
         scheduler.start()
         logger.info(
-            f"🚀 APScheduler corriendo reintentos cada {settings.QUEUE_RETRY_INTERVAL_MINUTES}m "
+            f"🚀 APScheduler corriendo reintentos sobre Redis cada {settings.QUEUE_RETRY_INTERVAL_MINUTES}m "
             f"y purga nocturna a las 00:00 UTC."
         )
 

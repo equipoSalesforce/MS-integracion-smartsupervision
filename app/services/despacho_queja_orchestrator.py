@@ -158,6 +158,10 @@ class DespachoQuejaOrquestador:
         if es_fraude:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo gestión de FRAUDE para {payload.Smart_Code__c}...")
             resultado = await self.m3_service.ejecutar_gestion_fraude(payload=payload)
+            
+            # 🚨 Si la gestión de fraude falló, no continuar con el Cierre
+            if isinstance(resultado, dict) and resultado.get("status") == "error":
+                return resultado
 
         if es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo CIERRE DEFINITIVO para {payload.Smart_Code__c}...")

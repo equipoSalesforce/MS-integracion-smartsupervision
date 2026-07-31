@@ -7,29 +7,29 @@ services:
       context: ../                          
       dockerfile: infrastructure/Dockerfile  
       target: final
-    container_name: smartsupervision-app-test
     ports:
-      - "8000:8000"
+      - "8000-8005:8000"
     volumes:
       - ../:/code                           
     env_file:
       - .env.test
     environment:
-      # Forzamos entorno QA para que no ejecute retornos simulados/mock
       - ENVIRONMENT=qa
-      # La app dentro de Docker se comunica con MinIO usando el nombre del servicio
       - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - minio
+      - redis
 
   # --- EMULADOR DE AWS S3 (MINIO) ---
   minio:
     image: minio/minio:latest
     container_name: minio-s3-local
     ports:
-      - "9000:9000"   # Puerto para la API de S3 (boto3)
-      - "9001:9001"   # Puerto para la Consola Web de administración
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -37,5 +37,16 @@ services:
     volumes:
       - minio_data:/data
 
+  # --- COLA CENTRALIZADA (REDIS) ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis-queue-local
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
 volumes:
   minio_data:
+  redis_data:

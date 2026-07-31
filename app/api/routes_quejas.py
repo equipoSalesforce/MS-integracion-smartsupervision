@@ -4,7 +4,6 @@ import httpx
 from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import JSONResponse
 from typing import List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
     get_sfc_client, 
@@ -24,8 +23,8 @@ from app.schemas.crm_payloads import (
     ConfirmacionAckInput
 )
 
-# 🛠️ Imports para la Cola Local SQLite
-from app.db.database import AsyncSessionLocal, get_db
+# 🔴 Imports para Redis
+from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 
 router = APIRouter(dependencies=[Depends(verificar_api_key_crm)])
@@ -67,7 +66,7 @@ async def confirmar_ack_momento_1(
 @router.post(
     "/sync/despacho",
     status_code=status.HTTP_200_OK,
-    summary="Trigger Unificado de Despacho con Cola de Contingencia SQLite",
+    summary="Trigger Unificado de Despacho con Cola Centralizada Redis",
 )
 async def despachar_queja_crm(
     payload: QuejaUnificadaCrmInput = Body(...),
@@ -96,16 +95,15 @@ async def despachar_queja_crm(
 
     except SfcIntegrationException as exc:
         if exc.status_code >= 500 or exc.error_type in ["SERVER_ERROR", "SFC_DOWN", "TIMEOUT", "NETWORK_ERROR"]:
-            logger.warning(f"⚠️ SFC no disponible ({exc.status_code}). Guardando caso {payload.Smart_Code__c} en cola SQLite local.")
+            logger.warning(f"⚠️ SFC no disponible ({exc.status_code}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
             
-            async with AsyncSessionLocal() as session:
-                queue_service = QueueService(session)
-                await queue_service.encolar_despacho(
-                    smart_code=payload.Smart_Code__c,
-                    tipo_operacion="AUTO",
-                    payload_json=payload.model_dump(mode="json"),
-                    error_inicial=exc.raw_message or str(exc)
-                )
+            queue_service = QueueService(get_redis_client())
+            await queue_service.encolar_despacho(
+                smart_code=payload.Smart_Code__c,
+                tipo_operacion="AUTO",
+                payload_json=payload.model_dump(mode="json"),
+                error_inicial=exc.raw_message or str(exc)
+            )
                 
             await EmailAlertService.notificar_falla_infraestructura(
                 smart_code=payload.Smart_Code__c,
@@ -126,16 +124,15 @@ async def despachar_queja_crm(
         raise
 
     except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as net_err:
-        logger.warning(f"⚠️ Fallo de conexión contra la SFC ({str(net_err)}). Guardando caso {payload.Smart_Code__c} en cola SQLite.")
+        logger.warning(f"⚠️ Fallo de conexión contra la SFC ({str(net_err)}). Guardando caso {payload.Smart_Code__c} en cola Redis.")
         
-        async with AsyncSessionLocal() as session:
-            queue_service = QueueService(session)
-            await queue_service.encolar_despacho(
-                smart_code=payload.Smart_Code__c,
-                tipo_operacion="AUTO",
-                payload_json=payload.model_dump(mode="json"),
-                error_inicial=str(net_err)
-            )
+        queue_service = QueueService(get_redis_client())
+        await queue_service.encolar_despacho(
+            smart_code=payload.Smart_Code__c,
+            tipo_operacion="AUTO",
+            payload_json=payload.model_dump(mode="json"),
+            error_inicial=str(net_err)
+        )
             
         await EmailAlertService.notificar_falla_infraestructura(
             smart_code=payload.Smart_Code__c,
@@ -156,30 +153,15 @@ async def despachar_queja_crm(
 @router.get(
     "/queue",
     status_code=status.HTTP_200_OK,
-    summary="Consultar el estado de la cola de reintentos local (SQLite)"
+    summary="Consultar el estado de la cola de reintentos centralizada (Redis)"
 )
 async def consultar_cola_local(
-    estado: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)  # 👈 Inyección de Dependencias
+    estado: Optional[str] = None
 ):
-    queue_service = QueueService(db)
+    queue_service = QueueService(get_redis_client())
     registros = await queue_service.obtener_todos_los_encolados(estado=estado)
     
-    return [
-        {
-            "id": r.id,
-            "smart_code": r.smart_code,
-            "tipo_operacion": r.tipo_operacion,
-            "estado": r.estado,
-            "intentos": r.intentos,
-            "max_intentos": r.max_intentos,
-            "ultimo_error": r.ultimo_error,
-            "proximo_reintento_at": r.proximo_reintento_at.isoformat() if r.proximo_reintento_at else None,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-        }
-        for r in registros
-    ]
+    return [r.to_dict() for r in registros]
 
 
 # ======================================================================
