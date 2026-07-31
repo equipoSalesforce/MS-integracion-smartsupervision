@@ -1,5 +1,5 @@
 from typing import List, Any, Optional
-from pydantic import BeforeValidator, Field
+from pydantic import BeforeValidator, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
 
