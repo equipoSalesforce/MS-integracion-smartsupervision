@@ -15,10 +15,8 @@ def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 80) -> str:
 
     lineas_formateadas = []
     
-    # Procesamos párrafo por párrafo para no romper la estructura original
     for linea in texto.split("\n"):
         if len(linea.strip()) > max_caracteres_por_linea:
-            # Reorganiza las palabras respetando el ancho máximo
             linea_envuelta = textwrap.fill(
                 linea, 
                 width=max_caracteres_por_linea, 
@@ -42,7 +40,8 @@ def generar_pdf_respuesta_final(
     Lee la plantilla PDF interactiva, ajusta el ancho de línea del texto,
     inyecta los valores correspondientes y aplica protección contra escritura.
     """
-    ruta_plantilla = Path("app/resources/plantilla_respuesta_final.pdf")
+    # 🎯 Resolver la ruta de forma absoluta respecto al archivo actual
+    ruta_plantilla = Path(__file__).resolve().parent.parent / "resources" / "plantilla_respuesta_final.pdf"
     ruta_output = Path(ruta_salida)
 
     if not ruta_plantilla.exists():
@@ -54,7 +53,6 @@ def generar_pdf_respuesta_final(
     writer = PdfWriter()
     writer.append(reader)
 
-    # 🎯 Aplicamos el ajuste de línea automático al cuerpo del mensaje
     texto_ajustado = ajustar_ancho_texto(texto_crm, max_caracteres_por_linea=80)
 
     datos_formulario = {
@@ -63,13 +61,12 @@ def generar_pdf_respuesta_final(
         "mensaje_cuerpo": texto_ajustado
     }
 
-    # Inyectamos la información en el formulario
     writer.update_page_form_field_values(
         writer.pages[0], 
         datos_formulario
     )
 
-    # 🎯 CONFIGURACIÓN DE SELECCIONABILIDAD Y SEGURIDAD LÓGICA
+    # Configuración de seleccionabilidad y seguridad lógica
     if "/AcroForm" in writer._root_object:
         acro = writer._root_object["/AcroForm"].get_object()
         if "/Fields" in acro:
@@ -98,7 +95,6 @@ def generar_pdf_respuesta_final(
 
                 obj[NameObject("/F")] = NumberObject(4)
 
-    # Escribir el PDF optimizado
     with open(ruta_output, "wb") as f_out:
         writer.write(f_out)
 

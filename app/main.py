@@ -12,6 +12,9 @@ from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.logging_config import setup_logging
+from app.core.middleware import CorrelationIdMiddleware
+from app.core.mapping import SfcSalesforceMapper
+from app.integrations.sfc_client import ssl_context, log_request, log_response
 
 # 🛠️ Imports para SQLite y Scheduler
 from app.db.database import init_db
@@ -34,19 +37,20 @@ async def lifespan(app: FastAPI):
         f"con Cola Local SQLite + APScheduler activos."
     )
 
-    # 1. Inicializar Pool Global de cliente HTTP con timeouts y límites de pool
-    timeout = httpx.Timeout(
-        connect=5.0,  # Máximo 5s para establecer conexión TCP
-        read=30.0,    # Máximo 30s esperando respuesta
-        write=15.0,   # Máximo 15s enviando payload/adjuntos
-        pool=10.0
+    # 1. Inicializar Pool Global de cliente HTTP con TLS 1.2 y Hooks de Auditoría
+    timeout = httpx.Timeout(connect=5.0, read=30.0, write=15.0, pool=10.0)
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    
+    app.state.http_client = httpx.AsyncClient(
+        timeout=timeout, 
+        limits=limits,
+        verify=ssl_context,
+        event_hooks={
+            'request': [log_request],
+            'response': [log_response]
+        }
     )
-    limits = httpx.Limits(
-        max_keepalive_connections=20, 
-        max_connections=100
-    )
-    app.state.http_client = httpx.AsyncClient(timeout=timeout, limits=limits)
-    logger.info("📡 Pool global de HTTP Client inicializado correctamente.")
+    logger.info("📡 Pool global de HTTP Client inicializado correctamente con TLS 1.2.")
 
     # 2. Crear la tabla SQLite de la cola si no existe
     try:
@@ -67,10 +71,16 @@ async def lifespan(app: FastAPI):
         await SfcErrorTranslator.obtener_matriz_errores()
     except Exception as e:
         logger.error(f"Fallo al arrancar la matriz de errores: {str(e)}")
-    
+
+    # 5. Precargar catálogos normativos y DIVIPOLA en RAM
+    try:
+        SfcSalesforceMapper.cargar_catalogos()
+    except Exception as e:
+        logger.error(f"Fallo al precargar catálogos en RAM: {str(e)}")
+
     yield
 
-    # 5. Cierre limpio de recursos
+    # 6. Cierre limpio de recursos
     logger.info("Deteniendo scheduler de reintentos...")
     detener_scheduler()
 
@@ -87,7 +97,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 🌐 Configuración de CORS (Cross-Origin Resource Sharing)
+# 🌐 Registramos Middleware de Correlation ID
+app.add_middleware(CorrelationIdMiddleware)
+
+# 🌐 Configuración de CORS
 origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS] if settings.BACKEND_CORS_ORIGINS else ["*"]
 
 app.add_middleware(
@@ -95,11 +108,11 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*", "X-API-Key"],
+    allow_headers=["*", "X-API-Key", "X-Correlation-ID"],
 )
 
 # ======================================================================
-# 🛡️ EXCEPTION HANDLERS: Formato Canónico de Errores para el CRM
+# 🛡️ EXCEPTION HANDLERS
 # ======================================================================
 
 @app.exception_handler(RequestValidationError)
@@ -108,19 +121,11 @@ async def pydantic_validation_exception_handler(
     request: Request, 
     exc: RequestValidationError | ValidationError
 ):
-    """
-    Intercepta errores de validación de Pydantic/FastAPI y los formatea 
-    al estándar de respuesta esperado por Salesforce/CRM.
-    """
     errors = exc.errors()
     if errors:
         first_error = errors[0]
         loc = first_error.get("loc", [])
-        
-        # Obtenemos el nombre exacto del campo con error (ej: 'Categorias_COL__c')
         field_name = str(loc[-1]) if loc and loc[-1] != "body" else "payload"
-        
-        # Limpiamos el mensaje de Pydantic
         raw_msg = first_error.get("msg", "Error de validación en el payload.")
         if raw_msg.startswith("Value error, "):
             raw_msg = raw_msg.replace("Value error, ", "", 1)
@@ -147,9 +152,6 @@ async def pydantic_validation_exception_handler(
 
 @app.exception_handler(SfcIntegrationException)
 async def sfc_integration_exception_handler(request: Request, exc: SfcIntegrationException):
-    """
-    Retorna las excepciones traducidas de la SFC manteniendo el formato estructurado.
-    """
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -164,11 +166,8 @@ async def sfc_integration_exception_handler(request: Request, exc: SfcIntegratio
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """
-    Manejador global para cualquier error no capturado (500).
-    Evita exponer tracebacks internos y retorna un formato estructurado para el CRM.
-    """
-    logger.critical(f"🔥 Error no controlado en endpoint '{request.url.path}': {str(exc)}", exc_info=True)
+    correlation_id = getattr(request.state, "correlation_id", "N/A")
+    logger.critical(f"🔥 Error no controlado en endpoint '{request.url.path}' [CID: {correlation_id}]: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -181,19 +180,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-# --- Endpoint Crítico de AWS ALB Health Check ---
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
 async def health_check():
-    """
-    Health check síncrono para el Balanceador de Carga (ALB).
-    """
     return {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
         "project": settings.PROJECT_NAME
     }
 
-# --- REGISTRO DE RUTAS ---
 app.include_router(
     quejas_router,
     prefix=f"{settings.API_V1_STR}/quejas",
