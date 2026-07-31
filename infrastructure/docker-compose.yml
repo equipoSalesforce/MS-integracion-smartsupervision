@@ -1,39 +1,52 @@
 version: "3.8"
 
 services:
-  # --- MICROSERVICIO REAL DE INTEGRACIÓN ---
+  # ======================================================================
+  # 🚀 MICROSERVICIO PRINCIPAL DE INTEGRACIÓN SMART SUPERVISIÓN
+  # ======================================================================
   app:
     build:
-      context: ../                          
-      dockerfile: infrastructure/Dockerfile  
-      target: final
-    container_name: smartsupervision-app
-    ports:
-      - "8000:8000"
-    volumes:
-      - ../:/code                           
-    environment:
-      - ENVIRONMENT=local
-      - SFC_URL_BASE=http://mock-sfc:8080/
-      - SFC_VERIFY_SIGNATURES=true #Param para revisar firmas
-      - SFC_TIPO_ENTIDAD=1
-      - SFC_ENTIDAD_COD=423
-      - AWS_S3_BUCKET=mi-bucket-smartsupervision
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - mock-sfc
-
-  # --- MOCK OFICIAL DE LA SFC ---
-  mock-sfc:
-    build:
-      context: ../                          
+      context: ../
       dockerfile: infrastructure/Dockerfile
       target: final
-    container_name: mock-sfc
+    image: ms-integracion-smartsupervision:latest
     ports:
-      - "8080:8080"
-    volumes:
-      - ../:/code                           
+      - "8000:8000"
+    env_file:
+      - ../.env
     environment:
-      - VERIFY_SIGNATURES=false
-    command: uvicorn mock_sfc.main:app --host 0.0.0.0 --port 8080 --reload
+      - ENVIRONMENT=dev
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ======================================================================
+  # 📦 COLA CENTRALIZADA REDIS (Para entornos DEV en EC2)
+  # Nota: En AWS Producción/Staging, se reemplaza por AWS ElastiCache
+  # ======================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis_dev_data:

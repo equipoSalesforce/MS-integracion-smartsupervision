@@ -14,6 +14,7 @@ from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.logging_config import setup_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.mapping import SfcSalesforceMapper
+from app.integrations import sfc_client
 from app.integrations.sfc_client import ssl_context, log_request, log_response
 
 from app.db.redis import init_redis, close_redis
@@ -80,10 +81,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # 6. Cierre limpio de recursos
-    logger.info("Deteniendo scheduler de reintentos...")
-    detener_scheduler()
-    
+    logger.info("🛑 Deteniendo servicios para apagado seguro...")
+    detener_scheduler()  # Espera a que los jobs activos terminen
     await close_redis()
+    await sfc_client.close()
 
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
