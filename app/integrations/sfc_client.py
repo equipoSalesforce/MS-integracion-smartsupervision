@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator
 from app.core.auth import SfcAuthManager 
 from app.core.constants import SfcEndpoints, SmartStatus
-from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload 
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload  # 👈 Importación centralizada
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ async def log_request(request: httpx.Request):
     enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
 
     if is_file_request and not enable_file_logs:
-        return  # Omitir log para binarios pesados
+        return  # Omitir el log de archivos pesados
     # -----------------------------------
 
     headers_clean = sanitizar_headers(request.headers)
@@ -68,7 +68,7 @@ async def log_response(response: httpx.Response):
     enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
 
     if is_file_response and not enable_file_logs:
-        return  # Omitir log para binarios pesados
+        return  # Omitir el log de archivos pesados
     # -----------------------------------
 
     await response.aread()
@@ -101,7 +101,6 @@ class SfcClient:
         self.base_url = settings.SFC_URL_BASE.rstrip('/')
         self.interceptor = interceptor
         
-        # 🎯 Reutiliza el cliente HTTP global si se provee; de lo contrario crea uno propio
         if http_client is not None:
             self.client = http_client
         else:
@@ -155,15 +154,20 @@ class SfcClient:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     async def post_nueva_queja(self, payload_mapeado: Dict[str, Any]) -> Dict[str, Any]:
-        """Envía la información estructurada de una queja nueva a la SFC."""
+        """
+        Envía la información estructurada de una queja nueva a la SFC.
+        """
         url = f"{self.base_url}{SfcEndpoints.QUEJA.value}"
         logger.info(f"[SfcClient] Enviando metadatos de queja a: {url}")
+        logger.info(f"Enviando POST de datos de queja regulatoria: {payload_mapeado.get('codigo_queja')}")
         
         try:
             response = await self.client.post(url, json=payload_mapeado, auth=self.interceptor)
+            
             if response.status_code not in (200, 201):
                 logger.error(f"SFC rechazó la queja. Código: {response.status_code}. Respuesta: {response.text}")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
+                
             return response.json()
         except httpx.HTTPStatusError as exc:
             await SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
@@ -171,9 +175,13 @@ class SfcClient:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     async def post_adjunto_queja(self, sfc_codigo_queja: str, file_bytes: bytes, file_type: str, file_name: Optional[str] = None) -> Dict[str, Any]:
-        """Envía un archivo binario asociado a una queja hacia la SFC."""
+        """
+        Envía un archivo binario asociado a una queja hacia la SFC utilizando multipart/form-data.
+        Bypassea el interceptor automático usando auth=None para mitigar errores de streaming.
+        """
         endpoint = SfcEndpoints.STORAGE.value
         url = f"{self.base_url}{endpoint}"
+        logger.info(f"[SfcClient] Enviando metadatos de adjuntos a: {url}")
         
         if not file_name:
             file_name = f"soporte_{sfc_codigo_queja}.{file_type}"
@@ -185,7 +193,10 @@ class SfcClient:
         signature = self.interceptor.signature_context.get_signature(
             method="POST",
             url=endpoint,
-            payload={"codigo_queja": sfc_codigo_queja, "type": file_type}
+            payload={
+                "codigo_queja": sfc_codigo_queja,
+                "type": file_type
+            }
         )
         
         headers = {
@@ -196,14 +207,24 @@ class SfcClient:
             "X-SFC-Signature": signature
         }
         
-        data = {"codigo_queja": sfc_codigo_queja, "type": file_type}
-        files = {"file": (file_name, file_bytes, f"application/{file_type}")}
+        data = {
+            "codigo_queja": sfc_codigo_queja,
+            "type": file_type
+        }
+        
+        files = {
+            "file": (file_name, file_bytes, f"application/{file_type}")
+        }
 
+        logger.info(f"Transmitiendo archivo adjunto ({file_type}) para la queja SFC: {sfc_codigo_queja}")
+        
         try:
             response = await self.client.post(url, data=data, files=files, headers=headers, auth=None)
+            
             if response.status_code not in (200, 201):
                 logger.error(f"SFC rechazó la carga del archivo. Código: {response.status_code}. Respuesta: {response.text}")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
+                
             return response.json()
         except httpx.HTTPStatusError as exc:
             await SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
@@ -211,19 +232,27 @@ class SfcClient:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
 
     async def put_actualizar_queja(self, sfc_codigo_queja: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Envía la actualización completa de estado, fraudes o cierre (Momento 3)."""
+        """
+        Envía la actualización completa de estado, fraudes o cierre (Momento 3)
+        hacia la SFC utilizando el verbo PATCH/PUT de forma síncrona.
+        """
         url = f"{self.base_url}{SfcEndpoints.QUEJA.value}{sfc_codigo_queja}/"
+        logger.info(f"[SfcClient] Enviando actualización de estado M3 a: {url}")
+        
         try:
             response = await self.client.patch(url, json=payload, auth=self.interceptor)
+            
             if response.status_code not in (200, 201):
-                logger.error(f"SFC rechazó la actualización. Código: {response.status_code}. Respuesta: {response.text}")
+                logger.error(f"SFC rechazó la actualización del caso. Código: {response.status_code}. Respuesta: {response.text}")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
+                
             return response.json()
+            
         except httpx.HTTPStatusError as exc:
             await SfcErrorTranslator.procesar_y_lanzar(exc.response.status_code, exc.response.text)
         except httpx.RequestError:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
-
+    
     async def fetch_usuarios_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de usuarios actualizados (Momento 4)."""
         target_url = url if url else f"{self.base_url}{SfcEndpoints.USUARIOS.value}"
@@ -252,5 +281,5 @@ class SfcClient:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     async def close(self):
-        """Cierra de forma segura el pool de conexiones."""
+        """Cierra de forma segura el pool de conexiones del cliente HTTPX."""
         await self.client.aclose()

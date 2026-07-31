@@ -2,6 +2,18 @@
 import logging
 import sys
 import os
+from app.core.middleware import get_correlation_id
+
+
+class CorrelationIdFilter(logging.Filter):
+    """
+    Filtro de Logging que inyecta el correlation_id activo en cada registro de log
+    obteniéndolo del contexto asíncrono (ContextVar) del Middleware.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.correlation_id = get_correlation_id()
+        return True
+
 
 def setup_logging():
     # Permitimos configurar el nivel de logs desde el .env (por defecto INFO)
@@ -14,9 +26,9 @@ def setup_logging():
         for handler in root_logger.handlers:
             root_logger.removeHandler(handler)
 
-    # Formato limpio y profesional (ideal para analizar en CloudWatch con filtros)
+    # Formato profesional con inyección de Correlation ID [CID: ...]
     formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
+        "[%(asctime)s] %(levelname)s [CID: %(correlation_id)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
@@ -24,13 +36,13 @@ def setup_logging():
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(formatter)
     stdout_handler.setLevel(log_level)
+    stdout_handler.addFilter(CorrelationIdFilter())
 
     # Configuración del Root Logger
     root_logger.setLevel(log_level)
     root_logger.addHandler(stdout_handler)
 
-    # --- CONTROL DE RUIDO ---
-    # Silenciamos librerías externas que inundan el log con peticiones internas de red
+    # --- CONTROL DE RUIDO DE LIBRERÍAS EXTERNAS ---
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("h11").setLevel(logging.WARNING)

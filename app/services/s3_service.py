@@ -1,3 +1,4 @@
+# app/services/s3_service.py
 import asyncio
 import httpx
 import logging
@@ -17,10 +18,11 @@ class S3StorageService:
     y excepciones estandarizadas.
     """
 
-    def __init__(self, s3_client=None):
+    def __init__(self, s3_client=None, http_client: Optional[httpx.AsyncClient] = None):
         self.s3_client = s3_client
         self.default_bucket = getattr(settings, "AWS_S3_BUCKET", "global66-sfc-bucket-local")
         self.is_local = settings.ENVIRONMENT in ("development", "local")
+        self.http_client = http_client
 
     @staticmethod
     def normalizar_tipo_archivo(raw_type: str, file_url: str = "") -> tuple[str, str]:
@@ -102,7 +104,7 @@ class S3StorageService:
                 error_type="FILE_SIZE_EXCEEDED",
                 sfc_field="archivos_s3",
                 raw_message=f"El archivo '{file_name}' ({file_size / (1024*1024):.2f}MB) supera el límite máximo de {max_size_mb}MB.",
-                crm_action=f"Comprima el documento antes de reintentar."
+                crm_action="Comprima el documento antes de reintentar."
             )
 
         def _descargar():
@@ -198,12 +200,15 @@ class S3StorageService:
         adjuntos_sfc: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Descarga adjuntos desde la SFC (HTTP) y los respalda en S3. [Momento 1]
+        Descarga adjuntos desde la SFC (HTTP) y los respalda en S3 de forma concurrente. [Momento 1]
         """
-        adjuntos_procesados = []
+        if not adjuntos_sfc:
+            return []
 
-        async with httpx.AsyncClient(timeout=20.0) as http_client:
-            for adj in adjuntos_sfc:
+        sem = asyncio.Semaphore(5)
+
+        async def _procesar_adjunto(client: httpx.AsyncClient, adj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            async with sem:
                 url_sfc = adj.get("file") or adj.get("url") or adj.get("s3_url")
                 file_id = adj.get("id")
                 raw_type = adj.get("type")
@@ -214,7 +219,7 @@ class S3StorageService:
 
                 try:
                     logger.info(f"[S3 Orquestador] Descargando de SFC: {filename}")
-                    response = await http_client.get(url_sfc)
+                    response = await client.get(url_sfc)
                     response.raise_for_status()
                     file_bytes = response.content
 
@@ -224,21 +229,30 @@ class S3StorageService:
                         content_type=content_type
                     )
 
-                    adjuntos_procesados.append({
+                    return {
                         "nombre_archivo": filename,
                         "s3_key": s3_key,
                         "bucket": self.default_bucket
-                    })
+                    }
                 except Exception as e:
                     logger.error(f"❌ Error transfiriendo adjunto '{filename}' a S3: {e}")
                     if self.is_local:
-                        adjuntos_procesados.append({
+                        return {
                             "nombre_archivo": filename,
                             "s3_key": s3_key,
                             "bucket": self.default_bucket
-                        })
+                        }
+                    return None
 
-        return adjuntos_procesados
+        if self.http_client:
+            tasks = [_procesar_adjunto(self.http_client, adj) for adj in adjuntos_sfc]
+            results = await asyncio.gather(*tasks)
+        else:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                tasks = [_procesar_adjunto(client, adj) for adj in adjuntos_sfc]
+                results = await asyncio.gather(*tasks)
+
+        return [r for r in results if r is not None]
 
     async def transferir_lote_s3_a_sfc(
         self, 
@@ -250,57 +264,63 @@ class S3StorageService:
         afijo_masivo: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Obtiene archivos desde S3 y los transmite a la SFC mediante multipart/form-data.
+        Obtiene archivos desde S3 y los transmite a la SFC mediante multipart/form-data de forma concurrente.
         Maneja afijos regulatorios y la supresión de duplicados. [Momento 2 y 3]
         """
-        resultados = []
+        if not adjuntos_crm:
+            return []
 
-        for item in adjuntos_crm:
-            s3_key = item.s3_key if hasattr(item, "s3_key") else item.get("s3_key")
-            bucket = (item.bucket if hasattr(item, "bucket") else item.get("bucket")) or self.default_bucket
-            original_name = (item.nombre_archivo if hasattr(item, "nombre_archivo") else item.get("nombre_archivo")) or (item.get("nombre") if isinstance(item, dict) else None)
-            
-            if not original_name and s3_key:
-                original_name = s3_key.split("/")[-1]
-            if not original_name:
-                continue
+        sem = asyncio.Semaphore(5)
 
-            file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
+        async def _procesar_envio(item: Any) -> Optional[Dict[str, Any]]:
+            async with sem:
+                s3_key = item.s3_key if hasattr(item, "s3_key") else item.get("s3_key")
+                bucket = (item.bucket if hasattr(item, "bucket") else item.get("bucket")) or self.default_bucket
+                original_name = (item.nombre_archivo if hasattr(item, "nombre_archivo") else item.get("nombre_archivo")) or (item.get("nombre") if isinstance(item, dict) else None)
+                
+                if not original_name and s3_key:
+                    original_name = s3_key.split("/")[-1]
+                if not original_name:
+                    return None
 
-            try:
-                # 1. Obtener bytes desde S3
-                file_bytes = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
-                if not file_bytes:
-                    file_bytes = await self.obtener_bytes_archivo(s3_key=s3_key, bucket=bucket)
-                    
-                # 2. Aplicar lógica de afijos regulatorios si aplica
-                debe_aplicar_afijo = afijo_masivo or (target_file_name and original_name == target_file_name)
-                if debe_aplicar_afijo and afijo_regulatorio and afijo_regulatorio not in original_name:
-                    nombre_puro = original_name.rsplit(".", 1)[0]
-                    final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
-                    logger.info(f"[S3 Orquestador] Inyectando afijo '{afijo_regulatorio}': '{original_name}' -> '{final_send_name}'")
-                else:
-                    final_send_name = original_name
+                file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
 
-                # 3. Transmitir adjunto a la SFC
-                res_sfc = await sfc_client.post_adjunto_queja(
-                    sfc_codigo_queja=sfc_codigo_queja,
-                    file_bytes=file_bytes,
-                    file_type=file_type,
-                    file_name=final_send_name
-                )
-                resultados.append({"file_name": final_send_name, "status": "OK", "sfc_response": res_sfc})
-                logger.info(f"✅ Adjunto '{final_send_name}' transmitido exitosamente a la SFC.")
+                try:
+                    # 1. Obtener bytes desde S3
+                    file_bytes = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
+                    if not file_bytes:
+                        file_bytes = await self.obtener_bytes_archivo(s3_key=s3_key, bucket=bucket)
+                        
+                    # 2. Aplicar lógica de afijos regulatorios si aplica
+                    debe_aplicar_afijo = afijo_masivo or (target_file_name and original_name == target_file_name)
+                    if debe_aplicar_afijo and afijo_regulatorio and afijo_regulatorio not in original_name:
+                        nombre_puro = original_name.rsplit(".", 1)[0]
+                        final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"
+                        logger.info(f"[S3 Orquestador] Inyectando afijo '{afijo_regulatorio}': '{original_name}' -> '{final_send_name}'")
+                    else:
+                        final_send_name = original_name
 
-            except SfcIntegrationException as exc:
-                raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
-                if getattr(exc, "error_type", None) == "DUPLICATE_FILE" or "ya existe" in raw_msg or "556240" in raw_msg:
-                    logger.warning(f"⚠️ Archivo '{original_name}' duplicado en SFC. Se omite de forma segura.")
-                    resultados.append({"file_name": original_name, "status": "DUPLICATE_OMITTED"})
-                else:
+                    # 3. Transmitir adjunto a la SFC
+                    res_sfc = await sfc_client.post_adjunto_queja(
+                        sfc_codigo_queja=sfc_codigo_queja,
+                        file_bytes=file_bytes,
+                        file_type=file_type,
+                        file_name=final_send_name
+                    )
+                    logger.info(f"✅ Adjunto '{final_send_name}' transmitido exitosamente a la SFC.")
+                    return {"file_name": final_send_name, "status": "OK", "sfc_response": res_sfc}
+
+                except SfcIntegrationException as exc:
+                    raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
+                    if getattr(exc, "error_type", None) == "DUPLICATE_FILE" or "ya existe" in raw_msg or "556240" in raw_msg:
+                        logger.warning(f"⚠️ Archivo '{original_name}' duplicado en SFC. Se omite de forma segura.")
+                        return {"file_name": original_name, "status": "DUPLICATE_OMITTED"}
+                    else:
+                        raise
+                except Exception as e:
+                    logger.error(f"❌ Error al transferir '{original_name}' a la SFC: {e}")
                     raise
-            except Exception as e:
-                logger.error(f"❌ Error al transferir '{original_name}' a la SFC: {e}")
-                raise
 
-        return resultados
+        tasks = [_procesar_envio(item) for item in adjuntos_crm]
+        results = await asyncio.gather(*tasks)
+        return [r for r in results if r is not None]
