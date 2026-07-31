@@ -140,17 +140,21 @@ async def log_response(response: httpx.Response):
 
 
 class SfcClient:
-    def __init__(self, interceptor: SfcAuthManager):
+    def __init__(self, interceptor: SfcAuthManager, http_client: Optional[httpx.AsyncClient] = None):
         self.base_url = settings.SFC_URL_BASE.rstrip('/')
         self.interceptor = interceptor
-        self.client = httpx.AsyncClient(
-            auth=interceptor,
-            verify=ssl_context,
-            event_hooks={
-                'request': [log_request],
-                'response': [log_response]
-            }
-        )
+        
+        if http_client is not None:
+            self.client = http_client
+        else:
+            self.client = httpx.AsyncClient(
+                auth=interceptor,
+                verify=ssl_context,
+                event_hooks={
+                    'request': [log_request],
+                    'response': [log_response]
+                }
+            )
 
     async def fetch_quejas_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene una página de quejas."""
