@@ -1,4 +1,3 @@
-# app/services/queue_service.py
 import json
 import logging
 from datetime import datetime, timedelta
@@ -49,8 +48,8 @@ class ColaItemRedis:
 class QueueService:
     """
     Servicio de Cola Centralizada sobre Redis.
-    Garantiza concurrencia segura y rendimiento entre múltiples contenedores
-    manteniendo paridad con la lógica de contingencia.
+    Garantiza concurrencia segura, transaccionalidad y rendimiento entre
+    múltiples contenedores manteniendo paridad con la lógica de contingencia.
     """
 
     def __init__(self, redis_client=None):
@@ -73,7 +72,7 @@ class QueueService:
         payload_json: Dict[str, Any], 
         error_inicial: str
     ) -> ColaItemRedis:
-        """Registra un nuevo caso en Redis tras detectar falla de red o servidor en la SFC."""
+        """Registra un nuevo caso en Redis de manera transaccional tras detectar falla."""
         if not self.redis:
             logger.error("❌ [Cola Redis] Cliente de Redis no inicializado.")
             raise RuntimeError("Cliente de Redis no disponible.")
@@ -102,12 +101,14 @@ class QueueService:
         }
 
         item_key = f"sfc:queue:item:{item_id}"
-        await self.redis.set(item_key, json.dumps(item_dict, ensure_ascii=False))
 
-        # Indexación en Sets y Sorted Sets
-        await self.redis.sadd("sfc:queue:status:PENDIENTE", str(item_id))
-        await self.redis.zadd("sfc:queue:pending_zset", {str(item_id): proximo_reintento.timestamp()})
-        await self.redis.zadd("sfc:queue:created_zset", {str(item_id): now_bogota.timestamp()})
+        # --- TRANSACCIÓN ATÓMICA ---
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.set(item_key, json.dumps(item_dict, ensure_ascii=False))
+            pipe.sadd("sfc:queue:status:PENDIENTE", str(item_id))
+            pipe.zadd("sfc:queue:pending_zset", {str(item_id): proximo_reintento.timestamp()})
+            pipe.zadd("sfc:queue:created_zset", {str(item_id): now_bogota.timestamp()})
+            await pipe.execute()
 
         item_obj = ColaItemRedis(item_dict)
         logger.warning(f"📦 [Cola Redis] Caso {smart_code} encolado para reintento automático. Registro ID: {item_id}")
@@ -195,7 +196,7 @@ class QueueService:
             return []
 
     async def marcar_exitoso(self, registro_id: int):
-        """Marca un registro como entregado con éxito a la SFC."""
+        """Marca de forma atómica un registro como entregado con éxito a la SFC."""
         if not self.redis:
             return
 
@@ -209,15 +210,22 @@ class QueueService:
             data["estado"] = "EXITOSO"
             data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
 
-            await self.redis.set(item_key, json.dumps(data, ensure_ascii=False))
-            await self.redis.srem("sfc:queue:status:PENDIENTE", str(registro_id))
-            await self.redis.sadd("sfc:queue:status:EXITOSO", str(registro_id))
-            await self.redis.zrem("sfc:queue:pending_zset", str(registro_id))
+            # --- TRANSACCIÓN ATÓMICA ---
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.set(item_key, json.dumps(data, ensure_ascii=False))
+                pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
+                pipe.sadd("sfc:queue:status:EXITOSO", str(registro_id))
+                pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                await pipe.execute()
+
         except Exception as e:
             logger.error(f"Error marcando exitoso registro {registro_id} en Redis: {e}")
 
     async def registrar_fallo(self, registro_id: int, error_msg: str):
-        """Suma un intento y recalcula el tiempo del próximo reintento (Backoff)."""
+        """
+        Suma un intento y recalcula el tiempo del próximo reintento (Backoff).
+        Aplica las modificaciones a los estados e índices de forma atómica.
+        """
         if not self.redis:
             return
 
@@ -231,21 +239,34 @@ class QueueService:
             data["intentos"] += 1
             data["ultimo_error"] = error_msg
             now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+            
+            es_definitivo = data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES)
 
-            if data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES):
+            if es_definitivo:
                 data["estado"] = "FALLIDO_DEFINITIVO"
-                await self.redis.srem("sfc:queue:status:PENDIENTE", str(registro_id))
-                await self.redis.sadd("sfc:queue:status:FALLIDO_DEFINITIVO", str(registro_id))
-                await self.redis.zrem("sfc:queue:pending_zset", str(registro_id))
-                logger.error(f"❌ [Cola Redis] Caso {data['smart_code']} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
             else:
                 espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES * data["intentos"]
                 proximo_at = now_bogota + timedelta(minutes=espera_minutos)
                 data["proximo_reintento_at"] = proximo_at.isoformat()
-                await self.redis.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_at.timestamp()})
 
             data["updated_at"] = now_bogota.isoformat()
-            await self.redis.set(item_key, json.dumps(data, ensure_ascii=False))
+
+            # --- TRANSACCIÓN ATÓMICA ---
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.set(item_key, json.dumps(data, ensure_ascii=False))
+                
+                if es_definitivo:
+                    pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
+                    pipe.sadd("sfc:queue:status:FALLIDO_DEFINITIVO", str(registro_id))
+                    pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                else:
+                    pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_at.timestamp()})
+                
+                await pipe.execute()
+
+            if es_definitivo:
+                logger.error(f"❌ [Cola Redis] Caso {data['smart_code']} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
+
         except Exception as e:
             logger.error(f"Error registrando fallo para registro {registro_id} en Redis: {e}")
 
@@ -276,7 +297,7 @@ class QueueService:
             return []
 
     async def purgar_registros_antiguos(self, dias_retencion: int = 7) -> int:
-        """Elimina registros en estado 'EXITOSO' con más de N días de antigüedad."""
+        """Elimina de manera atómica registros en estado 'EXITOSO' con más de N días de antigüedad."""
         if not self.redis:
             return 0
 
@@ -287,21 +308,36 @@ class QueueService:
             item_ids = await self.redis.smembers("sfc:queue:status:EXITOSO")
             purgados = 0
 
+            # Pre-evaluar cuáles elementos cumplen el criterio
+            a_eliminar = []
+            inconsistentes = []
+
             for item_id in item_ids:
                 item_key = f"sfc:queue:item:{item_id}"
                 raw_item = await self.redis.get(item_key)
                 if not raw_item:
-                    await self.redis.srem("sfc:queue:status:EXITOSO", str(item_id))
+                    inconsistentes.append(str(item_id))
                     continue
 
                 data = json.loads(raw_item)
                 updated_dt = datetime.fromisoformat(data["updated_at"])
 
                 if updated_dt <= limite_dt:
-                    await self.redis.delete(item_key)
-                    await self.redis.srem("sfc:queue:status:EXITOSO", str(item_id))
-                    await self.redis.zrem("sfc:queue:created_zset", str(item_id))
-                    purgados += 1
+                    a_eliminar.append(str(item_id))
+
+            # --- TRANSACCIÓN ATÓMICA DE PURGA ---
+            if a_eliminar or inconsistentes:
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    for item_id in inconsistentes:
+                        pipe.srem("sfc:queue:status:EXITOSO", item_id)
+
+                    for item_id in a_eliminar:
+                        pipe.delete(f"sfc:queue:item:{item_id}")
+                        pipe.srem("sfc:queue:status:EXITOSO", item_id)
+                        pipe.zrem("sfc:queue:created_zset", item_id)
+                        purgados += 1
+
+                    await pipe.execute()
 
             if purgados > 0:
                 logger.info(f"🧹 [Cola Redis] Purga completada: {purgados} registros antiguos eliminados.")

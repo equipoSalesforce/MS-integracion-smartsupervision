@@ -1,6 +1,10 @@
 # app/core/security/sanitizer.py
 import json
+import re
+import logging
 from typing import Any, Dict, Union
+
+logger = logging.getLogger(__name__)
 
 # Encabezados de seguridad que contienen credenciales o firmas
 SENSITIVE_HEADERS = {
@@ -15,6 +19,15 @@ SENSITIVE_FIELDS = {
     "email", "phone", "address", "sfc_password", "password", 
     "secret_key", "sfc_secret_key"
 }
+
+DANGEROUS_TAGS_RE = re.compile(
+    r"<(script|iframe|embed|object|link|meta|base)[^>]*?>", 
+    re.IGNORECASE | re.DOTALL
+)
+DANGEROUS_SCHEMES_RE = re.compile(
+    r'(src|href)\s*=\s*["\']?\s*(file://|http://169\.254\.|http://127\.|http://localhost|http://10\.|http://172\.(1[6-9]|2[0-9]|3[01])\.|http://192\.168\.)',
+    re.IGNORECASE
+)
 
 
 def mask_value(val: str, visible_chars: int = 2) -> str:
@@ -51,3 +64,26 @@ def sanitizar_payload(data: Union[Dict, list, str, Any]) -> Any:
     elif isinstance(data, list):
         return [sanitizar_payload(item) for item in data]
     return data
+
+def sanitizar_html_para_pdf(html_raw: str) -> str:
+    """
+    Sanitiza el contenido HTML entrante antes de procesarlo para generación de PDF.
+    Remueve etiquetas ejecutables/incrustadas (script, iframe, embed, link) y bloquea
+    esquemas de archivos locales (file://) o direcciones IP privadas (Metadata AWS / SSRF).
+    """
+    if not html_raw:
+        return ""
+
+    html_clean = html_raw
+
+    # 1. Eliminar etiquetas de riesgo alto (scripts, iframes, objetos)
+    if DANGEROUS_TAGS_RE.search(html_clean):
+        logger.warning("🛡️ [Sanitizer PDF] Etiquetas peligrosas detectadas y neutralizadas en HTML.")
+        html_clean = DANGEROUS_TAGS_RE.sub("", html_clean)
+
+    # 2. Bloquear URLs apuntando a IPs privadas (AWS IMDS / localhost) o archivos locales (file://)
+    if DANGEROUS_SCHEMES_RE.search(html_clean):
+        logger.warning("🛡️ [Sanitizer PDF] Enlace/Esquema sospechoso (SSRF/File) neutralizado en HTML.")
+        html_clean = DANGEROUS_SCHEMES_RE.sub(r'\1="#"', html_clean)
+
+    return html_clean

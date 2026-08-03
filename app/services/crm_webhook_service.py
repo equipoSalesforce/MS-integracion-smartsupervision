@@ -9,6 +9,17 @@ from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 
 logger = logging.getLogger(__name__)
 
+_shared_client: Optional[httpx.AsyncClient] = None
+
+def _get_fallback_client() -> httpx.AsyncClient:
+    """Devuelve o crea un cliente HTTP global persistente si no se pasó uno por dependencia."""
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=10.0),
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=50)
+        )
+    return _shared_client
 
 class CrmWebhookService:
     """
@@ -60,12 +71,10 @@ class CrmWebhookService:
             "=========================================================================="
         )
 
+        client = http_client or _get_fallback_client()
+        
         try:
-            if http_client:
-                response = await http_client.post(webhook_url, json=payload, headers=headers, timeout=10.0)
-            else:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.post(webhook_url, json=payload, headers=headers)
+            response = await client.post(webhook_url, json=payload, headers=headers, timeout=10.0)
 
             # 🛠️ AUDITORÍA HTTP: Respuesta Entrante del Webhook del CRM
             res_headers_clean = sanitizar_headers(dict(response.headers))

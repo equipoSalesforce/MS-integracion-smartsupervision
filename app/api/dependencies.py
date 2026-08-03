@@ -1,9 +1,12 @@
 # app/api/dependencies.py
+import secrets
+
 import boto3
 import logging
 from typing import Optional
-from fastapi import Security, HTTPException, status, Request
+from fastapi import Header, Security, HTTPException, status, Request
 from fastapi.security.api_key import APIKeyHeader
+import httpx
 
 from app.core.config import settings
 from app.core.security.signatures import SfcSignatureContext
@@ -53,13 +56,36 @@ def get_sfc_client(request: Request = None) -> SfcClient:
 
     return SfcClient(interceptor=_auth_manager_instance, http_client=http_client)
 
+def get_http_client(request: Request) -> Optional[httpx.AsyncClient]:
+    """
+    Obtiene la instancia global de httpx.AsyncClient creada durante el lifespan de la app.
+    Esto permite reutilizar el pool de conexiones HTTP/TLS sin abrir/cerrar sockets innecesariamente.
+    """
+    if hasattr(request, "app") and hasattr(request.app, "state") and hasattr(request.app.state, "http_client"):
+        return request.app.state.http_client
+    return None
 
-async def verificar_api_key_crm(api_key: str = Security(api_key_header)) -> str:
-    """Valida la API Key enviada en la cabecera 'X-API-Key'."""
-    if api_key != settings.CRM_API_KEY:
-        logger.warning("Intento de acceso no autorizado con API Key inválida.")
+async def verificar_api_key_crm(
+    x_api_key: str = Header(..., alias="X-API-Key")
+) -> str:
+    """
+    Verifica que la cabecera X-API-Key coincida con la configurada para el CRM.
+    Utiliza tiempo constante (compare_digest) para evitar ataques de tiempo (Timing Attacks).
+    """
+    if not x_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Acceso denegado: API Key inválida o no proporcionada.",
+            detail="Cabecera X-API-Key faltante."
         )
-    return api_key
+
+    # 🔒 Comparación segura en tiempo constante
+    es_valida = secrets.compare_digest(x_api_key, settings.CRM_API_KEY)
+
+    if not es_valida:
+        logger.warning("🔐 [Seguridad] Intento de acceso no autorizado con X-API-Key inválida.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API Key inválida o no autorizada."
+        )
+
+    return x_api_key

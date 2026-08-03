@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 from bs4 import BeautifulSoup
 
+from app.core.security.sanitizer import sanitizar_html_para_pdf
+
 
 # ======================================================================
 # 1. MODELO DE DATOS
@@ -27,7 +29,9 @@ def _html_a_texto_estructurado(html_str: str) -> str:
     if not html_str or not html_str.strip():
         return ""
 
-    soup = BeautifulSoup(html_str, "html.parser")
+    html_sanitizado = sanitizar_html_para_pdf(html_str)
+    
+    soup = BeautifulSoup(html_sanitizado, "html.parser")
 
     # Eliminar scripts, estilos, imágenes y etiquetas <head>/<title>
     for el in soup.find_all(["script", "style", "img", "head", "title"]):

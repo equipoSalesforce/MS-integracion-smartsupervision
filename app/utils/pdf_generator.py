@@ -1,11 +1,13 @@
 # app/utils/pdf_generator.py
 import textwrap
+import logging
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject
 
+logger = logging.getLogger(__name__)
 
-def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 80) -> str:
+def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 90) -> str:
     """
     Aplica word-wrapping automático a cada párrafo del texto para evitar 
     que las líneas largas se salgan de los márgenes del PDF.
