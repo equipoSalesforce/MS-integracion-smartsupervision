@@ -407,7 +407,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n  \"ids_quejas\": [\r\n    \"12861785252561306098\",\r\n    \"12861785166582997342\"\r\n  ]\r\n}",
+                  "raw": "{\r\n  \"ids_quejas\": [\r\n    \"12861785431354346361\",\r\n    \"12861785166582997342\"\r\n  ]\r\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -431,7 +431,7 @@
               },
               "status": "OK",
               "code": 200,
-              "_postman_previewlanguage": null,
+              "_postman_previewlanguage": "json",
               "header": [
                 {
                   "key": "date",
@@ -446,8 +446,10 @@
                   "value": "209"
                 },
                 {
-                  "key": "content-type",
-                  "value": "application/json"
+                  "key": "Content-Type",
+                  "value": "application/json",
+                  "description": "",
+                  "type": "text"
                 }
               ],
               "cookie": [],
@@ -515,7 +517,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_116\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234565\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Case_id\": \"CASO_OK_2026_117\",\n  \"Departamento__c\": \"Bogota\",\n  \"SC_municipio__c\": \"Bogota\",\n  \"canal__c\": \"Internet\",\n  \"Product__c\": \"Wallet\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"SuppliedName\": \"Carlos Eduardo Mendoza\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1018234595\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"direccion__c\": \"Calle 100 # 15-20, Apto 502\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"Description\": \"El cliente indica que se realizó un cobro duplicado en su transacción del día de ayer por valor de $50.000 COP.\",\n  \"smart_anexo_queja__c\": false,\n  \"Ente_de_control__c\": \"Otros\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"punto_recepcion\": \"Web\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1375,7 +1377,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Smart_Code__c\": \"TEST-DIRECTO-SSV-205\",\n  \"CreatedDate\": \"2026-07-29T11:30:00\",\n  \"Status\": \"Closed\",\n  \"ClosedDate\": \"2026-07-29\",\n  \"SuppliedName\": \"Mateo Gómez Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001126\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3154443322\",\n  \"SuppliedEmail\": \"mateo.mock@global66.test\",\n  \"direccion__c\": \"Carrera 7 # 72-21\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba estilo Microsoft Outlook.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Queja_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"a_favor_de__c\": \"1\",\n  \"Rectificacion__c\": \"No\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"<html><body><p>Hola Mateo,</p><p>Procesamos la solicitud requerida satisfactoriamente. Damos por concluido el caso TEST-DIRECTO-SSV-205.</p><p>Atentamente,<br>Equipo de Experiencia al Cliente<br>Global66</p><hr style='display:inline-block;width:98%'><div id='divRplyFwdMsg' dir='ltr'><font face='Calibri, sans-serif' color='#000000' size='2'><b>From:</b> Mateo Gómez Mock &lt;mateo.mock@global66.test&gt;<br><b>Sent:</b> Wednesday, July 29, 2026 11:10 AM<br><b>To:</b> soporte@global66.com<br><b>Subject:</b> Solicitud de aclaración de movimiento<br></font><br></div><div><p>Hola equipo, requiero confirmación del cierre de mi solicitud anterior.</p></div></body></html>\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-DIRECTO-SSV-216\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Mateo Gómez Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001138\",\n  \"sc_genero__c\": \"Masculino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3154443322\",\n  \"SuppliedEmail\": \"mateo.mock@global66.test\",\n  \"direccion__c\": \"Carrera 7 # 72-21\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Prueba estilo Microsoft Outlook.\",\n  \"smart_anexo_queja__c\": false,\n  \"Tutela__c\": \"No\",\n  \"Queja_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"a_favor_de__c\": \"1\",\n  \"Rectificacion__c\": \"No\",\n  \"Prorroga__c\": null,\n  \"cuerpo_respuesta_final\": \"<html><body><p>Hola Mateo,</p><p>Procesamos la solicitud requerida satisfactoriamente. Damos por concluido el caso TEST-DIRECTO-SSV-205.</p><p>Atentamente,<br>Equipo de Experiencia al Cliente<br>Global66</p><hr style='display:inline-block;width:98%'><div id='divRplyFwdMsg' dir='ltr'><font face='Calibri, sans-serif' color='#000000' size='2'><b>From:</b> Mateo Gómez Mock &lt;mateo.mock@global66.test&gt;<br><b>Sent:</b> Wednesday, July 29, 2026 11:10 AM<br><b>To:</b> soporte@global66.com<br><b>Subject:</b> Solicitud de aclaración de movimiento<br></font><br></div><div><p>Hola equipo, requiero confirmación del cierre de mi solicitud anterior.</p></div></body></html>\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1402,7 +1404,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Wed, 29 Jul 2026 19:47:46 GMT"
+                  "value": "Mon, 03 Aug 2026 14:19:06 GMT"
                 },
                 {
                   "key": "server",
@@ -1410,15 +1412,19 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "164"
+                  "value": "141"
                 },
                 {
                   "key": "content-type",
                   "value": "application/json"
+                },
+                {
+                  "key": "x-correlation-id",
+                  "value": "81a90ae9-0d33-4cbc-993b-254bca414d19"
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-204 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-204\"\n}"
+              "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-DIRECTO-SSV-216 actualizado en M3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-DIRECTO-SSV-216\"\n}"
             }
           ]
         }
@@ -2556,7 +2562,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-501\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Elena Rostova\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"529883011\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Discapacidad visual\",\n  \"SuppliedPhone\": \"3124445566\",\n  \"SuppliedEmail\": \"elena.rostova@test.com\",\n  \"direccion__c\": \"Carrera 7 # 114-33 Apto 502\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Reporte de vulneración de wallet digital mediante phishing. El cliente no autorizó la transferencia realizada hacia un tercero.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Global Wallet Colombia\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 1200000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1200000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body style='font-family:Arial,sans-serif;'><div style='padding:20px;'><div style='border-bottom:1px solid #E5E7EB;padding-bottom:10px;'><strong>Gerencia de Riesgo Operacional</strong> &lt;seguridad@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Elena Rostova · 29 jul 2026, 09:30</span></div><p>Estimada Elena,</p><p>Tras completar el análisis pericial del evento de Phishing reportado, confirmamos la resolución <strong>FAVORABLE</strong> del caso TEST-ALL-IN-ONE-SSV-501. Se abonó la suma de <strong>$1.200.000 COP</strong> a su Wallet.</p><p>Atentamente,<br>Global66 Colombia</p></div></body></html>\"\n}",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-541\",\n  \"SuppliedName\": \"Elena Rostova\",\n  \"SC_id_type__c\": \"CE\",\n  \"id_number__c\": \"529883012\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Discapacidad visual\",\n  \"SuppliedPhone\": \"3124445566\",\n  \"SuppliedEmail\": \"elena.rostova@test.com\",\n  \"direccion__c\": \"Carrera 7 # 114-33 Apto 502\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Aplicaciones móviles\",\n  \"punto_recepcion\": \"WhatsApp\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Reporte de vulneración de wallet digital mediante phishing. El cliente no autorizó la transferencia realizada hacia un tercero.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"Wallet\",\n  \"smart_Producto_nombre__c\": \"Global Wallet Colombia\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Phishing\",\n  \"card_amount__c\": 1200000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1200000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body style='font-family:Arial,sans-serif;'><div style='padding:20px;'><div style='border-bottom:1px solid #E5E7EB;padding-bottom:10px;'><strong>Gerencia de Riesgo Operacional</strong> &lt;seguridad@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Elena Rostova · 29 jul 2026, 09:30</span></div><p>Estimada Elena,</p><p>Tras completar el análisis pericial del evento de Phishing reportado, confirmamos la resolución <strong>FAVORABLE</strong> del caso TEST-ALL-IN-ONE-SSV-501. Se abonó la suma de <strong>$1.200.000 COP</strong> a su Wallet.</p><p>Atentamente,<br>Global66 Colombia</p></div></body></html>\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -2739,7 +2745,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-506\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Luz Marina Palacios\",\n  \"SC_id_type__c\": \"DNI\",\n  \"id_number__c\": \"1098765432\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Víctima del conflicto armado\",\n  \"SuppliedPhone\": \"3201112233\",\n  \"SuppliedEmail\": \"luz.palacios@test.com\",\n  \"direccion__c\": \"Calle 63 # 24-10 Apto 201\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Asistente virtual\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Apropiación de cuenta y desvío de remesa internacional mediante duplicación de línea celular (Sim Swapping).\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Remesas P2P\",\n  \"Categorias_COL__c\": \"Transaccion no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Sim Swapping\",\n  \"card_amount__c\": 3000000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 3000000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body><div style='max-width:700px;padding:20px;'><div style='border-bottom:1px solid #ccc;padding-bottom:10px;'><strong>Experiencia al Cliente</strong> &lt;contacto@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Luz Marina Palacios · 29 jul 2026, 12:30</span></div><p>Hola Luz Marina,</p><p>Validamos el incidente de Sim Swapping y confirmamos que la solicitud TEST-ALL-IN-ONE-SSV-504 ha sido resuelta de manera <strong>FAVORABLE</strong>. Se acreditó el valor de <strong>$3.000.000 COP</strong> a su cuenta origen.</p><p>Saludos,<br>Global66 Colombia</p><div style='margin-top:20px;border-left:2px solid #ccc;padding-left:10px;color:#666;'>El mié, 29 jul 2026 a las 11:20, Luz Marina Palacios escribió:<br><p>Por favor ayúdenme, me cambiaron el SIM de mi celular y enviaron mi dinero a otra cuenta.</p></div></div></body></html>\"\n}",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-IN-ONE-SSV-516\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Luz Marina Palacios\",\n  \"SC_id_type__c\": \"DNI\",\n  \"id_number__c\": \"1098765435\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"Víctima del conflicto armado\",\n  \"SuppliedPhone\": \"3201112233\",\n  \"SuppliedEmail\": \"luz.palacios@test.com\",\n  \"direccion__c\": \"Calle 63 # 24-10 Apto 201\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Asistente virtual\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Apropiación de cuenta y desvío de remesa internacional mediante duplicación de línea celular (Sim Swapping).\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Remesas P2P\",\n  \"Categorias_COL__c\": \"Transaccion no reconocida\",\n\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Sim Swapping\",\n  \"card_amount__c\": 3000000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 3000000.0,\n\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": null,\n\n  \"directorio_s3\": \"caso/TEST-ALL-IN-ONE-SSV-UNIFICADO/\",\n  \"archivos_s3\": [],\n\n  \"cuerpo_respuesta_final\": \"<html><head><meta charset='UTF-8'></head><body><div style='max-width:700px;padding:20px;'><div style='border-bottom:1px solid #ccc;padding-bottom:10px;'><strong>Experiencia al Cliente</strong> &lt;contacto@global66.com&gt;<br><span style='color:#666;font-size:12px;'>para Luz Marina Palacios · 29 jul 2026, 12:30</span></div><p>Hola Luz Marina,</p><p>Validamos el incidente de Sim Swapping y confirmamos que la solicitud TEST-ALL-IN-ONE-SSV-504 ha sido resuelta de manera <strong>FAVORABLE</strong>. Se acreditó el valor de <strong>$3.000.000 COP</strong> a su cuenta origen.</p><p>Saludos,<br>Global66 Colombia</p><div style='margin-top:20px;border-left:2px solid #ccc;padding-left:10px;color:#666;'>El mié, 29 jul 2026 a las 11:20, Luz Marina Palacios escribió:<br><p>Por favor ayúdenme, me cambiaron el SIM de mi celular y enviaron mi dinero a otra cuenta.</p></div></div></body></html>\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -2783,6 +2789,48 @@
                   ],
                   "cookie": [],
                   "body": "{\n    \"status\": \"success\",\n    \"message\": \"Caso 1286TEST-ALL-IN-ONE-SSV-506 actualizado exitosamente en el Momento 3 (Estado SFC 4)\",\n    \"codigo_queja_sfc\": \"1286TEST-ALL-IN-ONE-SSV-506\"\n}"
+                },
+                {
+                  "name": "Endpoint 3: Creacion, Fraude y Cierre a la vez - Todos los campos",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"Case_id\": \"TEST-ALL-FIELDS-SSV-998\",\n  \"Smart_Code__c\": \"TEST-ALL-FIELDS-SSV-999\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"María Alejandra Bermúdez\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1020304051\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3109876543\",\n  \"SuppliedEmail\": \"maria.bermudez@test.com\",\n  \"direccion__c\": \"Calle 53 # 70-12 Apto 402\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"Description\": \"Prueba completa con todos los campos del formulario cargados simultáneamente para verificación de esquema.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": \"Revisión técnica\",\n  \"Product__c\": \"Tarjeta Digital\",\n  \"smart_Producto_nombre__c\": \"Global Card Digital\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"archivos_s3\": [],\n  \"producto_digital__c\": \"Si\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 1500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1500000.0,\n  \"nombre_archivo_fraude\": \"informe_fraude.pdf\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"a_favor_de__c\": \"1\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n  \"cuerpo_respuesta_final\": \"<html><body><p>Estimada María,</p><p>Le informamos que tras la investigación realizada por el equipo de seguridad, confirmamos que su solicitud ha sido resuelta de forma <strong>FAVORABLE</strong> con el reembolso total de los fondos.</p><p>Atentamente,<br>Global66 Colombia</p></body></html>\",\n  \"directorio_s3\": \"caso/TEST-ALL-FIELDS-SSV-999/\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{base_url}}/api/v1/quejas/sync/despacho",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "quejas",
+                        "sync",
+                        "despacho"
+                      ]
+                    }
+                  },
+                  "_postman_previewlanguage": null,
+                  "header": null,
+                  "cookie": [],
+                  "body": null
                 }
               ]
             }
