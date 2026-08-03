@@ -11,6 +11,7 @@ from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager 
 from app.core.constants import SfcEndpoints, SmartStatus
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
+from app.core.middleware import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,55 @@ async def log_request(request: httpx.Request):
     )
 
 
+from app.core.middleware import get_correlation_id
+
+
+# 🛠️ Hook Sanitizado para Registrar Peticiones Salientes (Request)
+async def log_request(request: httpx.Request):
+    # 1. 🔑 INYECCIÓN DE CORRELATION ID
+    cid = get_correlation_id()
+    if cid and cid != "N/A":
+        request.headers["X-Correlation-ID"] = cid
+
+    # --- FILTRO DE LOGS DE ARCHIVOS ---
+    is_file_request = (
+        SfcEndpoints.STORAGE.value in str(request.url) 
+        or "multipart/form-data" in request.headers.get("content-type", "")
+    )
+    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
+
+    if is_file_request and not enable_file_logs:
+        return  # Omitir el log de archivos pesados
+    # -----------------------------------
+
+    headers_clean = sanitizar_headers(request.headers)
+    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type or "octet-stream" in content_type:
+        body_str = "<[Contenido Binario / Multipart - Omitido por tamaño]>"
+    else:
+        try:
+            if request.content:
+                raw_json = json.loads(request.content.decode("utf-8"))
+                clean_json = sanitizar_payload(raw_json)
+                body_str = json.dumps(clean_json, ensure_ascii=False)
+            else:
+                body_str = "<Vacio>"
+        except Exception:
+            body_str = f"<[Contenido No-JSON / Raw: {len(request.content)} bytes]>" if request.content else "<Vacio>"
+
+    logger.info(
+        "\n==================== [AUDIT HTTP OUTGOING REQUEST] ====================\n"
+        f"Correlation-ID : {cid}\n"
+        f"Method         : {request.method}\n"
+        f"URL            : {request.url}\n"
+        f"Headers :\n{headers_formatted}\n"
+        f"Body           :\n{body_str}\n"
+        "=========================================================================="
+    )
+
+
 # 🛠️ Hook Sanitizado para Registrar Respuestas Entrantes (Response)
 async def log_response(response: httpx.Response):
     # --- FILTRO DE LOGS DE ARCHIVOS ---
@@ -75,8 +125,9 @@ async def log_response(response: httpx.Response):
 
     await response.aread()
 
+    cid = get_correlation_id()
     headers_clean = sanitizar_headers(response.headers)
-    headers_formatted = "\n".join([f"  {k}: {v}" for k, v in headers_clean.items()])
+    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
 
     try:
         if response.text:
@@ -90,10 +141,11 @@ async def log_response(response: httpx.Response):
 
     logger.info(
         "\n==================== [AUDIT HTTP INCOMING RESPONSE] ====================\n"
-        f"Status  : {response.status_code} {response.reason_phrase}\n"
-        f"URL     : {response.url}\n"
+        f"Correlation-ID : {cid}\n"
+        f"Status         : {response.status_code} {response.reason_phrase}\n"
+        f"URL            : {response.url}\n"
         f"Headers :\n{headers_formatted}\n"
-        f"Body    :\n{body_str}\n"
+        f"Body           :\n{body_str}\n"
         "=========================================================================="
     )
 

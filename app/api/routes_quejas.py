@@ -1,7 +1,8 @@
 # app/api/routes_quejas.py
+import json
 import logging
 import httpx
-from fastapi import APIRouter, Body, Depends, status
+from fastapi import APIRouter, Body, Depends, Request, status
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 
@@ -16,6 +17,8 @@ from app.services.momento_1_sync import SincronizacionService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.momento_4_sync import UserSync
 from app.core.exceptions import SfcIntegrationException
+from app.core.middleware import get_correlation_id
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 from app.schemas.crm_payloads import (
     ConfirmacionAckUsuariosInput,
     QuejaMapeadaCrmResponse, 
@@ -23,7 +26,6 @@ from app.schemas.crm_payloads import (
     ConfirmacionAckInput
 )
 
-# 🔴 Imports para Redis
 from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 
@@ -69,11 +71,31 @@ async def confirmar_ack_momento_1(
     summary="Trigger Unificado de Despacho con Cola Centralizada Redis",
 )
 async def despachar_queja_crm(
+    request: Request,
     payload: QuejaUnificadaCrmInput = Body(...),
     sfc_client: SfcClient = Depends(get_sfc_client),
     s3_client = Depends(get_s3_client)
 ):
-    logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c}")
+    cid = get_correlation_id()
+
+    # 🛠️ AUDITORÍA HTTP: Petición Entrante recibida desde Salesforce/CRM
+    headers_clean = sanitizar_headers(dict(request.headers))
+    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
+    
+    raw_payload = payload.model_dump(by_alias=True, mode="json")
+    body_clean = sanitizar_payload(raw_payload)
+    body_str = json.dumps(body_clean, ensure_ascii=False)
+
+    logger.info(
+        "\n==================== [AUDIT HTTP INCOMING REQUEST (FROM CRM)] ====================\n"
+        f"Correlation-ID : {cid}\n"
+        f"Method         : {request.method} {request.url.path}\n"
+        f"Headers :\n{headers_formatted}\n"
+        f"Body           :\n{body_str}\n"
+        "=========================================================================="
+    )
+
+    logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
     orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
     
     try:

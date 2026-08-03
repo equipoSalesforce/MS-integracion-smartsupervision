@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
+from app.api import routes_health
 from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
@@ -195,3 +196,5 @@ app.include_router(
     prefix=f"{settings.API_V1_STR}/quejas",
     tags=["Quejas"]
 )
+
+app.include_router(routes_health.router)

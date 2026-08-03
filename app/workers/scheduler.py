@@ -1,4 +1,4 @@
-# app/workers/scheduler.py
+import uuid
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -9,6 +9,7 @@ from app.services.email_service import EmailAlertService
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
+from app.core.middleware import correlation_id_ctx  # 👈 Importación de la ContextVar de CID
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -19,6 +20,7 @@ async def reintentar_despachos_pendientes_job():
     Job que consume los pendientes de Redis, reintenta la comunicación con la SFC,
     audita el tiempo de retención (SLA) y notifica la autorrecuperación cuando la cola se vacía.
     Utiliza un Lock Distribuido para ejecuciones multicontenedor seguras.
+    Preserva y propaga el Correlation ID (CID) original de cada caso.
     """
     redis = get_redis_client()
     if not redis:
@@ -60,6 +62,17 @@ async def reintentar_despachos_pendientes_job():
         casos_despachados_exito = 0
 
         for item in pendientes:
+            # 🔑 Extraer el CID guardado en Redis o generar uno de respaldo
+            item_data = item.to_dict() if hasattr(item, "to_dict") else {}
+            cid_guardado = (
+                item_data.get("correlation_id")
+                or item.payload_json.get("correlation_id")
+                or str(uuid.uuid4())
+            )
+
+            # 📌 Rehidratar el ContextVar para el hilo asíncrono actual
+            token = correlation_id_ctx.set(cid_guardado)
+
             try:
                 resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
 
@@ -81,6 +94,9 @@ async def reintentar_despachos_pendientes_job():
             except Exception as exc:
                 logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {str(exc)}")
                 await queue_service.registrar_fallo(item.id, error_msg=str(exc))
+            finally:
+                # 🧹 Limpiar la variable de contexto al finalizar el procesamiento del ítem
+                correlation_id_ctx.reset(token)
 
         # ✅ 4. Notificación de Autorrecuperación
         try:

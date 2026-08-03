@@ -1,3 +1,4 @@
+# app/services/email_service.py
 import logging
 import smtplib
 import asyncio
@@ -6,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
 
 from app.core.config import settings
+from app.core.middleware import get_correlation_id  # 👈 Importación del helper de CID
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ class EmailAlertService:
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_USER, destinatarios, msg.as_string())
 
-            logger.info(f"📧 [Email Alert] Alerta de infraestructura enviada a: {destinatarios}")
+            logger.info(f"📧 [Email Alert] Alerta enviada a: {destinatarios}")
         except Exception as e:
             logger.error(f"❌ [Email Alert] Error al enviar correo SMTP: {str(e)}")
 
@@ -50,13 +52,18 @@ class EmailAlertService:
     # =========================================================================
     @classmethod
     async def notificar_falla_infraestructura(
-        cls, smart_code: str, error_msg: str, ambiente: str = settings.ENVIRONMENT
+        cls, 
+        smart_code: str, 
+        error_msg: str, 
+        correlation_id: Optional[str] = None,
+        ambiente: str = settings.ENVIRONMENT
     ):
         """Notifica asíncronamente cuando ocurre un corte de red/SFC 502 y un caso entra a la cola."""
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
-        asunto = f"🚨 [ALERTA INFRA] SFC Caída / Caso encolado: {smart_code} [{ambiente.upper()}]"
+        cid = correlation_id or get_correlation_id()
+        asunto = f"🚨 [ALERTA INFRA] SFC Caída / Caso: {smart_code} | CID: {cid} [{ambiente.upper()}]"
 
         cuerpo_html = f"""
         <html>
@@ -68,11 +75,12 @@ class EmailAlertService:
                     <p>Se ha detectado una indisponibilidad o falla de red en la comunicación con la <strong>Superintendencia Financiera</strong>.</p>
                     <ul>
                         <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
+                        <li><strong>Correlation ID (CID):</strong> <strong style="color: #0275d8;"><code>{cid}</code></strong></li>
                         <li><strong>Smart Code Afectado:</strong> <code>{smart_code}</code></li>
-                        <li><strong>Acción Tomada:</strong> Caso encolado automáticamente en SQLite local para reintento.</li>
+                        <li><strong>Acción Tomada:</strong> Caso encolado automáticamente en Redis para reintento.</li>
                         <li><strong>Detalle del Error:</strong> <pre style="background: #f4f4f4; padding: 10px; border-radius: 4px;">{error_msg}</pre></li>
                     </ul>
-                    <p style="font-size: 12px; color: #777;">Este es un mensaje automático de alerta de ingeniería.</p>
+                    <p style="font-size: 12px; color: #777;">Este es un mensaje automático de alerta de ingeniería. Use el Correlation ID para rastrear los logs en CloudWatch.</p>
                 </div>
             </body>
         </html>
@@ -97,14 +105,16 @@ class EmailAlertService:
         raw_message: str,
         sfc_field: Optional[str] = None,
         smart_code: Optional[str] = None,
+        correlation_id: Optional[str] = None,
         ambiente: str = settings.ENVIRONMENT
     ):
         """Notifica EXCLUSIVAMENTE al desarrollador cuando la SFC devuelve un error desconocido."""
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
+        cid = correlation_id or get_correlation_id()
         destinatario_dev = cls._obtener_destinatarios(solo_dev=True)
-        asunto = f"⚠️ [NUEVO ERROR NO MAPEADO SFC] HTTP {status_code} | Caso: {smart_code or 'N/A'} [{ambiente.upper()}]"
+        asunto = f"⚠️ [ERROR NO MAPEADO SFC] HTTP {status_code} | Caso: {smart_code or 'N/A'} | CID: {cid} [{ambiente.upper()}]"
 
         cuerpo_html = f"""
         <html>
@@ -117,8 +127,12 @@ class EmailAlertService:
                     
                     <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; width: 30%;"><strong>Smart Code / Caso:</strong></td>
-                            <td style="padding: 8px; border: 1px solid #ddd;"><strong style="color: #0275d8;"><code>{smart_code or 'N/A'}</code></strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; width: 30%;"><strong>Correlation ID (CID):</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong style="color: #0275d8;"><code>{cid}</code></strong></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Smart Code / Caso:</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><code>{smart_code or 'N/A'}</code></td>
                         </tr>
                         <tr>
                             <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Código HTTP:</strong></td>
@@ -137,7 +151,7 @@ class EmailAlertService:
                     </table>
 
                     <div style="margin-top: 15px; background-color: #eef7ff; padding: 12px; border-left: 4px solid #0275d8;">
-                        💡 <strong>Acción recomendada:</strong> Revisa el payload enviado para el caso <code>{smart_code or 'N/A'}</code>, copia la subcadena relevante de este error y agrégala a <code>app/core/errores_sfc.json</code>.
+                        💡 <strong>Acción recomendada:</strong> Copia el Correlation ID <code>{cid}</code> para filtrar la traza en CloudWatch, revisa el payload y agrega la subcadena relevante a <code>errores_sfc.json</code>.
                     </div>
                 </div>
             </body>
@@ -173,13 +187,13 @@ class EmailAlertService:
                     <h2 style="margin:0;">📊 Umbral de Acumulación en Cola Alcanzado</h2>
                 </div>
                 <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
-                    <p>La cola de contingencia local de SmartSupervision ha alcanzado un nuevo volumen crítico de acumulados.</p>
+                    <p>La cola de contingencia de SmartSupervision ha alcanzado un nuevo volumen crítico de acumulados.</p>
                     <ul>
                         <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
                         <li><strong>Casos Pendientes en Cola:</strong> <span style="font-size: 18px; font-weight: bold; color: #d9534f;">{total_pendientes}</span></li>
                         <li><strong>Estado SFC:</strong> Intermitente / Caída.</li>
                     </ul>
-                    <p>El worker automático continuará intentando el despacho en segundo plano. Si el servicio de la SFC permanece caído, los casos se mantendrán en custodia segura dentro de la base SQLite local.</p>
+                    <p>El worker automático continuará intentando el despacho en segundo plano. Si el servicio de la SFC permanece caído, los casos se mantendrán en custodia segura dentro de Redis.</p>
                     <p style="font-size: 12px; color: #777;">Notificación automática por hito de volumen de contingencia.</p>
                 </div>
             </body>
@@ -212,6 +226,7 @@ class EmailAlertService:
         filas_tabla = ""
         for c in casos_vencidos:
             smart_code = c.get("smart_code", "N/A")
+            cid_caso = c.get("correlation_id", "N/A")
             fecha_encolado = c.get("fecha_encolado", "N/A")
             horas_cola = c.get("horas_en_cola", 0)
             reintentos = c.get("reintentos", 0)
@@ -220,6 +235,7 @@ class EmailAlertService:
             filas_tabla += f"""
             <tr>
                 <td style="padding: 8px; border: 1px solid #ddd;"><code>{smart_code}</code></td>
+                <td style="padding: 8px; border: 1px solid #ddd;"><code style="color: #0275d8;">{cid_caso}</code></td>
                 <td style="padding: 8px; border: 1px solid #ddd;">{fecha_encolado}</td>
                 <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: #d9534f;">{horas_cola:.1f} hrs</td>
                 <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">{reintentos}</td>
@@ -240,6 +256,7 @@ class EmailAlertService:
                         <thead>
                             <tr style="background-color: #f2f2f2; text-align: left;">
                                 <th style="padding: 8px; border: 1px solid #ddd;">Smart Code</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Correlation ID</th>
                                 <th style="padding: 8px; border: 1px solid #ddd;">Fecha Encolado</th>
                                 <th style="padding: 8px; border: 1px solid #ddd;">Tiempo Retenido</th>
                                 <th style="padding: 8px; border: 1px solid #ddd;">Reintentos</th>

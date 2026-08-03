@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.services.email_service import EmailAlertService
+from app.core.middleware import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,8 @@ class QueueService:
             "ultimo_error": error_inicial,
             "proximo_reintento_at": proximo_reintento.isoformat(),
             "created_at": now_bogota.isoformat(),
-            "updated_at": now_bogota.isoformat()
+            "updated_at": now_bogota.isoformat(),
+            "correlation_id": get_correlation_id()
         }
 
         item_key = f"sfc:queue:item:{item_id}"
@@ -152,6 +154,7 @@ class QueueService:
 
                 casos_vencidos.append({
                     "smart_code": data["smart_code"],
+                    "correlation_id": data.get("correlation_id", "N/A"),
                     "fecha_encolado": created_dt.strftime("%Y-%m-%d %H:%M:%S"),
                     "horas_en_cola": horas_en_cola,
                     "reintentos": data["intentos"],

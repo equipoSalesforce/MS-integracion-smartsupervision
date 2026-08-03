@@ -1,8 +1,11 @@
 # app/services/crm_webhook_service.py
+import json
 import logging
 import httpx
 from typing import Optional
 from app.core.config import settings
+from app.core.middleware import get_correlation_id
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +14,7 @@ class CrmWebhookService:
     """
     Servicio encargado de notificar al CRM/Salesforce únicamente cuando un caso
     ha sido creado/actualizado con éxito en la SFC.
+    Incluye auditoría HTTP estructurada de las peticiones y respuestas con el CRM.
     """
 
     @staticmethod
@@ -19,16 +23,6 @@ class CrmWebhookService:
         smart_code: str,
         http_client: Optional[httpx.AsyncClient] = None
     ) -> bool:
-        """
-        Envía un POST al CRM confirmando la radicación exitosa del caso.
-        
-        Payload enviado al CRM:
-        {
-            "case_number": "990012",
-            "smart_code": "1234567890",
-            "status": "CREATED"
-        }
-        """
         webhook_url = settings.CRM_WEBHOOK_URL
         api_key = settings.CRM_WEBHOOK_API_KEY
 
@@ -36,9 +30,12 @@ class CrmWebhookService:
             logger.info("ℹ️ [CRM Webhook] CRM_WEBHOOK_URL no configurada. Omitiendo notificación.")
             return False
 
+        cid = get_correlation_id()
+
         headers = {
             "Content-Type": "application/json",
             "X-API-Key": api_key or "",
+            "X-Correlation-ID": cid,
             "User-Agent": "MS-SmartSupervision-WebhookBot/1.0"
         }
 
@@ -48,7 +45,20 @@ class CrmWebhookService:
             "status": "CREATED"
         }
 
-        logger.info(f"📣 [CRM Webhook] Notificando creación exitosa al CRM para el caso {case_id_crm} ({smart_code})...")
+        # 🛠️ AUDITORÍA HTTP: Petición Saliente al Webhook del CRM
+        headers_clean = sanitizar_headers(headers)
+        headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
+        body_str = json.dumps(sanitizar_payload(payload), ensure_ascii=False)
+
+        logger.info(
+            "\n==================== [AUDIT HTTP OUTGOING REQUEST (CRM WEBHOOK)] ====================\n"
+            f"Correlation-ID : {cid}\n"
+            f"Method         : POST\n"
+            f"URL            : {webhook_url}\n"
+            f"Headers :\n{headers_formatted}\n"
+            f"Body           :\n{body_str}\n"
+            "=========================================================================="
+        )
 
         try:
             if http_client:
@@ -57,19 +67,39 @@ class CrmWebhookService:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     response = await client.post(webhook_url, json=payload, headers=headers)
 
+            # 🛠️ AUDITORÍA HTTP: Respuesta Entrante del Webhook del CRM
+            res_headers_clean = sanitizar_headers(dict(response.headers))
+            res_headers_formatted = "\n".join([f"   {k}: {v}" for k, v in res_headers_clean.items()])
+            
+            try:
+                raw_json = response.json() if response.text else {}
+                res_body_str = json.dumps(sanitizar_payload(raw_json), ensure_ascii=False)
+            except Exception:
+                res_body_str = response.text or "<Vacio>"
+
+            logger.info(
+                "\n==================== [AUDIT HTTP INCOMING RESPONSE (CRM WEBHOOK)] ====================\n"
+                f"Correlation-ID : {cid}\n"
+                f"Status         : {response.status_code} {response.reason_phrase}\n"
+                f"URL            : {webhook_url}\n"
+                f"Headers :\n{res_headers_formatted}\n"
+                f"Body           :\n{res_body_str}\n"
+                "=========================================================================="
+            )
+
             if response.status_code in (200, 201, 202):
                 data = response.json() if response.text else {}
                 logger.info(
-                    f"✅ [CRM Webhook] Confirmación recibida por el CRM. "
+                    f"✅ [CRM Webhook] [CID: {cid}] Confirmación recibida por el CRM. "
                     f"Case ID: {data.get('case_id', 'N/A')} | Idempotent: {data.get('idempotent', True)}"
                 )
                 return True
             else:
                 logger.warning(
-                    f"⚠️ [CRM Webhook] El CRM respondió con código {response.status_code}: {response.text}"
+                    f"⚠️ [CRM Webhook] [CID: {cid}] El CRM respondió con código {response.status_code}: {response.text}"
                 )
                 return False
 
         except Exception as exc:
-            logger.error(f"❌ [CRM Webhook] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
+            logger.error(f"❌ [CRM Webhook] [CID: {cid}] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
             return False
