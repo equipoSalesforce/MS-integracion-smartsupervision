@@ -20,8 +20,8 @@ TARGET_URL = os.getenv("TEST_TARGET_URL", "http://localhost:8000/api/v1/quejas/s
 API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 
 # Parámetros de ejecución configurables
-TOTAL_REQUESTS = 10        # Cantidad total de peticiones a enviar
-CONCURRENCY = 2           # Número máximo de peticiones concurrentes simultáneas
+TOTAL_REQUESTS = 20        # Cantidad total de peticiones a enviar
+CONCURRENCY = 4           # Número máximo de peticiones concurrentes simultáneas
 CHAOS_RATIO = 0.0         # Porcentaje de payloads con errores intencionados (20%)
 OUTPUT_LOG_FILE = "test_stress_results.json"
 
@@ -50,9 +50,10 @@ CATEGORIES = [
 # ==============================================================================
 def _generar_identificadores_unicos(secuencia: int) -> tuple[str, str]:
     """Genera Case_id e id_number__c totalmente únicos por cada petición."""
+    # Cambiar primeras 4 cifras de doc_number para testear nuevas opciones
     timestamp_compacto = datetime.now(ZoneInfo("America/Bogota")).strftime("%y%m%d%H%M%S")
     case_id = f"STRESS_{timestamp_compacto}_{secuencia:04d}"
-    doc_number = f"1279{secuencia:06d}"
+    doc_number = f"1280{secuencia:06d}"
     return case_id, doc_number
 
 
@@ -97,7 +98,7 @@ def crear_payload_valido(secuencia: int) -> Dict[str, Any]:
 
     elif escenario == 2:
         # ESCENARIO 3: Reporte de Fraude en Trámite (Usa directorio_s3 en lugar de archivos_s3 singulares)
-        payload_base["Categorias_COL__c"] = "Transacción no reconocida",
+        payload_base["Categorias_COL__c"] = "Transacción no reconocida"
         payload_base["tipo_fraude__c"] = random.choice(["Externo", "Interno"])
         payload_base["modalidad_fraude__c"] = random.choice(["Phishing", "Suplantación de identidad", "Sim Swapping"])
         payload_base["card_amount__c"] = float(random.randint(100000, 5000000))
