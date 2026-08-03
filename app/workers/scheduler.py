@@ -29,7 +29,8 @@ async def reintentar_despachos_pendientes_job():
 
     # 🔒 1. CERROJO DISTRIBUIDO (Lock con expiración automática de 55s)
     LOCK_KEY = "sfc:queue:lock:retry_job"
-    acquired = await redis.set(LOCK_KEY, "locked", nx=True, px=55000)
+    lock_value = str(uuid.uuid4())
+    acquired = await redis.set(LOCK_KEY, lock_value, nx=True, px=120000)
 
     if not acquired:
         logger.info("🔒 [Scheduler Job] Cerrojo activo en otra réplica/contenedor. Omitiendo ejecución en este nodo.")
@@ -112,7 +113,14 @@ async def reintentar_despachos_pendientes_job():
 
     finally:
         # Liberación limpia del lock
-        await redis.delete(LOCK_KEY)
+        lua_release_script = """
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("del", KEYS[1])
+        else
+            return 0
+        end
+        """
+        await redis.eval(lua_release_script, 1, LOCK_KEY, lock_value)
 
 
 async def purgar_cola_job():

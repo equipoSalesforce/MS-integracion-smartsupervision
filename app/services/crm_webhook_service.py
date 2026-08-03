@@ -21,6 +21,13 @@ def _get_fallback_client() -> httpx.AsyncClient:
         )
     return _shared_client
 
+async def close_crm_fallback_client():
+    """Cierra limpiamente el cliente HTTP singleton fallback si fue instanciado."""
+    global _shared_client
+    if _shared_client and not _shared_client.is_closed:
+        await _shared_client.aclose()
+        logger.info("📡 Cliente HTTP fallback del CRM Webhook cerrado limpiamente.")
+
 class CrmWebhookService:
     """
     Servicio encargado de notificar al CRM/Salesforce únicamente cuando un caso
@@ -112,3 +119,4 @@ class CrmWebhookService:
         except Exception as exc:
             logger.error(f"❌ [CRM Webhook] [CID: {cid}] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
             return False
+        

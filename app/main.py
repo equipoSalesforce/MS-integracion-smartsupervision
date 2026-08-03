@@ -17,6 +17,7 @@ from app.core.middleware import CorrelationIdMiddleware
 from app.core.mapping import SfcSalesforceMapper
 from app.integrations import sfc_client
 from app.integrations.sfc_client import ssl_context, log_request, log_response
+from app.services.crm_webhook_service import close_crm_fallback_client
 
 from app.db.redis import init_redis, close_redis
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
@@ -30,12 +31,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida de la aplicación.
-    Inicializa el pool global de conexiones HTTP, la base de datos SQLite local,
+    Inicializa el pool global de conexiones HTTP, la cola centralizada en Redis,
     el motor de reintentos en segundo plano (APScheduler) y la matriz de errores.
     """
     logger.info(
         f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
-        f"con Cola Local SQLite + APScheduler activos."
+        f"con Centralizada Redis + APScheduler activos."
     )
 
     # 1. Inicializar Pool Global de cliente HTTP con TLS 1.2 y Hooks de Auditoría
@@ -56,9 +57,9 @@ async def lifespan(app: FastAPI):
     # 2. Crear la tabla SQLite de la cola si no existe
     try:
         await init_redis()
-        logger.info("Base de datos SQLite local inicializada correctamente.")
+        logger.info("Cliente de Redis centralizado inicializado correctamente.")
     except Exception as e:
-        logger.error(f"Error crítico al inicializar SQLite local: {str(e)}")
+        logger.error(f"Error crítico al inicializar Redis: {str(e)}")
 
     # 3. Encender el scheduler de reintentos
     try:
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI):
     detener_scheduler()  # Espera a que los jobs activos terminen
     await close_redis()
     await sfc_client.close()
+    await close_crm_fallback_client() 
 
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
