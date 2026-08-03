@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, Any, Union
+import httpx
 
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
@@ -15,7 +16,10 @@ logger = logging.getLogger(__name__)
 class Momento2SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):     
         self.sfc_client = sfc_client
-        self.s3_service = S3StorageService(s3_client=s3_client)
+        self.s3_service = S3StorageService(
+            s3_client=s3_client, 
+            http_client=getattr(sfc_client, "client", None)
+        )
 
     async def ejecutar_envio_momento_2(
         self, 
@@ -71,6 +75,11 @@ class Momento2SincronizacionService:
                     smart_code=smart_code
                 )
             raise
+
+        # 🚨 Relanzar errores de red/conexión para que sean capturados por routes_quejas.py y encolados en Redis
+        except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
+            logger.error(f"❌ [Momento 2] Fallo de red/conexión para {smart_code}: {net_err}")
+            raise net_err
 
         except Exception as e:
             logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")

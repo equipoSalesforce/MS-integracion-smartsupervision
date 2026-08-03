@@ -164,7 +164,17 @@ async def despachar_queja_crm(
         return resultado
 
     except SfcIntegrationException as exc:
-        if exc.status_code >= 500 or exc.error_type in ["SERVER_ERROR", "SFC_DOWN", "TIMEOUT", "NETWORK_ERROR"]:
+        # 🛡️ EVALUACIÓN DE CONTINGENCIA: Servidor (>=500), Throttled/Saturado (429, 503) o tipos de infraestructura
+        es_error_contingencia = (
+            exc.status_code >= 500 or
+            exc.status_code in (429, 503) or
+            exc.error_type in [
+                "SERVER_ERROR", "SFC_DOWN", "TIMEOUT", "NETWORK_ERROR",
+                "INFRASTRUCTURE_ERROR", "THROTTLED_ERROR", "RATE_LIMIT_ERROR", "RESOURCE_EXHAUSTED"
+            ]
+        )
+
+        if es_error_contingencia:
             return await _intentar_encolar_y_responder(
                 error_origen_titulo=f"SFC Exception ({exc.status_code})",
                 error_detalle=exc.raw_message or str(exc)
