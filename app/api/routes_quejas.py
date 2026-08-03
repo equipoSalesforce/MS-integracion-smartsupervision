@@ -111,11 +111,6 @@ async def despachar_queja_crm(
                 error_inicial=error_detalle
             )
                 
-            await EmailAlertService.notificar_falla_infraestructura(
-                smart_code=payload.Smart_Code__c,
-                error_msg=f"{error_origen_titulo}: {error_detalle}"
-            )
-                
             return JSONResponse(
                 status_code=status.HTTP_202_ACCEPTED,
                 content={

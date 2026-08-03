@@ -21,7 +21,7 @@ API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 
 # Parámetros de ejecución configurables
 TOTAL_REQUESTS = 20        # Cantidad total de peticiones a enviar
-CONCURRENCY = 4           # Número máximo de peticiones concurrentes simultáneas
+CONCURRENCY = 3           # Número máximo de peticiones concurrentes simultáneas
 CHAOS_RATIO = 0.0         # Porcentaje de payloads con errores intencionados (20%)
 OUTPUT_LOG_FILE = "test_stress_results.json"
 
@@ -53,7 +53,7 @@ def _generar_identificadores_unicos(secuencia: int) -> tuple[str, str]:
     # Cambiar primeras 4 cifras de doc_number para testear nuevas opciones
     timestamp_compacto = datetime.now(ZoneInfo("America/Bogota")).strftime("%y%m%d%H%M%S")
     case_id = f"STRESS_{timestamp_compacto}_{secuencia:04d}"
-    doc_number = f"1280{secuencia:06d}"
+    doc_number = f"1282{secuencia:06d}"
     return case_id, doc_number
 
 
