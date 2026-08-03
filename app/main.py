@@ -27,12 +27,17 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+# app/main.py
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida de la aplicación.
-    Inicializa el pool global de conexiones HTTP, la cola centralizada en Redis,
-    el motor de reintentos en segundo plano (APScheduler) y la matriz de errores.
+    Inicializa y destruye ordenadamente los recursos globales del sistema:
+    - Pool HTTP con TLS 1.2 (SFC)
+    - Conexiones a Redis
+    - Tareas en segundo plano (APScheduler)
+    - Conector fallback CRM
     """
     logger.info(
         f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
@@ -52,7 +57,7 @@ async def lifespan(app: FastAPI):
             'response': [log_response]
         }
     )
-    logger.info("📡 Pool global de HTTP Client inicializado correctamente con TLS 1.2.")
+    logger.info("📡 Pool global de HTTP Client (SFC) inicializado correctamente con TLS 1.2.")
 
     # 2. Inicializar cliente Redis centralizado
     try:
@@ -82,18 +87,26 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 6. Cierre limpio de recursos
+    # ======================================================================
+    # 🛑 CIERRE LIMPIO DE RECURSOS (SHUTDOWN)
+    # ======================================================================
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
-    detener_scheduler()  # Espera a que los jobs activos terminen
+    
+    # 1. Detener APScheduler (evita que se lancen nuevos jobs durante el apagado)
+    detener_scheduler()
+    
+    # 2. Cerrar la conexión al pool de Redis centralizado
     await close_redis()
-    await sfc_client.close()
-    await close_crm_fallback_client() 
+    
+    # 3. Cerrar el cliente HTTP secundario de fallback para webhooks al CRM
+    await close_crm_fallback_client()
 
+    # 4. Liberar formalmente el pool HTTP global y los sockets TLS 1.2 usados por SfcClient
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
-        logger.info("📡 Pool global de HTTP Client cerrado limpiamente.")
+        logger.info("📡 Pool global HTTP (usado por SfcClient) liberado limpiamente.")
 
-    logger.info(f"Apagando {settings.PROJECT_NAME} limpiamente...")
+    logger.info(f"Apagando {settings.PROJECT_NAME} de manera limpia y segura.")
 
 
 app = FastAPI(

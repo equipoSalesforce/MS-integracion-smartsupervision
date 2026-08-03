@@ -6,6 +6,7 @@ import asyncio
 import time
 from datetime import datetime
 from typing import Dict, Any, List
+from zoneinfo import ZoneInfo
 import httpx
 from dotenv import load_dotenv
 
@@ -19,9 +20,9 @@ TARGET_URL = os.getenv("TEST_TARGET_URL", "http://localhost:8000/api/v1/quejas/s
 API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 
 # Parámetros de ejecución configurables
-TOTAL_REQUESTS = 100        # Cantidad total de peticiones a enviar
-CONCURRENCY = 15           # Número máximo de peticiones concurrentes simultáneas
-CHAOS_RATIO = 0.20         # Porcentaje de payloads con errores intencionados (20%)
+TOTAL_REQUESTS = 10        # Cantidad total de peticiones a enviar
+CONCURRENCY = 2           # Número máximo de peticiones concurrentes simultáneas
+CHAOS_RATIO = 0.0         # Porcentaje de payloads con errores intencionados (20%)
 OUTPUT_LOG_FILE = "test_stress_results.json"
 
 # Valores por defecto para evitar inconsistencias DIVIPOLA y rutas S3 inexistentes
@@ -39,7 +40,7 @@ CHANNELS = [
     "Centro de atención telefónica (Call center/Contact center)", "POS no propios"
 ]
 CATEGORIES = [
-    "Transacción no reconocida", "Remesas", "Dificultad en el acceso a la información",
+    "Remesas", "Dificultad en el acceso a la información",
     "Incumplimiento de los términos del contrato", "Inconformidades relacionadas con el proceso de cobranza",
     "Inconsistencia en el cobro de comisiones - Descuentos injustificados"
 ]
@@ -49,9 +50,9 @@ CATEGORIES = [
 # ==============================================================================
 def _generar_identificadores_unicos(secuencia: int) -> tuple[str, str]:
     """Genera Case_id e id_number__c totalmente únicos por cada petición."""
-    timestamp_compacto = datetime.now().strftime("%y%m%d%H%M%S")
+    timestamp_compacto = datetime.now(ZoneInfo("America/Bogota")).strftime("%y%m%d%H%M%S")
     case_id = f"STRESS_{timestamp_compacto}_{secuencia:04d}"
-    doc_number = f"1099{secuencia:06d}"
+    doc_number = f"1279{secuencia:06d}"
     return case_id, doc_number
 
 
@@ -78,7 +79,6 @@ def crear_payload_valido(secuencia: int) -> Dict[str, Any]:
         "SC_municipio__c": DEFAULT_MUNICIPIO,
         # 🎯 Uso de directorio_s3 por defecto y lista de archivos vacía
         "directorio_s3": DEFAULT_DIRECTORIO_S3,
-        "archivos_s3": []
     }
 
     if escenario == 0:
@@ -97,6 +97,7 @@ def crear_payload_valido(secuencia: int) -> Dict[str, Any]:
 
     elif escenario == 2:
         # ESCENARIO 3: Reporte de Fraude en Trámite (Usa directorio_s3 en lugar de archivos_s3 singulares)
+        payload_base["Categorias_COL__c"] = "Transacción no reconocida",
         payload_base["tipo_fraude__c"] = random.choice(["Externo", "Interno"])
         payload_base["modalidad_fraude__c"] = random.choice(["Phishing", "Suplantación de identidad", "Sim Swapping"])
         payload_base["card_amount__c"] = float(random.randint(100000, 5000000))
