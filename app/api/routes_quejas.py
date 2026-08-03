@@ -97,6 +97,54 @@ async def despachar_queja_crm(
 
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
     orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
+
+    # 🛠️ Helper Interno DRY para Manejo de Contingencia y Protección de Doble Falla (SFC + Redis)
+    async def _intentar_encolar_y_responder(error_origen_titulo: str, error_detalle: str):
+        logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
+        
+        try:
+            queue_service = QueueService(get_redis_client())
+            await queue_service.encolar_despacho(
+                smart_code=payload.Smart_Code__c,
+                tipo_operacion="AUTO",
+                payload_json=payload.model_dump(mode="json"),
+                error_inicial=error_detalle
+            )
+                
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code=payload.Smart_Code__c,
+                error_msg=f"{error_origen_titulo}: {error_detalle}"
+            )
+                
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "status": "queued",
+                    "smart_code": payload.Smart_Code__c,
+                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
+                    "error_origen": error_detalle
+                }
+            )
+        except Exception as redis_err:
+            # 🚨 PROTECCIÓN DE DOBLE FALLA: SFC + REDIS CAÍDOS SIMULTÁNEAMENTE
+            logger.critical(
+                f"🔥 [CRÍTICO] Fallo doble de infraestructura para caso {payload.Smart_Code__c}: "
+                f"SFC Unreachable ({error_detalle}) | Redis Unreachable ({redis_err})"
+            )
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code=payload.Smart_Code__c,
+                error_msg=f"FALLA CRÍTICA DOBLE (SFC + REDIS): SFC Error: {error_detalle} | Redis Error: {str(redis_err)}"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status_code": 503,
+                    "error_type": "CRITICAL_INFRASTRUCTURE_FAILURE",
+                    "sfc_field": None,
+                    "raw_message": "Tanto la Superintendencia como la cola de contingencia local están temporalmente no disponibles.",
+                    "crm_action_friendly": "Reintente la operación en unos minutos. El incidente ha sido notificado automáticamente al equipo de ingeniería."
+                }
+            )
     
     try:
         resultado = await orquestador.procesar_despacho(payload=payload)
@@ -117,60 +165,19 @@ async def despachar_queja_crm(
 
     except SfcIntegrationException as exc:
         if exc.status_code >= 500 or exc.error_type in ["SERVER_ERROR", "SFC_DOWN", "TIMEOUT", "NETWORK_ERROR"]:
-            logger.warning(f"⚠️ SFC no disponible ({exc.status_code}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
-            
-            queue_service = QueueService(get_redis_client())
-            await queue_service.encolar_despacho(
-                smart_code=payload.Smart_Code__c,
-                tipo_operacion="AUTO",
-                payload_json=payload.model_dump(mode="json"),
-                error_inicial=exc.raw_message or str(exc)
-            )
-                
-            await EmailAlertService.notificar_falla_infraestructura(
-                smart_code=payload.Smart_Code__c,
-                error_msg=f"SFC Exception ({exc.status_code}): {exc.raw_message}"
-            )
-                
-            return JSONResponse(
-                status_code=status.HTTP_202_ACCEPTED,
-                content={
-                    "status": "queued",
-                    "smart_code": payload.Smart_Code__c,
-                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
-                    "error_origen": exc.raw_message
-                }
+            return await _intentar_encolar_y_responder(
+                error_origen_titulo=f"SFC Exception ({exc.status_code})",
+                error_detalle=exc.raw_message or str(exc)
             )
 
         logger.warning(f"Error controlado de validación de la SFC durante el despacho: {exc.raw_message}")
         raise
 
     except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as net_err:
-        logger.warning(f"⚠️ Fallo de conexión contra la SFC ({str(net_err)}). Guardando caso {payload.Smart_Code__c} en cola Redis.")
-        
-        queue_service = QueueService(get_redis_client())
-        await queue_service.encolar_despacho(
-            smart_code=payload.Smart_Code__c,
-            tipo_operacion="AUTO",
-            payload_json=payload.model_dump(mode="json"),
-            error_inicial=str(net_err)
+        return await _intentar_encolar_y_responder(
+            error_origen_titulo="Network Error",
+            error_detalle=str(net_err)
         )
-            
-        await EmailAlertService.notificar_falla_infraestructura(
-            smart_code=payload.Smart_Code__c,
-            error_msg=f"Network Error: {str(net_err)}"
-        )
-            
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,
-            content={
-                "status": "queued",
-                "smart_code": payload.Smart_Code__c,
-                "message": "Fallo de comunicación con la SFC. El caso fue encolado localmente y se transmitirá automáticamente cuando se restablezca el servicio.",
-                "error_origen": str(net_err)
-            }
-        )
-
 
 @router.get(
     "/queue",

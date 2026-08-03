@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     )
     logger.info("📡 Pool global de HTTP Client inicializado correctamente con TLS 1.2.")
 
-    # 2. Crear la tabla SQLite de la cola si no existe
+    # 2. Inicializar cliente Redis centralizado
     try:
         await init_redis()
         logger.info("Cliente de Redis centralizado inicializado correctamente.")

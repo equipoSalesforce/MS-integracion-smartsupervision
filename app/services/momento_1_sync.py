@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):
         self.sfc_client = sfc_client
-        self.s3_service = S3StorageService(s3_client=s3_client)
+        self.s3_service = S3StorageService(s3_client=s3_client, http_client=getattr(sfc_client, "client", None))
 
     async def ejecutar_flujo_completo_momento_1(self) -> List[Dict[str, Any]]:
         logger.info("[Momento 1] Descargando y procesando lote de quejas M1 de SFC...")

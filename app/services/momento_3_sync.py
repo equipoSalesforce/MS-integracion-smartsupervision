@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class Momento3SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):
         self.sfc_client = sfc_client
-        self.s3_service = S3StorageService(s3_client=s3_client)
+        self.s3_service = S3StorageService(s3_client=s3_client, http_client=getattr(sfc_client, "client", None))
 
     async def ejecutar_actualizacion_tramite(self, payload: Any) -> Dict[str, Any]:
         return await self._orquestar_pipeline_momento_3(payload=payload)

@@ -23,49 +23,6 @@ ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
 # 🛠️ Hook Sanitizado para Registrar Peticiones Salientes (Request)
 async def log_request(request: httpx.Request):
-    # --- FILTRO DE LOGS DE ARCHIVOS ---
-    is_file_request = (
-        SfcEndpoints.STORAGE.value in str(request.url) 
-        or "multipart/form-data" in request.headers.get("content-type", "")
-    )
-    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
-
-    if is_file_request and not enable_file_logs:
-        return  # Omitir el log de archivos pesados
-    # -----------------------------------
-
-    headers_clean = sanitizar_headers(request.headers)
-    headers_formatted = "\n".join([f"  {k}: {v}" for k, v in headers_clean.items()])
-
-    content_type = request.headers.get("content-type", "")
-    if "multipart/form-data" in content_type or "octet-stream" in content_type:
-        body_str = "<[Contenido Binario / Multipart - Omitido por tamaño]>"
-    else:
-        try:
-            if request.content:
-                raw_json = json.loads(request.content.decode("utf-8"))
-                clean_json = sanitizar_payload(raw_json)
-                body_str = json.dumps(clean_json, ensure_ascii=False)
-            else:
-                body_str = "<Vacio>"
-        except Exception:
-            body_str = f"<[Contenido No-JSON / Raw: {len(request.content)} bytes]>" if request.content else "<Vacio>"
-
-    logger.info(
-        "\n==================== [AUDIT HTTP OUTGOING REQUEST] ====================\n"
-        f"Method  : {request.method}\n"
-        f"URL     : {request.url}\n"
-        f"Headers :\n{headers_formatted}\n"
-        f"Body    :\n{body_str}\n"
-        "=========================================================================="
-    )
-
-
-from app.core.middleware import get_correlation_id
-
-
-# 🛠️ Hook Sanitizado para Registrar Peticiones Salientes (Request)
-async def log_request(request: httpx.Request):
     # 1. 🔑 INYECCIÓN DE CORRELATION ID
     cid = get_correlation_id()
     if cid and cid != "N/A":
