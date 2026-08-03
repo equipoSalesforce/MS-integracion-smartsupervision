@@ -243,7 +243,14 @@ class QueueService:
             es_definitivo = data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES)
 
             if es_definitivo:
-                data["estado"] = "FALLIDO_DEFINITIVO"
+                logger.error(f"❌ [Cola Redis] Caso {data['smart_code']} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
+                # 🚨 ALERTA IMEDIATA DLQ
+                await EmailAlertService.notificar_caso_fallido_definitivo(
+                    smart_code=data["smart_code"],
+                    total_intentos=data["intentos"],
+                    ultimo_error=error_msg,
+                    correlation_id=data.get("correlation_id")
+                )
             else:
                 espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES * data["intentos"]
                 proximo_at = now_bogota + timedelta(minutes=espera_minutos)

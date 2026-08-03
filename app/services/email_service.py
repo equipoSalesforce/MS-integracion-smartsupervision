@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
 
 from app.core.config import settings
-from app.core.middleware import get_correlation_id  # 👈 Importación del helper de CID
+from app.core.middleware import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class EmailAlertService:
             msg.attach(MIMEText(cuerpo_html, "html"))
 
             with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                server.starttls()  # Seguridad TLS
+                server.starttls()
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_USER, destinatarios, msg.as_string())
 
@@ -77,7 +77,7 @@ class EmailAlertService:
                         <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
                         <li><strong>Correlation ID (CID):</strong> <strong style="color: #0275d8;"><code>{cid}</code></strong></li>
                         <li><strong>Smart Code Afectado:</strong> <code>{smart_code}</code></li>
-                        <li><strong>Acción Tomada:</strong> Caso encolado automáticamente en Redis para reintento.</li>
+                        <li><strong>Acción Tomada:</strong> Caso encolado automáticamente en Redis centralizado para reintento.</li>
                         <li><strong>Detalle del Error:</strong> <pre style="background: #f4f4f4; padding: 10px; border-radius: 4px;">{error_msg}</pre></li>
                     </ul>
                     <p style="font-size: 12px; color: #777;">Este es un mensaje automático de alerta de ingeniería. Use el Correlation ID para rastrear los logs en CloudWatch.</p>
@@ -250,7 +250,7 @@ class EmailAlertService:
                     <h2 style="margin:0;">⏳ Alerta de Envejecimiento de Casos (> 12 Horas)</h2>
                 </div>
                 <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
-                    <p>Se han identificado <strong>{total} caso(s)</strong> que superan las 12 horas de retención en la cola local sin haber podido transmitirse a la Superintendencia Financiera.</p>
+                    <p>Se han identificado <strong>{total} caso(s)</strong> que superan las 12 horas de retención en la cola Redis sin haber podido transmitirse a la Superintendencia Financiera.</p>
                     
                     <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                         <thead>
@@ -284,7 +284,57 @@ class EmailAlertService:
         )
 
     # =========================================================================
-    # ✅ 5. CONFIRMACIÓN DE RESTABLECIMIENTO Y RECUPERACIÓN (SFC ONLINE)
+    # ❌ 5. NOTIFICACIÓN DE CASO FALLIDO DEFINITIVO (DEAD LETTER QUEUE)
+    # =========================================================================
+    @classmethod
+    async def notificar_caso_fallido_definitivo(
+        cls,
+        smart_code: str,
+        total_intentos: int,
+        ultimo_error: str,
+        correlation_id: Optional[str] = None,
+        ambiente: str = settings.ENVIRONMENT
+    ):
+        """Notifica de inmediato cuando un caso agota todos sus reintentos y entra en FALLIDO_DEFINITIVO (DLQ)."""
+        if not settings.ALERT_EMAILS_ENABLED:
+            return
+
+        cid = correlation_id or get_correlation_id()
+        asunto = f"❌ [ALERTA DLQ] Caso Fallido Definitivo: {smart_code} | CID: {cid} [{ambiente.upper()}]"
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #8b0000; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">❌ Caso Descartado de Cola (Dead Letter Queue)</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>Un caso ha alcanzado el límite máximo de reintentos de despacho a la <strong>Superintendencia Financiera</strong> y ha pasado al estado <strong>FALLIDO_DEFINITIVO</strong>.</p>
+                    <ul>
+                        <li><strong>Ambiente:</strong> {ambiente.upper()}</li>
+                        <li><strong>Correlation ID (CID):</strong> <strong style="color: #0275d8;"><code>{cid}</code></strong></li>
+                        <li><strong>Smart Code:</strong> <code>{smart_code}</code></li>
+                        <li><strong>Total Intentos Agotados:</strong> {total_intentos}</li>
+                        <li><strong>Último Error Registrado:</strong> <pre style="background: #f4f4f4; padding: 10px; border-radius: 4px;">{ultimo_error}</pre></li>
+                    </ul>
+                    <p style="color: #d9534f; font-weight: bold;">⚠️ El Scheduler dejará de reintentar este caso automáticamente. Requiere revisión e intervención manual en Redis.</p>
+                    <p style="font-size: 12px; color: #777;">Notificación crítica automática por agotamiento de reintentos de contingencia.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        asyncio.create_task(
+            asyncio.to_thread(
+                cls._enviar_smtp_sync,
+                destinatarios=cls._obtener_destinatarios(),
+                asunto=asunto,
+                cuerpo_html=cuerpo_html
+            )
+        )
+
+    # =========================================================================
+    # ✅ 6. CONFIRMACIÓN DE RESTABLECIMIENTO Y RECUPERACIÓN (SFC ONLINE)
     # =========================================================================
     @classmethod
     async def notificar_recuperacion_sfc(
@@ -309,7 +359,7 @@ class EmailAlertService:
                         <li><strong>Casos Transmitidos Exitosamente:</strong> <strong style="color: #5cb85c; font-size: 16px;">{total_despachados}</strong></li>
                         <li><strong>Estado Actual de la Cola:</strong> Vacía / Operación Normal.</li>
                     </ul>
-                    <p>Todos los acuses de recibo devueltos por la SFC han sido registrados correctamente en la base de datos.</p>
+                    <p>Todos los acuses de recibo devueltos por la SFC han sido registrados correctamente en Redis.</p>
                     <p style="font-size: 12px; color: #777;">Notificación automática de autorrecuperación de servicio.</p>
                 </div>
             </body>
