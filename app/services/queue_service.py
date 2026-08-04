@@ -1,3 +1,4 @@
+# app/services/queue_service.py
 import json
 import logging
 from datetime import datetime, timedelta
@@ -28,6 +29,7 @@ class ColaItemRedis:
         self.proximo_reintento_at = data.get("proximo_reintento_at")
         self.created_at = data.get("created_at")
         self.updated_at = data.get("updated_at")
+        self.es_duplicado = bool(data.get("es_duplicado", False))
 
     def to_dict(self) -> dict:
         return {
@@ -42,14 +44,15 @@ class ColaItemRedis:
             "proximo_reintento_at": self.proximo_reintento_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "es_duplicado": self.es_duplicado
         }
 
 
 class QueueService:
     """
     Servicio de Cola Centralizada sobre Redis.
-    Garantiza concurrencia segura, transaccionalidad y rendimiento entre
-    múltiples contenedores manteniendo paridad con la lógica de contingencia.
+    Garantiza concurrencia segura, transaccionalidad, idempotencia/desduplicación por smart_code
+    y rendimiento entre múltiples contenedores.
     """
 
     def __init__(self, redis_client=None):
@@ -72,17 +75,55 @@ class QueueService:
         payload_json: Dict[str, Any], 
         error_inicial: str
     ) -> ColaItemRedis:
-        """Registra un nuevo caso en Redis de manera transaccional tras detectar falla."""
+        """
+        Encola un caso en Redis garantizando IDEMPOTENCIA / DESDUPLICACIÓN por smart_code.
+        Si el caso ya está PENDIENTE en la cola, actualiza su payload y error sin duplicar el registro.
+        """
         if not self.redis:
             logger.error("❌ [Cola Redis] Cliente de Redis no inicializado.")
             raise RuntimeError("Cliente de Redis no disponible.")
 
+        now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        index_key = f"sfc:queue:index:{smart_code}"
+
+        # 1. EVALUACIÓN DE DESDUPLICACIÓN: Verificar si el smart_code ya está PENDIENTE
+        existing_id_raw = await self.redis.get(index_key)
+
+        if existing_id_raw:
+            existing_id = existing_id_raw.decode("utf-8") if isinstance(existing_id_raw, bytes) else str(existing_id_raw)
+            is_pending = await self.redis.sismember("sfc:queue:status:PENDIENTE", existing_id)
+
+            if is_pending:
+                item_key = f"sfc:queue:item:{existing_id}"
+                raw_item = await self.redis.get(item_key)
+                if raw_item:
+                    data = json.loads(raw_item, strict=False)
+                    proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
+                    
+                    data["payload_json"] = payload_json
+                    data["ultimo_error"] = error_inicial
+                    data["updated_at"] = now_bogota.isoformat()
+                    data["proximo_reintento_at"] = proximo_reintento.isoformat()
+                    data["correlation_id"] = get_correlation_id()
+                    data["es_duplicado"] = True
+                    
+                    # --- TRANSACCIÓN ATÓMICA DE ACTUALIZACIÓN ---
+                    async with self.redis.pipeline(transaction=True) as pipe:
+                        pipe.set(item_key, json.dumps(data, ensure_ascii=False))
+                        pipe.zadd("sfc:queue:pending_zset", {existing_id: proximo_reintento.timestamp()})
+                        await pipe.execute()
+
+                    logger.info(
+                        f"🔄 [Cola Redis] El caso {smart_code} ya se encontraba encolado (ID: {existing_id}). "
+                        f"Se actualizó su payload y tiempo de reintento sin crear registros duplicados."
+                    )
+                    return ColaItemRedis(data)
+
+        # 2. CREACIÓN DE NUEVO REGISTRO EN COLA (Si no existía o no estaba PENDIENTE)
         pendientes_previos = await self.contar_pendientes()
 
         # Generar ID autoincremental en Redis
         item_id = await self.redis.incr("sfc:queue:counter")
-
-        now_bogota = datetime.now(ZoneInfo("America/Bogota"))
         proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
 
         item_dict = {
@@ -102,12 +143,13 @@ class QueueService:
 
         item_key = f"sfc:queue:item:{item_id}"
 
-        # --- TRANSACCIÓN ATÓMICA ---
+        # --- TRANSACCIÓN ATÓMICA DE INSERCIÓN E ÍNDICE DE DESDUPLICACIÓN ---
         async with self.redis.pipeline(transaction=True) as pipe:
             pipe.set(item_key, json.dumps(item_dict, ensure_ascii=False))
             pipe.sadd("sfc:queue:status:PENDIENTE", str(item_id))
             pipe.zadd("sfc:queue:pending_zset", {str(item_id): proximo_reintento.timestamp()})
             pipe.zadd("sfc:queue:created_zset", {str(item_id): now_bogota.timestamp()})
+            pipe.set(index_key, str(item_id))  # 📌 Índice secundario para desduplicar por smart_code
             await pipe.execute()
 
         item_obj = ColaItemRedis(item_dict)
@@ -149,7 +191,7 @@ class QueueService:
                 if not raw_item:
                     continue
 
-                data = json.loads(raw_item)
+                data = json.loads(raw_item, strict=False)
                 created_dt = datetime.fromisoformat(data["created_at"])
                 horas_en_cola = (now_bogota - created_dt).total_seconds() / 3600.0
 
@@ -186,7 +228,7 @@ class QueueService:
                 if not raw_item:
                     continue
 
-                data = json.loads(raw_item)
+                data = json.loads(raw_item, strict=False)
                 if data.get("intentos", 0) < data.get("max_intentos", settings.QUEUE_MAX_RETRIES):
                     pendientes.append(ColaItemRedis(data))
 
@@ -196,7 +238,7 @@ class QueueService:
             return []
 
     async def marcar_exitoso(self, registro_id: int):
-        """Marca de forma atómica un registro como entregado con éxito a la SFC."""
+        """Marca de forma atómica un registro como entregado con éxito a la SFC y remueve su índice de desduplicación."""
         if not self.redis:
             return
 
@@ -206,9 +248,10 @@ class QueueService:
             if not raw_item:
                 return
 
-            data = json.loads(raw_item)
+            data = json.loads(raw_item, strict=False)
             data["estado"] = "EXITOSO"
             data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
+            smart_code = data.get("smart_code")
 
             # --- TRANSACCIÓN ATÓMICA ---
             async with self.redis.pipeline(transaction=True) as pipe:
@@ -216,6 +259,8 @@ class QueueService:
                 pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
                 pipe.sadd("sfc:queue:status:EXITOSO", str(registro_id))
                 pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                if smart_code:
+                    pipe.delete(f"sfc:queue:index:{smart_code}")
                 await pipe.execute()
 
         except Exception as e:
@@ -235,18 +280,19 @@ class QueueService:
             if not raw_item:
                 return
 
-            data = json.loads(raw_item)
+            data = json.loads(raw_item, strict=False)
             data["intentos"] += 1
             data["ultimo_error"] = error_msg
             now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+            smart_code = data.get("smart_code")
             
             es_definitivo = data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES)
 
             if es_definitivo:
-                logger.error(f"❌ [Cola Redis] Caso {data['smart_code']} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
-                # 🚨 ALERTA IMEDIATA DLQ
+                logger.error(f"❌ [Cola Redis] Caso {smart_code} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
+                # 🚨 ALERTA INMEDIATA DLQ
                 await EmailAlertService.notificar_caso_fallido_definitivo(
-                    smart_code=data["smart_code"],
+                    smart_code=smart_code,
                     total_intentos=data["intentos"],
                     ultimo_error=error_msg,
                     correlation_id=data.get("correlation_id")
@@ -266,13 +312,12 @@ class QueueService:
                     pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
                     pipe.sadd("sfc:queue:status:FALLIDO_DEFINITIVO", str(registro_id))
                     pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                    if smart_code:
+                        pipe.delete(f"sfc:queue:index:{smart_code}")
                 else:
                     pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_at.timestamp()})
                 
                 await pipe.execute()
-
-            if es_definitivo:
-                logger.error(f"❌ [Cola Redis] Caso {data['smart_code']} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
 
         except Exception as e:
             logger.error(f"Error registrando fallo para registro {registro_id} en Redis: {e}")
@@ -294,7 +339,7 @@ class QueueService:
             for item_id in item_ids:
                 raw_item = await self.redis.get(f"sfc:queue:item:{item_id}")
                 if raw_item:
-                    data = json.loads(raw_item)
+                    data = json.loads(raw_item, strict=False)
                     registros.append(ColaItemRedis(data))
 
             registros.sort(key=lambda x: x.created_at or "", reverse=True)
@@ -326,7 +371,7 @@ class QueueService:
                     inconsistentes.append(str(item_id))
                     continue
 
-                data = json.loads(raw_item)
+                data = json.loads(raw_item, strict=False)
                 updated_dt = datetime.fromisoformat(data["updated_at"])
 
                 if updated_dt <= limite_dt:
@@ -376,7 +421,7 @@ class QueueService:
                 if not raw_item:
                     continue
 
-                data = json.loads(raw_item)
+                data = json.loads(raw_item, strict=False)
                 data["proximo_reintento_at"] = proximo_at.isoformat()
                 data["updated_at"] = now_bogota.isoformat()
                 data["ultimo_error"] = "Reintento pospuesto automáticamente por caída de plataforma SFC."

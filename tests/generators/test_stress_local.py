@@ -53,7 +53,7 @@ def _generar_identificadores_unicos(secuencia: int) -> tuple[str, str]:
     # Cambiar primeras 4 cifras de doc_number para testear nuevas opciones
     timestamp_compacto = datetime.now(ZoneInfo("America/Bogota")).strftime("%y%m%d%H%M%S")
     case_id = f"STRESS_{timestamp_compacto}_{secuencia:04d}"
-    doc_number = f"1282{secuencia:06d}"
+    doc_number = f"1283{secuencia:06d}"
     return case_id, doc_number
 
 

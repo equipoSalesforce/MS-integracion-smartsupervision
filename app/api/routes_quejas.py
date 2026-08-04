@@ -32,6 +32,62 @@ from app.services.queue_service import QueueService
 router = APIRouter(dependencies=[Depends(verificar_api_key_crm)])
 logger = logging.getLogger(__name__)
 
+RESPUESTAS_DESPACHO_OPENAPI = {
+    status.HTTP_200_OK: {
+        "description": "✅ **Procesamiento Síncrono Exitoso**: La queja o actualización fue recibida y aceptada directamente por la SFC.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "status": "success",
+                    "message": "Caso 1286SEQ_20260804_0001 actualizado en M3 (Estado SFC 4)",
+                    "codigo_queja_sfc": "1286SEQ_20260804_0001"
+                }
+            }
+        }
+    },
+    status.HTTP_202_ACCEPTED: {
+        "description": "📦 **Contingencia por Saturación / Latencia**: La SFC está lenta (>3s) o agotó su cuota (HTTP 429). El caso fue guardado en la cola de Redis para reintento automático.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "status": "queued",
+                    "smart_code": "1286SEQ_20260804_0001",
+                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
+                    "error_origen": "RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'Read Requests' per minute"
+                }
+            }
+        }
+    },
+    status.HTTP_400_BAD_REQUEST: {
+        "description": "🛡️ **Error de Validación de Entrada o Regla de Negocio**: Payload inválido (catálogo, tipo de dato, cierres inconsistentes) o rechazado por la SFC.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "status_code": 400,
+                    "error_type": "CRM_PAYLOAD_VALIDATION_ERROR",
+                    "sfc_field": "id_number__c",
+                    "raw_message": "String should have at most 15 characters",
+                    "crm_action_friendly": "Verifique el campo 'id_number__c' en Salesforce. Asegúrese de cumplir con la longitud permitida."
+                }
+            }
+        }
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "description": "🚨 **Falla Crítica Doble de Infraestructura**: Tanto la SFC como la cola centralizada de Redis están inalcanzables.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "status_code": 503,
+                    "error_type": "CRITICAL_INFRASTRUCTURE_FAILURE",
+                    "sfc_field": None,
+                    "raw_message": "Tanto la Superintendencia como la cola de contingencia local están temporalmente no disponibles.",
+                    "crm_action_friendly": "Reintente la operación en unos minutos. El incidente ha sido notificado automáticamente al equipo de ingeniería."
+                }
+            }
+        }
+    }
+}
+
 # ======================================================================
 # 📥 MOMENTO 1: Sincronización y ACK (SFC -> CRM)
 # ======================================================================
@@ -68,7 +124,25 @@ async def confirmar_ack_momento_1(
 @router.post(
     "/sync/despacho",
     status_code=status.HTTP_200_OK,
+    responses=RESPUESTAS_DESPACHO_OPENAPI,
     summary="Trigger Unificado de Despacho con Cola Centralizada Redis",
+    description="""
+        ### 🚀 Orquestador de Despacho Unificado Stateless
+
+        Este endpoint actúa como la **puerta de entrada principal** para las transmisiones desde Salesforce CRM hacia la Superintendencia Financiera de Colombia (SFC).
+
+        #### 🛠️ Comportamiento del Sistema:
+        1. **Sanitización y Validación Local (< 40ms):**
+        * Previene ataques Stored XSS en campos libres (`Description`, `SuppliedName`).
+        * Valida catálogos normativos (DIVIPOLA, Categorías SFC) y restricciones de negocio.
+        2. **Inferencia Automática de Fase:**
+        * **Momento 2 (Alta Nueva):** Activado para casos nuevos sin trámite previo ni fraude.
+        * **Momento 3 (Trámite / Fraude / Cierre):** Activado para actualizaciones de estado, reportes de investigación de fraude o emision de respuestas finales (PDF).
+        3. **Mecanismo de Resiliencia y Contingencia (HTTP 202):**
+        * Si la SFC no responde en $<3\text{ segundos}$ o agota la cuota (`429`), el microservicio **encola el registro en Redis** y responde **202 Accepted** instantáneamente.
+        4. **Mecanismo de Auto-Recuperación (Self-Healing):**
+        * Si la SFC retorna un error `404 Not Found` al intentar actualizar un caso, el sistema radicará automáticamente la queja base en Momento 2 y completará el trámite de M3 en secuencia.
+            """
 )
 async def despachar_queja_crm(
     request: Request,
@@ -104,13 +178,24 @@ async def despachar_queja_crm(
         
         try:
             queue_service = QueueService(get_redis_client())
-            await queue_service.encolar_despacho(
+            item_encolado = await queue_service.encolar_despacho(
                 smart_code=payload.Smart_Code__c,
                 tipo_operacion="AUTO",
                 payload_json=payload.model_dump(mode="json"),
                 error_inicial=error_detalle
             )
-                
+            
+            if getattr(item_encolado, "es_duplicado", False):
+                return JSONResponse(
+                    status_code=status.HTTP_202_ACCEPTED,
+                    content={
+                        "status": "already_queued",
+                        "smart_code": payload.Smart_Code__c,
+                        "message": "El caso ya se encuentra encolado en Redis pendiente de reintento. Se actualizó la información con la última versión recibida.",
+                        "error_origen": error_detalle
+                    }
+                )
+            
             return JSONResponse(
                 status_code=status.HTTP_202_ACCEPTED,
                 content={

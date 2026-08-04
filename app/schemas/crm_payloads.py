@@ -345,6 +345,54 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                         raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
 
         return self
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "Case_id": "SC-EJEMPLO-0001",
+                "Status": "Closed",
+                "SuppliedName": "María Alejandra Bermúdez",
+                "SC_id_type__c": "CC",
+                "id_number__c": "1020304054",
+                "sc_genero__c": "Femenino",
+                "tipo_de_persona__c": "B2C",
+                "sc_LGBTIQ__c": "No",
+                "sc_Condicion_especial__c": "No aplica",
+                "SuppliedPhone": "3109876543",
+                "SuppliedEmail": "maria.bermudez@test.com",
+                "direccion__c": "Calle 53 # 70-12 Apto 402",
+                "Departamento__c": "Bogotá D.C.",
+                "SC_municipio__c": "Bogotá D.C.",
+                "canal__c": "Internet",
+                "punto_recepcion": "Web",
+                "Instancia_de_recepcion__c": "Entidad vigilada",
+                "admision_col__c": "No Aplica",
+                "Description": "Prueba completa con todos los campos del formulario cargados simultáneamente para verificación de esquema.",
+                "smart_anexo_queja__c": True,
+                "Tutela__c": "No",
+                "Ente_de_control__c": "Otros",
+                "smart_escalamiento_DCF__c": "No",
+                "marcacion__c": "Revisión técnica",
+                "Product__c": "Tarjeta Digital",
+                "smart_Producto_nombre__c": "Global Card Digital",
+                "Categorias_COL__c": "Transacción no reconocida",
+                "archivos_s3": [],
+                "producto_digital__c": "Si",
+                "tipo_fraude__c": "Externo",
+                "modalidad_fraude__c": "Suplantación de identidad",
+                "card_amount__c": 1500000.0,
+                "Total_Devuelto_por_Desconocimiento__c": 1500000.0,
+                "nombre_archivo_fraude": "informe_fraude.pdf",
+                "Favorabilidad__c": "Favorable",
+                "a_favor_de__c": "1",
+                "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+                "Rectificacion__c": "Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF",
+                "Prorroga__c": 1,
+                "cuerpo_respuesta_final": "<html><body><p>Estimada María,</p><p>Le informamos que tras la investigación realizada por el equipo de seguridad, confirmamos que su solicitud ha sido resuelta de forma <strong>FAVORABLE</strong> con el reembolso total de los fondos.</p><p>Atentamente,<br>Global66 Colombia</p></body></html>",
+                "directorio_s3": "caso/TEST-ALL-FIELDS-SSV-999/"
+                }
+        }
+    }
 
 
 class ConfirmacionAckInput(BaseModel):
