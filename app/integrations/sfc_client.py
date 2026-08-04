@@ -118,8 +118,8 @@ def handle_sfc_throttling(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         attempts = 0
-        max_retries = getattr(settings, "SFC_MINI_RETRY_ATTEMPTS", 2)
-        delay = getattr(settings, "SFC_MINI_RETRY_DELAY_SECONDS", 5.5)
+        max_retries = getattr(settings, "SFC_MINI_RETRY_ATTEMPTS", settings.SFC_MINI_RETRY_ATTEMPTS)
+        delay = getattr(settings, "SFC_MINI_RETRY_DELAY_SECONDS", settings.SFC_MINI_RETRY_DELAY_SECONDS)
 
         while True:
             try:

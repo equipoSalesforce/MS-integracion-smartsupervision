@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     )
 
     # 1. Inicializar Pool Global de cliente HTTP con TLS 1.2 y Hooks de Auditoría
-    timeout = httpx.Timeout(connect=5.0, read=30.0, write=15.0, pool=10.0)
+    timeout = httpx.Timeout(connect=2.0, read=3.0, write=5.0, pool=5.0)
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     
     app.state.http_client = httpx.AsyncClient(

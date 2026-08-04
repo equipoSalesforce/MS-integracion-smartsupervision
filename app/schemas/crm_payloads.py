@@ -106,12 +106,37 @@ class Momento2QuejaCrmInput(BaseModel):
     # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
 
+    # 🛡️ SANITIZADOR PREVENTIVO CONTRA STORED XSS
+    @field_validator("SuppliedName", "direccion__c", "Description", mode="before")
+    @classmethod
+    def sanitizar_campos_texto(cls, v: Optional[str]) -> Optional[str]:
+        """
+        Remueve bloques <script>...</script> y cualquier etiqueta HTML 
+        para evitar inyecciones XSS, manteniendo texto normal y emojis.
+        """
+        if isinstance(v, str):
+            clean = re.sub(r"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", "", v, flags=re.IGNORECASE)
+            clean = re.sub(r"<[^>]*>", "", clean)
+            return clean.strip()
+        return v
+
+    # 🚫 VALIDADOR DE NOMBRE OBLIGATORIO Y NO VACÍO
+    @field_validator("SuppliedName", mode="after")
+    @classmethod
+    def validar_nombre_no_vacio(cls, v: str) -> str:
+        """
+        Garantiza que el campo SuppliedName no esté vacío, nulo o contenga únicamente espacios.
+        """
+        if not v or not v.strip():
+            raise ValueError("El nombre completo del cliente ('SuppliedName') no puede estar vacío, ser nulo o contener únicamente espacios en blanco.")
+        return v.strip()
+
     @model_validator(mode="after")
     def resolver_y_armar_smart_code(self) -> "Momento2QuejaCrmInput":
         if not self.Case_id and not self.Smart_Code__c:
             raise ValueError("Debe incluir al menos 'Case_id' o 'Smart_Code__c' en el payload de la petición.")
 
-        prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}"  # Ej: "1423"
+        prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}"
 
         if not self.Smart_Code__c and self.Case_id:
             raw_id = str(self.Case_id).strip()
@@ -125,12 +150,23 @@ class Momento2QuejaCrmInput(BaseModel):
             self.Case_id = self.Smart_Code__c
 
         return self
+    
+    @field_validator("SuppliedEmail", mode="after")
+    @classmethod
+    def validar_formato_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            email_clean = v.strip()
+            if email_clean:
+                pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+                if not re.match(pattern, email_clean):
+                    raise ValueError(f"El correo electrónico '{v}' no tiene un formato válido (debe incluir '@' y un dominio válido).")
+                return email_clean
+        return v
 
     @field_validator("id_number__c", mode="before")
     @classmethod
     def limpiar_id_caracteres_especiales(cls, v: str) -> str:
         if isinstance(v, str):
-            # Conserva letras (A-Z, a-z) y números (0-9), eliminando caracteres especiales y espacios
             cleaned = re.sub(r"[^a-zA-Z0-9]", "", v)
             if not cleaned:
                 raise ValueError(
@@ -155,7 +191,6 @@ class Momento2QuejaCrmInput(BaseModel):
         if isinstance(v, str):
             cleaned = v.strip()
             if cleaned:
-                # Permite alfanuméricos, guion bajo (_) y guion medio (-)
                 if not re.match(r"^[a-zA-Z0-9_-]+$", cleaned):
                     raise ValueError(
                         f"El identificador '{info.field_name}' con valor '{cleaned}' contiene caracteres no permitidos. "
@@ -214,11 +249,6 @@ class Momento2QuejaCrmInput(BaseModel):
     @field_validator("CreatedDate", mode="before")
     @classmethod
     def auto_completar_y_validar_fecha_creacion(cls, v: Optional[str]) -> str:
-        """
-        Si 'CreatedDate' viene nulo, vacío o no se envía en el JSON, se genera 
-        automáticamente la fecha/hora actual en hora local de Bogotá (UTC-5).
-        Si viene provisto, valida que cumpla con el formato ISO 8601.
-        """
         if not v or not str(v).strip():
             return datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
         
@@ -239,17 +269,14 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     Payload unificado del CRM. Infiere automáticamente las intenciones de negocio
     basándose exclusivamente en los campos provistos.
     """
-    # --- Opcionales Trámite ---
     producto_digital__c: Optional[str] = Field("Si", description="Producto digital (Si/No)")
 
-    # --- Opcionales Fraude ---
     tipo_fraude__c: Optional[str] = Field(None, description="Tipo de fraude")
     modalidad_fraude__c: Optional[str] = Field(None, description="Modalidad de fraude")
     card_amount__c: Optional[float] = Field(None, ge=0.0, description="Monto reclamado")
     Total_Devuelto_por_Desconocimiento__c: Optional[float] = Field(None, ge=0.0, description="Monto devuelto")
     nombre_archivo_fraude: Optional[str] = Field(None, description="Archivo INV_FRAUDE_SFC")
 
-    # --- Opcionales Cierre ---
     ClosedDate: Optional[date] = Field(None, description="Fecha de cierre (YYYY-MM-DD). Si se omite en un cierre, se autogenera con la fecha actual de Bogotá.")
     Favorabilidad__c: Optional[str] = Field(None, description="Favorabilidad del caso")
     a_favor_de__c: Optional[str] = Field(None, description="A favor de")
@@ -262,7 +289,6 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
     )
     
-    # --- Soporte para carpetas S3 ---
     directorio_s3: Optional[str] = Field(
         None, 
         description="Ruta/Prefix del directorio en S3 donde se alojan todos los archivos del caso (ej: 'caso/1286TEST_012/')"
@@ -271,10 +297,8 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
-        
         tiene_directorio = bool(self.directorio_s3 and self.directorio_s3.strip())
         
-        # 🎯 Normalización de Status protegiendo contra None
         status_clean = (self.Status or "").strip().lower()
         
         es_estado_cierre = (
@@ -284,9 +308,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         )
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
-        # Validaciones para intenciones de CIERRE
         if es_estado_cierre:
-            
             if not self.Status or status_clean not in ("closed", "cerrado"):
                 self.Status = "Closed"
             
@@ -307,7 +329,6 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                     "conforme a los términos de ley y políticas de la entidad."
                 )
 
-        # Validaciones para intenciones de FRAUDE
         if es_evento_fraude:
             if num_archivos == 0 and not tiene_directorio:
                 raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")

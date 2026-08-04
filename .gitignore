@@ -50,5 +50,6 @@ tmp/
 #DB local para queue
 cola_local.db
 
-#Json resultado de test de stress
+#Json resultado de test de stress y secuencial
 test_stress_results.json
+test_secuencial_results.json

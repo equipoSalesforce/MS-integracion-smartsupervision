@@ -353,3 +353,43 @@ class QueueService:
         except Exception as e:
             logger.error(f"Error realizando purga en Redis: {e}")
             return 0
+        
+    async def diferir_pendientes_por_caida_sfc(self, registro_ids: List[int], minutos_delay: Optional[int] = None) -> int:
+        """
+        Pospone el próximo intento de una lista de registros en Redis
+        SIN incrementar su contador de 'intentos'. Utilizado cuando se detecta
+        que la infraestructura externa (SFC) está caída.
+        """
+        if not self.redis or not registro_ids:
+            return 0
+
+        delay_min = minutos_delay or settings.QUEUE_RETRY_INTERVAL_MINUTES
+        now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        proximo_at = now_bogota + timedelta(minutes=delay_min)
+        proximo_ts = proximo_at.timestamp()
+
+        modificados = 0
+        for registro_id in registro_ids:
+            item_key = f"sfc:queue:item:{registro_id}"
+            try:
+                raw_item = await self.redis.get(item_key)
+                if not raw_item:
+                    continue
+
+                data = json.loads(raw_item)
+                data["proximo_reintento_at"] = proximo_at.isoformat()
+                data["updated_at"] = now_bogota.isoformat()
+                data["ultimo_error"] = "Reintento pospuesto automáticamente por caída de plataforma SFC."
+
+                # Actualización atómica de JSON y Score en ZSET
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    pipe.set(item_key, json.dumps(data, ensure_ascii=False))
+                    pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_ts})
+                    await pipe.execute()
+
+                modificados += 1
+            except Exception as e:
+                logger.error(f"Error difiriendo registro {registro_id} por caída SFC: {e}")
+
+        logger.warning(f"🛑 [Cola Redis] Se diferió la ejecución de {modificados} casos por {delay_min} min sin consumir intentos.")
+        return modificados

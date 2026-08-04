@@ -20,9 +20,9 @@ TARGET_URL = os.getenv("TEST_TARGET_URL", "http://localhost:8000/api/v1/quejas/s
 API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 
 # Parámetros de ejecución configurables
-TOTAL_REQUESTS = 20        # Cantidad total de peticiones a enviar
+TOTAL_REQUESTS = 30       # Cantidad total de peticiones a enviar
 CONCURRENCY = 3           # Número máximo de peticiones concurrentes simultáneas
-CHAOS_RATIO = 0.0         # Porcentaje de payloads con errores intencionados (20%)
+CHAOS_RATIO = 0.20         # Porcentaje de payloads con errores intencionados (20%)
 OUTPUT_LOG_FILE = "test_stress_results.json"
 
 # Valores por defecto para evitar inconsistencias DIVIPOLA y rutas S3 inexistentes

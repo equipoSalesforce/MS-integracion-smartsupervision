@@ -1,5 +1,6 @@
 import uuid
 import logging
+from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.db.redis import get_redis_client
@@ -9,25 +10,42 @@ from app.services.email_service import EmailAlertService
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
-from app.core.middleware import correlation_id_ctx  # 👈 Importación de la ContextVar de CID
+from app.core.middleware import correlation_id_ctx
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
+
+
+def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
+    """
+    Evalúa si un mensaje o excepción corresponde a una caída, saturación 
+    o indisponibilidad de la plataforma de la SFC/Red.
+    """
+    if not error_msg:
+        return False
+    msg_lower = error_msg.lower()
+    keywords = [
+        "resource_exhausted", "quota exceeded", "503", "502", "504", "429",
+        "connecterror", "connect error", "timeout", "connection refused",
+        "indisponible", "no se encuentra disponible", "throttled", "throttling",
+        "name or service not known", "service unavailable", "bad gateway"
+    ]
+    return any(kw in msg_lower for kw in keywords)
 
 
 async def reintentar_despachos_pendientes_job():
     """
     Job que consume los pendientes de Redis, reintenta la comunicación con la SFC,
     audita el tiempo de retención (SLA) y notifica la autorrecuperación cuando la cola se vacía.
-    Utiliza un Lock Distribuido para ejecuciones multicontenedor seguras.
-    Preserva y propaga el Correlation ID (CID) original de cada caso.
+    Utiliza un Lock Distribuido para ejecuciones multicontenedor seguras y aplica
+    Corte de Circuito (Circuit Breaker) para diferir casos si la SFC está caída.
     """
     redis = get_redis_client()
     if not redis:
         logger.warning("⚠️ [Scheduler Job] Cliente Redis no disponible. Omitiendo ciclo de reintentos.")
         return
 
-    # 🔒 1. CERROJO DISTRIBUIDO (Lock con expiración automática de 55s)
+    # 🔒 1. CERROJO DISTRIBUIDO (Lock con expiración automática de 120s)
     LOCK_KEY = "sfc:queue:lock:retry_job"
     lock_value = str(uuid.uuid4())
     acquired = await redis.set(LOCK_KEY, lock_value, nx=True, px=120000)
@@ -62,7 +80,7 @@ async def reintentar_despachos_pendientes_job():
 
         casos_despachados_exito = 0
 
-        for item in pendientes:
+        for index, item in enumerate(pendientes):
             # 🔑 Extraer el CID guardado en Redis o generar uno de respaldo
             item_data = item.to_dict() if hasattr(item, "to_dict") else {}
             cid_guardado = (
@@ -73,6 +91,9 @@ async def reintentar_despachos_pendientes_job():
 
             # 📌 Rehidratar el ContextVar para el hilo asíncrono actual
             token = correlation_id_ctx.set(cid_guardado)
+            
+            es_falla_infraestructura = False
+            error_msg = None
 
             try:
                 resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
@@ -90,14 +111,33 @@ async def reintentar_despachos_pendientes_job():
                     
                     logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde Redis.")
                 else:
-                    await queue_service.registrar_fallo(item.id, error_msg=resultado.get("message"))
+                    error_msg = resultado.get("message") or "Error en el despacho a la SFC"
+                    await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                    es_falla_infraestructura = _es_falla_infraestructura(error_msg)
 
             except Exception as exc:
-                logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {str(exc)}")
-                await queue_service.registrar_fallo(item.id, error_msg=str(exc))
+                error_msg = str(exc)
+                logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
+                await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                es_falla_infraestructura = _es_falla_infraestructura(error_msg)
             finally:
                 # 🧹 Limpiar la variable de contexto al finalizar el procesamiento del ítem
                 correlation_id_ctx.reset(token)
+
+            # 🛑 CIRCUITO CORTADO: Si la SFC está caída/saturada, diferir el resto de la tanda y abortar
+            if es_falla_infraestructura:
+                casos_restantes = pendientes[index + 1:]
+                if casos_restantes:
+                    ids_restantes = [r.id for r in casos_restantes]
+                    await queue_service.diferir_pendientes_por_caida_sfc(
+                        registro_ids=ids_restantes,
+                        minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
+                    )
+                    logger.warning(
+                        f"⛔ [Scheduler Job] Se abortó el ciclo de reintentos por indisponibilidad de la SFC. "
+                        f"{len(ids_restantes)} caso(s) diferido(s) sin consumir intentos."
+                    )
+                break
 
         # ✅ 4. Notificación de Autorrecuperación
         try:

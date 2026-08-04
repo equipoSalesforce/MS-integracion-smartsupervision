@@ -13,6 +13,20 @@ from app.core.exceptions import SfcIntegrationException
 logger = logging.getLogger(__name__)
 
 
+def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
+    """
+    Evalúa si la SFC rechazó la petición porque el registro de la queja
+    ya cuenta con un documento de respuesta final o se encuentra en estado (4) Cerrado.
+    """
+    raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
+    keywords = [
+        "ya cuenta con un documento de respuesta final",
+        "diferente de (4) cerrado",
+        "respuesta final"
+    ]
+    return any(kw in raw_msg for kw in keywords)
+
+
 class DespachoQuejaOrquestador:
     """
     Servicio Stateless que actúa como fachada/orquestador único para la transmisión 
@@ -36,13 +50,13 @@ class DespachoQuejaOrquestador:
         self.m3_service = m3_service or Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
 
     async def procesar_despacho_raw_json(self, payload_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """Rehidrata un diccionario/JSON desde SQLite al esquema Pydantic 'QuejaUnificadaCrmInput'."""
+        """Rehidrata un diccionario/JSON desde Redis al esquema Pydantic 'QuejaUnificadaCrmInput'."""
         try:
             payload = QuejaUnificadaCrmInput.model_validate(payload_dict)
             return await self.procesar_despacho(payload=payload)
         except ValidationError as ve:
-            logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola SQLite: {ve.json()}")
-            raise Exception(f"Estructura inválida en el payload rehidratado de SQLite: {str(ve)}")
+            logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola Redis: {ve.json()}")
+            raise Exception(f"Estructura inválida en el payload rehidratado de Redis: {str(ve)}")
 
     async def procesar_despacho(self, payload: QuejaUnificadaCrmInput) -> Dict[str, Any]:
         smart_code = payload.Smart_Code__c
@@ -157,15 +171,37 @@ class DespachoQuejaOrquestador:
 
         if es_fraude:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo gestión de FRAUDE para {payload.Smart_Code__c}...")
-            resultado = await self.m3_service.ejecutar_gestion_fraude(payload=payload)
-            
-            # 🚨 Si la gestión de fraude falló, no continuar con el Cierre
-            if isinstance(resultado, dict) and resultado.get("status") == "error":
-                return resultado
+            try:
+                resultado = await self.m3_service.ejecutar_gestion_fraude(payload=payload)
+                if isinstance(resultado, dict) and resultado.get("status") == "error":
+                    return resultado
+            except SfcIntegrationException as exc:
+                # 🛡️ CAPTURA DE ERROR SI EL CASO YA TIENE RESPUESTA FINAL Y VIENE UN CIERRE
+                if es_cierre and _es_error_caso_ya_cerrado(exc):
+                    logger.warning(
+                        f"⚠️ [Orquestador] El caso {payload.Smart_Code__c} ya cuenta con respuesta final/está cerrado en SFC. "
+                        f"Omitiendo la falla intermedia de Fraude y procediendo con el Cierre..."
+                    )
+                else:
+                    raise
 
         if es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo CIERRE DEFINITIVO para {payload.Smart_Code__c}...")
-            resultado = await self.m3_service.ejecutar_cierre_definitivo(payload=payload)
+            try:
+                resultado = await self.m3_service.ejecutar_cierre_definitivo(payload=payload)
+            except SfcIntegrationException as exc:
+                # 🛡️ SI LA PROPIA LLAMADA DE CIERRE RECHAZA PORQUE YA FIGURA COMO CERRADO (ESTADO 4)
+                if _es_error_caso_ya_cerrado(exc):
+                    logger.info(
+                        f"✅ [Orquestador] El caso {payload.Smart_Code__c} ya figuraba como cerrado con respuesta final en SFC. "
+                        f"Marcando la operación como exitosa."
+                    )
+                    return {
+                        "status": "success",
+                        "message": f"Caso {payload.Smart_Code__c} ya se encuentra cerrado en la SFC (Estado 4).",
+                        "codigo_queja_sfc": payload.Smart_Code__c
+                    }
+                raise
 
         if not es_fraude and not es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo ACTUALIZACIÓN DE TRÁMITE para {payload.Smart_Code__c}...")
