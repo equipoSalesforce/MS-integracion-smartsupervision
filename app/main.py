@@ -15,75 +15,69 @@ from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.logging_config import setup_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.mapping import SfcSalesforceMapper
-from app.integrations import sfc_client
 from app.integrations.sfc_client import ssl_context, log_request, log_response
-from app.services.crm_webhook_service import close_crm_fallback_client
+from app.services.crm_webhook_service import get_crm_webhook_client, close_crm_webhook_client
 
 from app.db.redis import init_redis, close_redis
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 
 setup_logging()
-
 logger = logging.getLogger(__name__)
 
-
-# app/main.py
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida de la aplicación.
     Inicializa y destruye ordenadamente los recursos globales del sistema:
-    - Pool HTTP con TLS 1.2 (SFC)
+    - Pool HTTP TLS 1.2 (SFC)
+    - Pool HTTP CRM Webhook
     - Conexiones a Redis
     - Tareas en segundo plano (APScheduler)
-    - Conector fallback CRM
     """
     logger.info(
         f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
         f"con Centralizada Redis + APScheduler activos."
     )
 
-    # 1. Inicializar Pool Global de cliente HTTP con TLS 1.2 y Hooks de Auditoría
-    timeout = httpx.Timeout(connect=2.0, read=3.0, write=5.0, pool=5.0)
-    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    # 1. Pool Global HTTP para la SFC (TLS 1.2 + Hooks de Auditoría)
+    timeout_sfc = httpx.Timeout(connect=2.0, read=3.0, write=5.0, pool=5.0)
+    limits_sfc = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     
     app.state.http_client = httpx.AsyncClient(
-        timeout=timeout, 
-        limits=limits,
+        timeout=timeout_sfc, 
+        limits=limits_sfc,
         verify=ssl_context,
         event_hooks={
             'request': [log_request],
             'response': [log_response]
         }
     )
-    logger.info("📡 Pool global de HTTP Client (SFC) inicializado correctamente con TLS 1.2.")
+    logger.info("📡 Pool global HTTP Client (SFC) inicializado con TLS 1.2.")
 
-    # 2. Inicializar cliente Redis centralizado
+    # 2. Pool HTTP para el CRM Webhook
+    get_crm_webhook_client()
+
+    # 3. Inicializar cliente Redis centralizado
     try:
         await init_redis()
         logger.info("Cliente de Redis centralizado inicializado correctamente.")
     except Exception as e:
         logger.error(f"Error crítico al inicializar Redis: {str(e)}")
 
-    # 3. Encender el scheduler de reintentos
+    # 4. Encender el scheduler de reintentos
     try:
         iniciar_scheduler()
         logger.info("Scheduler de reintentos para la SFC iniciado exitosamente.")
     except Exception as e:
         logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
     
-    # 4. Cargar matriz de errores en RAM
+    # 5. Cargar matriz de errores y catálogos en RAM
     try:
         await SfcErrorTranslator.obtener_matriz_errores()
-    except Exception as e:
-        logger.error(f"Fallo al arrancar la matriz de errores: {str(e)}")
-
-    # 5. Precargar catálogos normativos y DIVIPOLA en RAM
-    try:
         SfcSalesforceMapper.cargar_catalogos()
     except Exception as e:
-        logger.error(f"Fallo al precargar catálogos en RAM: {str(e)}")
+        logger.error(f"Fallo al precargar catálogos/errores en RAM: {str(e)}")
 
     yield
 
@@ -92,19 +86,13 @@ async def lifespan(app: FastAPI):
     # ======================================================================
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
     
-    # 1. Detener APScheduler (evita que se lancen nuevos jobs durante el apagado)
     detener_scheduler()
-    
-    # 2. Cerrar la conexión al pool de Redis centralizado
     await close_redis()
-    
-    # 3. Cerrar el cliente HTTP secundario de fallback para webhooks al CRM
-    await close_crm_fallback_client()
+    await close_crm_webhook_client()
 
-    # 4. Liberar formalmente el pool HTTP global y los sockets TLS 1.2 usados por SfcClient
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
-        logger.info("📡 Pool global HTTP (usado por SfcClient) liberado limpiamente.")
+        logger.info("📡 Pool global HTTP (SFC) liberado limpiamente.")
 
     logger.info(f"Apagando {settings.PROJECT_NAME} de manera limpia y segura.")
 

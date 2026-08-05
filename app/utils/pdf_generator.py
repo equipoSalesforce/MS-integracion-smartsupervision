@@ -1,22 +1,20 @@
 # app/utils/pdf_generator.py
+import io
 import textwrap
 import logging
 from pathlib import Path
+from typing import Optional, Union
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject
 
 logger = logging.getLogger(__name__)
 
 def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 90) -> str:
-    """
-    Aplica word-wrapping automático a cada párrafo del texto para evitar 
-    que las líneas largas se salgan de los márgenes del PDF.
-    """
+    """Aplica word-wrapping automático a cada párrafo del texto."""
     if not texto:
         return ""
 
     lineas_formateadas = []
-    
     for linea in texto.split("\n"):
         if len(linea.strip()) > max_caracteres_por_linea:
             linea_envuelta = textwrap.fill(
@@ -36,20 +34,16 @@ def generar_pdf_respuesta_final(
     caso_nombre: str, 
     smart_code: str, 
     texto_crm: str, 
-    ruta_salida: str | Path
-) -> Path:
+    ruta_salida: Optional[Union[str, Path]] = None
+) -> Union[bytes, Path]:
     """
-    Lee la plantilla PDF interactiva, ajusta el ancho de línea del texto,
-    inyecta los valores correspondientes y aplica protección contra escritura.
+    Lee la plantilla PDF interactiva, ajusta el texto y retorna los bytes en memoria RAM.
+    Si se especifica 'ruta_salida', escribe el archivo a disco y retorna Path(ruta_salida).
     """
-    # 🎯 Resolver la ruta de forma absoluta respecto al archivo actual
     ruta_plantilla = Path(__file__).resolve().parent.parent / "resources" / "plantilla_respuesta_final.pdf"
-    ruta_output = Path(ruta_salida)
 
     if not ruta_plantilla.exists():
         raise FileNotFoundError(f"No se encontró la plantilla en: {ruta_plantilla.resolve()}")
-
-    ruta_output.parent.mkdir(parents=True, exist_ok=True)
 
     reader = PdfReader(ruta_plantilla)
     writer = PdfWriter()
@@ -63,12 +57,8 @@ def generar_pdf_respuesta_final(
         "mensaje_cuerpo": texto_ajustado
     }
 
-    writer.update_page_form_field_values(
-        writer.pages[0], 
-        datos_formulario
-    )
+    writer.update_page_form_field_values(writer.pages[0], datos_formulario)
 
-    # Configuración de seleccionabilidad y seguridad lógica
     if "/AcroForm" in writer._root_object:
         acro = writer._root_object["/AcroForm"].get_object()
         if "/Fields" in acro:
@@ -97,7 +87,17 @@ def generar_pdf_respuesta_final(
 
                 obj[NameObject("/F")] = NumberObject(4)
 
-    with open(ruta_output, "wb") as f_out:
-        writer.write(f_out)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
 
-    return ruta_output
+    # Si se pasa una ruta explícita (p. ej. en pruebas unitarias), guardamos en disco y retornamos Path
+    if ruta_salida:
+        ruta_output = Path(ruta_salida)
+        ruta_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(ruta_output, "wb") as f_out:
+            f_out.write(pdf_bytes)
+        return ruta_output
+
+    return pdf_bytes

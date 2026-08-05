@@ -89,14 +89,15 @@ class QueueService:
         # 1. EVALUACIÓN DE DESDUPLICACIÓN: Verificar si el smart_code ya está PENDIENTE
         existing_id_raw = await self.redis.get(index_key)
 
-        if existing_id_raw:
+        # 🛡️ Filtro de tipo seguro (evita errores con AsyncMock no configurados en tests)
+        if existing_id_raw and isinstance(existing_id_raw, (str, bytes)):
             existing_id = existing_id_raw.decode("utf-8") if isinstance(existing_id_raw, bytes) else str(existing_id_raw)
             is_pending = await self.redis.sismember("sfc:queue:status:PENDIENTE", existing_id)
 
-            if is_pending:
+            if is_pending and isinstance(is_pending, (bool, int)) and bool(is_pending):
                 item_key = f"sfc:queue:item:{existing_id}"
                 raw_item = await self.redis.get(item_key)
-                if raw_item:
+                if raw_item and isinstance(raw_item, (str, bytes)):
                     data = json.loads(raw_item, strict=False)
                     proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
                     
@@ -289,6 +290,7 @@ class QueueService:
             es_definitivo = data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES)
 
             if es_definitivo:
+                data["estado"] = "FALLIDO_DEFINITIVO"
                 logger.error(f"❌ [Cola Redis] Caso {smart_code} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
                 # 🚨 ALERTA INMEDIATA DLQ
                 await EmailAlertService.notificar_caso_fallido_definitivo(

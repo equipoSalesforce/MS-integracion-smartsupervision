@@ -14,15 +14,26 @@ from app.core.config import settings
 
 class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
+    def _crear_redis_mock(self, scard_val=0, incr_val=1):
+        pipe_mock = AsyncMock()
+        pipe_mock.__aenter__.return_value = pipe_mock
+        pipe_mock.__aexit__.return_value = None
+
+        redis_mock = AsyncMock()
+        redis_mock.scard = AsyncMock(return_value=scard_val)
+        redis_mock.incr = AsyncMock(return_value=incr_val)
+        redis_mock.set = AsyncMock(return_value=True)
+        redis_mock.get = AsyncMock(return_value=None)
+        redis_mock.sismember = AsyncMock(return_value=False)
+        redis_mock.pipeline = MagicMock(return_value=pipe_mock)
+        return redis_mock
+
     async def test_encolar_despacho_dispara_alerta_infraestructura_cuando_cola_vacia(self):
         """Valida que si la cola está vacía (0 pendientes), se notifique la caída de infraestructura."""
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        redis_mock = AsyncMock()
-        redis_mock.scard = AsyncMock(return_value=0)
-        redis_mock.incr = AsyncMock(return_value=1)
-        redis_mock.set = AsyncMock(return_value=True)
+        redis_mock = self._crear_redis_mock(scard_val=0, incr_val=1)
 
         queue_service = QueueService(redis_client=redis_mock)
         queue_service.contar_pendientes = AsyncMock(return_value=0)
@@ -51,10 +62,7 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         smart_code = "142316551509974606"
         error_msg = "HTTP 502 Bad Gateway"
 
-        redis_mock = AsyncMock()
-        redis_mock.scard = AsyncMock(return_value=99)
-        redis_mock.incr = AsyncMock(return_value=100)
-        redis_mock.set = AsyncMock(return_value=True)
+        redis_mock = self._crear_redis_mock(scard_val=99, incr_val=100)
 
         queue_service = QueueService(redis_client=redis_mock)
         queue_service.contar_pendientes = AsyncMock(return_value=99)

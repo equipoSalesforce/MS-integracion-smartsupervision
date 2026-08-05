@@ -14,13 +14,63 @@ from app.core.exceptions import SfcIntegrationException
 from app.api.dependencies import get_sfc_client, get_s3_client
 
 
+class MockPipeline:
+    """Emulador de Pipeline asíncrono transaccional de Redis para pruebas unitarias."""
+
+    def __init__(self, redis_instance):
+        self.redis = redis_instance
+        self.commands = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def set(self, name, value, **kwargs):
+        self.commands.append((self.redis.set, (name, value), kwargs))
+        return self
+
+    def sadd(self, name, *values):
+        self.commands.append((self.redis.sadd, (name,) + values, {}))
+        return self
+
+    def srem(self, name, *values):
+        self.commands.append((self.redis.srem, (name,) + values, {}))
+        return self
+
+    def zadd(self, name, mapping):
+        self.commands.append((self.redis.zadd, (name, mapping), {}))
+        return self
+
+    def zrem(self, name, *values):
+        self.commands.append((self.redis.zrem, (name,) + values, {}))
+        return self
+
+    def delete(self, *names):
+        self.commands.append((self.redis.delete, names, {}))
+        return self
+
+    async def execute(self):
+        results = []
+        for func, args, kwargs in self.commands:
+            res = await func(*args, **kwargs)
+            results.append(res)
+        self.commands.clear()
+        return results
+
+
 class MockAsyncRedis:
     """Emulador en memoria del cliente asíncrono de Redis para pruebas unitarias."""
+
     def __init__(self):
         self.counters = {}
         self.keys_store = {}
         self.sets = {}
         self.zsets = {}
+
+    def pipeline(self, transaction=True):
+        return MockPipeline(self)
 
     async def ping(self):
         return True
@@ -104,8 +154,12 @@ class MockAsyncRedis:
             return []
         items = []
         for k, score in self.zsets[name].items():
-            min_val = float("-inf") if min_score in ("-inf", "-INF") else float(min_score)
-            max_val = float("inf") if max_score in ("+inf", "+INF") else float(max_score)
+            min_val = (
+                float("-inf") if min_score in ("-inf", "-INF") else float(min_score)
+            )
+            max_val = (
+                float("inf") if max_score in ("+inf", "+INF") else float(max_score)
+            )
 
             if min_val <= score <= max_val:
                 items.append((k, score))
@@ -115,6 +169,7 @@ class MockAsyncRedis:
 
     async def keys(self, pattern):
         import re
+
         regex_pat = pattern.replace("*", ".*")
         return [k for k in self.keys_store.keys() if re.match(f"^{regex_pat}$", k)]
 
@@ -129,7 +184,9 @@ class TestColaRedis(unittest.IsolatedAsyncioTestCase):
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
-        self.smart_code_esperado = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}999888777666"
+        self.smart_code_esperado = (
+            f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}999888777666"
+        )
 
         self.payload_crm_test = {
             "Case_id": "999888777666",
@@ -162,7 +219,7 @@ class TestColaRedis(unittest.IsolatedAsyncioTestCase):
             smart_code="1286TEST001",
             tipo_operacion="AUTO",
             payload_json=self.payload_crm_test,
-            error_inicial="HTTP 502 Bad Gateway"
+            error_inicial="HTTP 502 Bad Gateway",
         )
 
         self.assertEqual(item.id, 1)
@@ -180,7 +237,7 @@ class TestColaRedis(unittest.IsolatedAsyncioTestCase):
             smart_code="1286TEST002",
             tipo_operacion="AUTO",
             payload_json=self.payload_crm_test,
-            error_inicial="HTTP 502 Bad Gateway"
+            error_inicial="HTTP 502 Bad Gateway",
         )
 
         await service.marcar_exitoso(item.id)
@@ -200,14 +257,16 @@ class TestColaRedis(unittest.IsolatedAsyncioTestCase):
             smart_code="1286TEST003",
             tipo_operacion="AUTO",
             payload_json=self.payload_crm_test,
-            error_inicial="Error 1"
+            error_inicial="Error 1",
         )
 
         # Forzar límite máximo de intentos
         for i in range(settings.QUEUE_MAX_RETRIES):
             await service.registrar_fallo(item.id, f"Error {i+2}")
 
-        fallidos = await service.obtener_todos_los_encolados(estado="FALLIDO_DEFINITIVO")
+        fallidos = await service.obtener_todos_los_encolados(
+            estado="FALLIDO_DEFINITIVO"
+        )
         self.assertEqual(len(fallidos), 1)
         self.assertEqual(fallidos[0].estado, "FALLIDO_DEFINITIVO")
 

@@ -162,39 +162,35 @@ class Momento3SincronizacionService:
         cuerpo_correo_html: str,
         cliente_nombre: str
     ):
-        def _job_parsing_y_renderizado(ruta_pdf: Path):
+        def _job_parsing_y_renderizado() -> bytes:
             texto_limpio = extraer_texto_limpio_de_html(cuerpo_correo_html)
             if not texto_limpio.strip():
                 texto_limpio = "Se emite respuesta formal y cierre definitivo al caso de reclamación."
-            generar_pdf_respuesta_final(
+            return generar_pdf_respuesta_final(
                 caso_nombre=cliente_nombre,
                 smart_code=sfc_code,
-                texto_crm=texto_limpio,
-                ruta_salida=ruta_pdf
+                texto_crm=texto_limpio
             )
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            pdf_path = Path(tmp_dir) / f"Respuesta_Final_{sfc_code}.pdf"
-            await asyncio.to_thread(_job_parsing_y_renderizado, pdf_path)
+        # ⚡ Renderizado seguro fuera del event loop (CPU-bound)
+        file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
 
-            with open(pdf_path, "rb") as f:
-                file_bytes = f.read()
+        final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
+        s3_key = f"caso/cierre/{sfc_code}/{final_pdf_name}"
 
-            final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
-            s3_key = f"caso/cierre/{sfc_code}/{final_pdf_name}"
-
-            try:
-                await self.s3_service.subir_bytes_archivo(
-                    s3_key=s3_key,
-                    file_bytes=file_bytes,
-                    content_type="application/pdf"
-                )
-            except Exception as s3_err:
-                logger.error(f"⚠️ [Momento 3] No se pudo guardar el PDF en S3: {s3_err}")
-
-            # Transmitir a SFC usando la rutina de supresión de duplicados del servicio S3
-            await self.s3_service.transferir_lote_s3_a_sfc(
-                sfc_client=self.sfc_client,
-                sfc_codigo_queja=sfc_code,
-                adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}]
+        # Subida directa de bytes en memoria RAM
+        try:
+            await self.s3_service.subir_bytes_archivo(
+                s3_key=s3_key,
+                file_bytes=file_bytes,
+                content_type="application/pdf"
             )
+        except Exception as s3_err:
+            logger.error(f"⚠️ [Momento 3] No se pudo guardar la copia del PDF en S3: {s3_err}")
+
+        # Transmitir a la SFC
+        await self.s3_service.transferir_lote_s3_a_sfc(
+            sfc_client=self.sfc_client,
+            sfc_codigo_queja=sfc_code,
+            adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}]
+        )

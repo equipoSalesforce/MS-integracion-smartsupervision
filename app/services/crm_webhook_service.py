@@ -9,30 +9,41 @@ from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 
 logger = logging.getLogger(__name__)
 
-_shared_client: Optional[httpx.AsyncClient] = None
+_crm_client: Optional[httpx.AsyncClient] = None
 
-def _get_fallback_client() -> httpx.AsyncClient:
-    """Devuelve o crea un cliente HTTP global persistente si no se pasó uno por dependencia."""
-    global _shared_client
-    if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(
+
+def get_crm_webhook_client() -> httpx.AsyncClient:
+    """
+    Obtiene o inicializa el cliente HTTP asíncrono persistente para notificaciones al CRM.
+    Mantiene el pool de conexiones (Keep-Alive) abierto durante toda la vida de la app.
+    """
+    global _crm_client
+    if _crm_client is None or _crm_client.is_closed:
+        _crm_client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=10.0),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=50)
         )
-    return _shared_client
+        logger.info("📡 Pool de conexiones HTTP Client para CRM Webhook inicializado.")
+    return _crm_client
 
-async def close_crm_fallback_client():
-    """Cierra limpiamente el cliente HTTP singleton fallback si fue instanciado."""
-    global _shared_client
-    if _shared_client and not _shared_client.is_closed:
-        await _shared_client.aclose()
-        logger.info("📡 Cliente HTTP fallback del CRM Webhook cerrado limpiamente.")
+
+async def close_crm_webhook_client():
+    """Cierra limpiamente el pool de conexiones del CRM Webhook al apagar el microservicio."""
+    global _crm_client
+    if _crm_client and not _crm_client.is_closed:
+        await _crm_client.aclose()
+        _crm_client = None
+        logger.info("🛑 Pool de conexiones HTTP Client para CRM Webhook liberado limpiamente.")
+
+
+# 🔄 Alias de compatibilidad hacia atrás para main.py y suite de pruebas
+close_crm_fallback_client = close_crm_webhook_client
+
 
 class CrmWebhookService:
     """
     Servicio encargado de notificar al CRM/Salesforce únicamente cuando un caso
     ha sido creado/actualizado con éxito en la SFC.
-    Incluye auditoría HTTP estructurada de las peticiones y respuestas con el CRM.
     """
 
     @staticmethod
@@ -63,7 +74,6 @@ class CrmWebhookService:
             "status": "CREATED"
         }
 
-        # 🛠️ AUDITORÍA HTTP: Petición Saliente al Webhook del CRM
         headers_clean = sanitizar_headers(headers)
         headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
         body_str = json.dumps(sanitizar_payload(payload), ensure_ascii=False)
@@ -78,12 +88,11 @@ class CrmWebhookService:
             "=========================================================================="
         )
 
-        client = http_client or _get_fallback_client()
-        
+        client = http_client or get_crm_webhook_client()
+
         try:
             response = await client.post(webhook_url, json=payload, headers=headers, timeout=10.0)
 
-            # 🛠️ AUDITORÍA HTTP: Respuesta Entrante del Webhook del CRM
             res_headers_clean = sanitizar_headers(dict(response.headers))
             res_headers_formatted = "\n".join([f"   {k}: {v}" for k, v in res_headers_clean.items()])
             
@@ -107,7 +116,7 @@ class CrmWebhookService:
                 data = response.json() if response.text else {}
                 logger.info(
                     f"✅ [CRM Webhook] [CID: {cid}] Confirmación recibida por el CRM. "
-                    f"Case ID: {data.get('case_id', 'N/A')} | Idempotent: {data.get('idempotent', True)}"
+                    f"Case ID: {data.get('case_id', 'N/A')}"
                 )
                 return True
             else:
@@ -119,4 +128,3 @@ class CrmWebhookService:
         except Exception as exc:
             logger.error(f"❌ [CRM Webhook] [CID: {cid}] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
             return False
-        
