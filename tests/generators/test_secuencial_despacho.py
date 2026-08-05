@@ -18,8 +18,8 @@ API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 OUTPUT_LOG_FILE = "test_secuencial_results.json"
 
 # 🎯 PARÁMETROS CONFIGURABLES
-TOTAL_PETICIONES = 40   # Cantidad total de peticiones
-COOLDOWN_SECONDS = 20.0  # Pausa entre peticiones para no agotar la cuota de la SFC
+TOTAL_PETICIONES = 80   # Cantidad total de peticiones
+COOLDOWN_SECONDS = 2.0  # Pausa entre peticiones para no agotar la cuota de la SFC
 
 # 🎯 CONFIGURACIÓN ÚNICA DE S3 / MINIO
 DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/"

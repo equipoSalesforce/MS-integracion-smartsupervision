@@ -1,4 +1,3 @@
-
 """
 
 # 🚀 Microservicio de Integración SFC (SmartSupervisión) - Global66
@@ -130,7 +129,127 @@ ms-test-integracion/
 
 ---
 
-## 📑 Licencia y Soporte
+## 🔔 Notificaciones, Webhooks y Sistema de Alertas (SFC ↔ CRM)
 
-Desarrollado para la integración oficial de **Global66** con la **Superintendencia Financiera de Colombia (SFC)**. Para soporte interno o reporte de incidencias, contactar al equipo de arquitectura de software.
-"""
+Este documento detalla los mecanismos de comunicación asíncrona, confirmación de entregas hacia **Salesforce CRM** y el sistema de **Alertas Automáticas de Ingeniería (SMTP)** ante eventos operativos o caídas de infraestructura.
+
+---
+
+### 📡 1. Webhook de Confirmación al CRM (Salesforce)
+
+Cuando un caso es encolado en Redis debido a una indisponibilidad temporal de la SFC, el microservicio asume la responsabilidad de completar la entrega. Tan pronto como el *Scheduler Worker* logra despachar el caso exitosamente a la SFC con respuesta **HTTP 200 OK**, dispara de inmediato una notificación **POST** hacia Salesforce.
+
+#### ⚙️ Especificación del Contrato HTTP
+
+* **Método:** `POST`
+* **URL:** Configurada en variable de entorno `CRM_WEBHOOK_URL` (Ej: `https://crm.global66.com/api/integrations/smartsupervision/complaint-code`)
+* **Headers Obligatorios:**
+  * `Content-Type`: `application/json`
+  * `X-API-Key`: Clave de autenticación (`CRM_WEBHOOK_API_KEY`)
+  * `X-Correlation-ID`: Identificador único de traza (UUIDv4)
+  * `User-Agent`: `MS-SmartSupervision-WebhookBot/1.0`
+
+#### 📦 Payload Enviado al CRM
+
+```json
+    {
+        "case_number": "CASO_SF_2026_0012",
+        "smart_code": "1286CASO_SF_2026_0012",
+        "status": "CREATED"
+    }
+```
+
+#### 🖼️ Ejemplo de Auditoría HTTP en Logs / Consola
+
+![1785941870832](image/Readme/1785941870832.png)
+
+---
+
+### 📧 2. Sistema de Alertas por Correo Electrónico (EmailAlertService)
+
+El microservicio cuenta con un módulo de monitoreo proactivo que envía alertas en formato HTML estilizado mediante transporte **SMTP con TLS** (`EmailAlertService`).
+
+#### 📋 Matriz de Eventos y Despacho de Alertas
+
+| Evento de Alerta | Disparador / Gatillo | Frecuencia |
+| :--- | :--- | :--- |
+| **1. Caída de Infraestructura** | Primer caso que entra a la cola cuando estaba vacía (0 pendientes). | Inmediata |
+| **2. Umbral de Acumulación** | La cola de Redis alcanza múltiplos de **100 casos pendientes**. | Por cada 100 casos |
+| **3. Error No Mapeado SFC** | La SFC responde con un error no registrado en `errores_sfc.json`. | Inmediata |
+| **4. Digest SLA (>12h)** | Existen casos retenidos en cola por más de **12 horas**. | En cada ciclo del Scheduler |
+| **5. Dead Letter Queue (DLQ)** | Un caso alcanza el límite de **20 reintentos** (`FALLIDO_DEFINITIVO`). | Inmediata |
+| **6. Autorrecuperación SFC** | La SFC vuelve a estar online y la cola se vacía por completo (0 pendientes). | Eventual |
+
+---
+
+#### 📸 Especificación y Capturas por Tipo de Alerta
+
+##### 🚨 Alerta 1: Caída de Infraestructura / Indisponibilidad SFC
+
+Notifica inmediatamente al equipo cuando se detecta un corte de red, error 502/503 o cuota superada (429) y el primer caso es resguardado en Redis.
+
+![1785942180285](image/Readme/1785942180285.png)
+
+---
+
+##### 📊 Alerta 2: Umbral de Acumulación en Cola (Múltiplos de 100)
+
+Mantiene informado al negocio sobre el volumen de casos represados durante contingencias prolongadas.
+
+![1785943499490](image/Readme/1785943499490.png)
+
+---
+
+##### ⚠️ Alerta 3: Error No Mapeado en la SFC (Exclusivo Dev)
+
+Envía directamente al desarrollador la respuesta raw JSON enviada por la SFC cuando no coincide con ninguna regla de la matriz, facilitando la actualización de `errores_sfc.json` o Google Sheets.
+
+![1785942318790](image/Readme/1785942318790.png)
+
+---
+
+##### ⏳ Alerta 4: Digest de Control de SLA (> 12 Horas Retenidos)
+
+Genera una tabla resumen con los casos que llevan más de 12 horas esperando ser entregados a la SFC, mostrando tiempo acumulado, reintentos y último error.
+
+![1785942357010](image/Readme/1785942357010.png)
+
+---
+
+##### ❌ Alerta 5: Caso Fallido Definitivo / Dead Letter Queue (DLQ)
+
+Se dispara cuando un caso agota sus **20 reintentos automáticos** (~31.67 horas en cola). Informa que el caso requiere auditoría manual.
+
+![1785942390072](image/Readme/1785942390072.png)
+
+---
+
+##### ✅ Alerta 6: Restablecimiento y Autorrecuperación de Servicio
+
+Confirma al equipo que la comunicación con la SFC se restableció y que el *Scheduler* logró vaciar la cola satisfactoriamente.
+
+![1785942411743](image/Readme/1785942411743.png)
+
+---
+
+## 🧮 3. Ciclo de Vida, Retención y Backoff en Redis
+
+La cola utiliza un algoritmo de **Backoff Lineal** para espaciar los reintentos y evitar saturar la SFC.
+
+* **Intervalo Base (`QUEUE_RETRY_INTERVAL_MINUTES`):** 10 minutos.
+* **Máximo de Reintentos (`QUEUE_MAX_RETRIES`):** 20 intentos.
+* **Tiempo Máximo en Cola:** **1,900 minutos (31 horas y 40 minutos / 1.32 días)**.
+
+### Tabla de Progresión de Reintentos
+
+| N° Reintento | Tiempo de Espera |   Tiempo Acumulado   |         Horas Acumuladas         |
+| :-----------: | :--------------: | :------------------: | :------------------------------: |
+|       1       |      10 min      |        10 min        |              0.17 h              |
+|       2       |      20 min      |        30 min        |              0.50 h              |
+|       5       |      50 min      |       150 min       |              2.50 h              |
+|      10      |     100 min     |       550 min       |              9.17 h              |
+|      15      |     150 min     |      1,200 min      |             20.00 h             |
+|      19      |     190 min     | **1,900 min** |        **31.67 h**        |
+|      20      |      0 min      | **Pasa a DLQ** | **`FALLIDO_DEFINITIVO`** |
+
+> 🛡️ **Nota sobre caídas prolongadas:** Si la SFC responde con un error de infraestructura (`429 Throttled`, `502 Bad Gateway`), el *Circuit Breaker* pospone la ejecución de la tanda **sin incrementar el contador de intentos**, protegiendo el caso de ser descartado prematuramente.
