@@ -4,8 +4,10 @@ import random
 import string
 import time
 from typing import Dict, Any, List, Optional
+import boto3
 import httpx
 from dotenv import load_dotenv
+from botocore.config import Config
 
 # Cargar variables de entorno
 load_dotenv()
@@ -18,8 +20,8 @@ API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 OUTPUT_LOG_FILE = "test_secuencial_results.json"
 
 # 🎯 PARÁMETROS CONFIGURABLES
-TOTAL_PETICIONES = 160   # Peticiones para cubrir los 80 escenarios base + fuzzing
-COOLDOWN_SECONDS = 1.0   # Pausa entre peticiones
+TOTAL_PETICIONES = 180   # Peticiones para cubrir los 90 escenarios base + fuzzing
+COOLDOWN_SECONDS = 0.0   # Pausa entre peticiones
 
 # 🎯 CONFIGURACIÓN ÚNICA DE S3 / MINIO
 DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/"
@@ -27,8 +29,8 @@ FIXED_FILE_NAME = "soporte_prueba.pdf"
 FIXED_S3_KEY = f"{DEFAULT_DIRECTORIO_S3}{FIXED_FILE_NAME}"
 FIXED_BUCKET = "global66-sfc-bucket-local"
 
-# 🎯 Total de escenarios base ampliado (0 al 79 = 80 escenarios base)
-NUM_ESCENARIOS_BASE = 80
+# 🎯 Total de escenarios base ampliado (0 al 89 = 90 escenarios base)
+NUM_ESCENARIOS_BASE = 90
 
 # ==============================================================================
 # 📋 CATÁLOGOS Y SEMILLAS
@@ -80,7 +82,7 @@ def _generar_ids(secuencia: int) -> tuple[str, str]:
     """Genera Case_id e id_number__c únicos por prueba."""
     timestamp = str(int(time.time()))[-6:]
     case_id = f"SEQ_{timestamp}_{secuencia:04d}"
-    doc_number = f"1001{secuencia:04d}{random.randint(100, 999)}"
+    doc_number = f"1002{secuencia:04d}{random.randint(100, 999)}"
     return case_id, doc_number
 
 
@@ -107,6 +109,52 @@ def _obtener_cuerpo_respuesta_azar(case_id: str) -> Optional[str]:
             f"</body></html>"
         )
     return None
+
+def preparar_archivos_prueba_s3():
+    """Crea en S3/MinIO los archivos especiales requeridos para las pruebas de integridad."""
+    # 1. Obtener y limpiar comillas/espacios del endpoint
+    raw_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:9000")
+    endpoint = raw_endpoint.strip('"').strip("'").strip()
+
+    # 2. Traducir el hostname 'minio' a 'localhost' si el script se ejecuta en la máquina host fuera de Docker
+    if "minio" in endpoint:
+        endpoint = endpoint.replace("minio", "localhost")
+
+    # 3. Limpiar variables restantes del .env
+    bucket = os.getenv("AWS_S3_BUCKET", "global66-sfc-bucket-local").strip('"').strip("'").strip()
+    access_key = (os.getenv("AWS_ACCESS_KEY_ID") or "minioadmin").strip('"').strip("'").strip()
+    secret_key = (os.getenv("AWS_SECRET_ACCESS_KEY") or "minioadmin").strip('"').strip("'").strip()
+    region = (os.getenv("AWS_REGION") or "us-east-1").strip('"').strip("'").strip()
+
+    try:
+        # 🎯 Forzar addressing_style = 'path' para compatibilidad total con MinIO local
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+            config=Config(s3={"addressing_style": "path"})
+        )
+
+        # 1. Crear el archivo de 0 bytes
+        s3_client.put_object(
+            Bucket=bucket,
+            Key="caso/STRESS_TEST_VACIO/archivo_vacio.pdf",
+            Body=b""  # 👈 0 Bytes de contenido
+        )
+
+        # 2. Crear el archivo corrupto
+        s3_client.put_object(
+            Bucket=bucket,
+            Key="caso/STRESS_TEST_VACIO/soporte_corrupto.pdf",
+            Body=b"Este texto plano no es un PDF valido y fallara en magic bytes."
+        )
+
+        print(f"📄 Archivos de prueba (0 bytes y corrupto) cargados exitosamente en MinIO/S3 ({endpoint}).\n")
+    except Exception as err:
+        print(f"⚠️ [Advertencia S3] No se pudieron pre-cargar los archivos en MinIO ({err}).")
+        print(f"   Endpoint intentado: {endpoint}\n")
 
 
 def _base_mandatory_payload(case_id: str, doc_number: str, secuencia: int) -> Dict[str, Any]:
@@ -667,7 +715,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = True
 
     # --------------------------------------------------------------------------
-    # 🚀 ESCENARIOS ADICIONALES DE BORDES Y LÍMITES AVANZADOS (66 a 79) [NUEVO]
+    # 🚀 ESCENARIOS ADICIONALES DE BORDES Y LÍMITES AVANZADOS (66 a 79)
     # --------------------------------------------------------------------------
     elif tipo_escenario == 66:
         nombre = "Prueba Límite: Fecha de Creación (CreatedDate) Antigua (1999 ISO Exitoso)"
@@ -775,9 +823,118 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         payload["Case_id"] = f"SEQ-TEST_2026-{secuencia:04d}"
         espera_exito = True
 
-    else:
+    elif tipo_escenario == 79:
         nombre = "Prueba Límite: Instancia de Recepción Fuera de Catálogo (Mapeado a Fallback 'Entidad vigilada')"
         payload["Instancia_de_recepcion__c"] = "Tribunal de Justicia Especial"
+        espera_exito = True
+
+    # --------------------------------------------------------------------------
+    # 🌍 ESCENARIOS INTERNACIONALES, S3 INTEGRITY & ALIASES (80 a 89) [NUEVO]
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 80:
+        nombre = "Prueba Internacional: Reclamante de Chile (CHL) sin Departamento ni Municipio (Exitoso)"
+        payload.update({
+            "codigo_pais__c": "CHL",
+            "Departamento__c": None,
+            "SC_municipio__c": None,
+            "direccion__c": "Av. Las Condes 12345, Santiago"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 81:
+        nombre = "Prueba Internacional: Código de País fuera de catálogo (Mapeado a Fallback Colombia)"
+        payload.update({
+            "codigo_pais__c": "JAPON",
+            "direccion__c": "Shibuya Crossing 1-1-1, Tokyo"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 82:
+        directorio = "caso/STRESS_TEST_VACIO/"
+        nombre = "Error Extremo: Archivo S3 de 0 Bytes (FILE_EMPTY_ERROR)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "archivos_s3": [
+                {"nombre_archivo": "archivo_vacio.pdf", "s3_key": f"{directorio}archivo_vacio.pdf", "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 83:
+        directorio = "caso/STRESS_TEST_VACIO/"
+        nombre = "Error Extremo: Archivo S3 Corrupto / Magic Bytes Inválidos (CORRUPTED_OR_INVALID_FILE)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "archivos_s3": [
+                {"nombre_archivo": "soporte_corrupto.pdf", "s3_key": f"{directorio}soporte_corrupto.pdf", "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 84:
+        nombre = "Prueba Límite: CreatedDate en Formato ISO con Milisegundos y Zulu 'Z' (Exitoso)"
+        payload["CreatedDate"] = "2026-08-05T10:30:00.123456Z"
+        espera_exito = True
+
+    elif tipo_escenario == 85:
+        nombre = "Prueba Límite: ClosedDate enviada como Datetime ISO completo YYYY-MM-DDThh:mm:ss (Exitoso)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "ClosedDate": "2026-08-05T14:20:00"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 86:
+        nombre = "Prueba Límite: Reembolso en Fraude Mayor al Monto Reclamado (Exitoso)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 500000.0,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 87:
+        nombre = "Prueba Límite: Monto de Fraude con Decimales Elevados (Redondeo Exitoso)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 150000.789,
+            "Total_Devuelto_por_Desconocimiento__c": 150000.789,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 88:
+        nombre = "Prueba Límite: Coexistencia de 'archivos_s3' y 'directorio_s3' Simultáneamente (Exitoso)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 200000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 200000.0,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3,
+            "archivos_s3": [
+                {"nombre_archivo": FIXED_FILE_NAME, "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = True
+
+    else:
+        nombre = "Prueba Límite: Alias de Tipo de Documento 'PASAPORTE' -> 'PASS' (Exitoso)"
+        payload.update({
+            "SC_id_type__c": "PASS",
+            "SuppliedName": f"Cliente Pasaporte {secuencia}"
+        })
         espera_exito = True
 
     return {
@@ -792,7 +949,7 @@ def construir_banco_de_pruebas(total_peticiones: int) -> List[Dict[str, Any]]:
     casos = []
     for i in range(1, total_peticiones + 1):
         if i <= NUM_ESCENARIOS_BASE:
-            # Cobertura inicial garantizada (Casos 0 al 79)
+            # Cobertura inicial garantizada (Casos 0 al 89)
             tipo_escenario = i - 1
         else:
             # Elección aleatoria de escenarios para peticiones posteriores
@@ -821,11 +978,13 @@ def ejecutar_pruebas_secuenciales():
     resultados_log = []
     pasados = 0
     fallados = 0
+    
+    preparar_archivos_prueba_s3()
 
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": API_KEY,
-        "User-Agent": "SequentialFuzzTesterExtreme/5.0"
+        "User-Agent": "SequentialFuzzTesterExtreme/6.0"
     }
 
     with httpx.Client(timeout=35.0) as client:
