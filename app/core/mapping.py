@@ -265,7 +265,7 @@ class SfcSalesforceMapper:
             v_clean = str(sf_value).lower().strip()
             if v_clean in ("si", "sí", "true", "1"): return 1
             if v_clean in ("no", "false", "2"): return 2
-            return 1 if bool(sf_value) else 2
+            return 2  # Fallback seguro a "No" (2)
 
         if sf_key == "sinRespuestaFinal__c":
             v_clean = str(sf_value).lower().strip()
@@ -283,7 +283,7 @@ class SfcSalesforceMapper:
             "Ente_de_control__c": ("ente_control", 99),
             "Instancia_de_recepcion__c": ("instancia_recepcion", 2),
             "admision_col__c": ("admision", 1),
-            "Favorabilidad__c": ("favorabilidad", 3),
+            "Favorabilidad__c": ("favorabilidad", None),
             "Desistimiento__c": ("desistimiento", 2),
             "tipo_fraude__c": ("tipo_fraude", 2),
             "Tipo_Fraude__c": ("tipo_fraude", 2),
@@ -292,7 +292,7 @@ class SfcSalesforceMapper:
             "punto_recepcion": ("punto_recepcion", 1),
             "Categorias_COL__c": ("macro_motivo", 940),
             "Product__c": ("producto_cod", 207),
-            "Aceptacion__c": ("aceptacion", 1),
+            "Aceptacion__c": ("aceptacion", None),
             "Rectificacion__c": ("rectificacion", 2),
         }
 
@@ -302,7 +302,6 @@ class SfcSalesforceMapper:
 
         if sf_key == "Departamento__c": return cls.DEPT_DIVIPOLA.get(normalized, str(sf_value))
         if sf_key == "SC_municipio__c": return cls.MUNI_DIVIPOLA.get(normalized, str(sf_value))
-        if sf_key == "Product__c": return 207
 
         if sf_key == "Status":
             status_map = {
@@ -469,6 +468,13 @@ class SfcSalesforceMapper:
                 
         status_val = cls._get_sf_field_value(entity, "Status")
         estado_cod_val = cls._translate_value_to_sfc("Status", status_val) or 2
+
+        # 🚫 VALIDACIÓN DE SEGURIDAD EN MAPPER PARA CIERRE DEFINITIVO
+        if estado_cod_val == 4:
+            fav_val = cls._translate_value_to_sfc("Favorabilidad__c", cls._get_sf_field_value(entity, "Favorabilidad__c"))
+            acep_val = cls._translate_value_to_sfc("Aceptacion__c", cls._get_sf_field_value(entity, "Aceptacion__c"))
+            if fav_val is None or acep_val is None:
+                raise ValueError("No es posible construir el payload de Cierre (Estado 4) sin valores válidos en 'Favorabilidad__c' y 'Aceptacion__c'.")
 
         doc_rta_final = cls._get_sf_field_value(entity, "sinRespuestaFinal__c")
         doc_rta_final_val = bool(doc_rta_final) if doc_rta_final is not None else False

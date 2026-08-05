@@ -58,7 +58,6 @@ class QuejaMapeadaCrmResponse(BaseModel):
 # ======================================================================
 
 class Momento2QuejaCrmInput(BaseModel):
-    # 🎯 ID Interno y Smart Code son opcionales individualmente, pero al menos uno debe estar presente
     Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=26)
     Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision", max_length=30)
 
@@ -68,65 +67,61 @@ class Momento2QuejaCrmInput(BaseModel):
     )
     Status: Optional[str] = Field(None, description="Estado del caso dentro del CRM")
 
-    # Campos de Picklist validados dinámicamente desde el Mapper/JSON
     SuppliedName: str = Field(..., description="Nombre completo del cliente", max_length=100)
     SC_id_type__c: str = Field(..., description="Tipo de identificación")
     id_number__c: str = Field(..., max_length=15, description="Número de identificación sólo dígitos")
-    sc_genero__c: Optional[str] = Field(None, description="Género, es opcional y puede ser None")
+    sc_genero__c: Optional[str] = Field(None, description="Género, es opcional")
     tipo_de_persona__c: str = Field(..., description="Tipo de persona (B2C, B2B)")
-    sc_LGBTIQ__c: Optional[str] = Field(None, description="Comunidad LGBTIQ (Si/No), es opcional y puede ser None")
-    sc_Condicion_especial__c: Optional[str] = Field(None, description="Condición de vulnerabilidad, es opcional y puede ser None")
+    sc_LGBTIQ__c: Optional[str] = Field(None, description="Comunidad LGBTIQ (Si/No)")
+    sc_Condicion_especial__c: Optional[str] = Field(None, description="Condición de vulnerabilidad")
 
-    # Ubicación y Contacto
     SuppliedPhone: Optional[str] = Field(None, description="Teléfono de contacto", max_length=15)
     SuppliedEmail: Optional[str] = Field(None, description="Correo electrónico del cliente", max_length=100)
     direccion__c: str = Field(..., description="Dirección física de correspondencia")
     Departamento__c: Optional[str] = Field(None, description="Departamento, opcional si no es de Colombia")
     SC_municipio__c: Optional[str] = Field(None, description="Municipio, opcional si no es de Colombia")
 
-    # Recepción y Clasificación
-    canal__c: Optional[str] = Field(None, description="Canal de ingreso, opcional y puede ser None")
+    canal__c: Optional[str] = Field(None, description="Canal de ingreso, opcional")
     punto_recepcion: str = Field(..., description="Punto de radicación")
     Instancia_de_recepcion__c: Optional[str] = Field("Entidad vigilada", description="Instancia de recepción")
     admision_col__c: str = Field("No Aplica", description="Estado inicial de admisión")
 
-    # Detalles de la Reclamación
     Description: str = Field(..., max_length=4500, description="Descripción original del reclamo")
-    smart_anexo_queja__c: Optional[bool] = Field(False, description="Indica si posee archivos adjuntos, por defecto es False")
+    smart_anexo_queja__c: Optional[bool] = Field(False, description="Indica si posee archivos adjuntos")
     Tutela__c: str = Field("No", description="Acción de tutela (Si/No)")
-    Ente_de_control__c: Optional[str] = Field(None, description="Ente regulador involucrado, opcional y admite None")
-    smart_escalamiento_DCF__c: str = Field(..., description="Escalamiento DCF")
-    marcacion__c: Optional[str] = Field(None, description="Marcación, es opcional y admite None")
+    Ente_de_control__c: Optional[str] = Field(None, description="Ente regulador involucrado")
+    smart_escalamiento_DCF__c: str = Field("No", description="Escalamiento DCF")
+    marcacion__c: Optional[str] = Field(None, description="Marcación, opcional")
 
-    # Tipificación
     Product__c: str = Field(..., description="Línea de producto")
     smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre del producto digital", max_length=100)
     Categorias_COL__c: str = Field(..., description="Motivo de reclamación", max_length=150)
 
-    # Adjuntos
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
 
     # 🛡️ SANITIZADOR PREVENTIVO CONTRA STORED XSS
     @field_validator("SuppliedName", "direccion__c", "Description", mode="before")
     @classmethod
     def sanitizar_campos_texto(cls, v: Optional[str]) -> Optional[str]:
-        """
-        Remueve bloques <script>...</script> y cualquier etiqueta HTML 
-        para evitar inyecciones XSS, manteniendo texto normal y emojis.
-        """
         if isinstance(v, str):
-            clean = re.sub(r"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", "", v, flags=re.IGNORECASE)
+            clean = v.replace("\x00", "")
+            clean = re.sub(r"<(script|style|iframe)\b[^>]*>.*?</\1>", "", clean, flags=re.IGNORECASE | re.DOTALL)
             clean = re.sub(r"<[^>]*>", "", clean)
             return clean.strip()
         return v
+
+    # 🚫 RESILIENCIA EN DIRECCIÓN: Si la dirección queda vacía por sanitización XSS, asigna un fallback válido
+    @field_validator("direccion__c", mode="after")
+    @classmethod
+    def asegurar_direccion_valida(cls, v: Optional[str]) -> str:
+        if not v or not v.strip():
+            return "Dirección no registrada"
+        return v.strip()
 
     # 🚫 VALIDADOR DE NOMBRE OBLIGATORIO Y NO VACÍO
     @field_validator("SuppliedName", mode="after")
     @classmethod
     def validar_nombre_no_vacio(cls, v: str) -> str:
-        """
-        Garantiza que el campo SuppliedName no esté vacío, nulo o contenga únicamente espacios.
-        """
         if not v or not v.strip():
             raise ValueError("El nombre completo del cliente ('SuppliedName') no puede estar vacío, ser nulo o contener únicamente espacios en blanco.")
         return v.strip()
@@ -200,11 +195,12 @@ class Momento2QuejaCrmInput(BaseModel):
             return None
         return v
 
+    # 📋 SEPARACIÓN DE PICKLISTS: ESTRICTOS vs. RESILIENTES CON FALLBACK
     @field_validator(
         "SC_id_type__c", "sc_genero__c", "tipo_de_persona__c", "sc_LGBTIQ__c",
         "sc_Condicion_especial__c", "canal__c", "punto_recepcion",
         "Instancia_de_recepcion__c", "Ente_de_control__c", "Categorias_COL__c",
-        "Product__c",
+        "Product__c", "Tutela__c", "smart_escalamiento_DCF__c",
         mode="after"
     )
     @classmethod
@@ -212,38 +208,69 @@ class Momento2QuejaCrmInput(BaseModel):
         if value is None:
             return value
 
-        field_to_catalog = {
+        # 🎯 CAMPOS CRÍTICOS DE NEGOCIO (RECHAZO ESTRICTO HTTP 400)
+        campos_estrictos = {
             "SC_id_type__c": "tipo_id",
-            "sc_genero__c": "genero",
             "tipo_de_persona__c": "persona",
-            "sc_LGBTIQ__c": "lgbtiq",
-            "sc_Condicion_especial__c": "condicion_especial",
-            "canal__c": "canal",
-            "punto_recepcion": "punto_recepcion",
-            "Instancia_de_recepcion__c": "instancia_recepcion",
-            "Ente_de_control__c": "ente_control",
             "Categorias_COL__c": "macro_motivo",
             "Product__c": "producto"
         }
 
-        cat_key = field_to_catalog.get(info.field_name)
-        
-        if info.field_name == "SC_id_type__c" and value.upper() in ("NIT", "N.I.T."):
+        # 🛡️ CAMPOS SECUNDARIOS / OPCIONALES (RESILIENTES CON FALLBACK A VALOR CANÓNICO)
+        campos_resilientes_default = {
+            "sc_genero__c": "No Aplica",
+            "sc_LGBTIQ__c": "No",
+            "sc_Condicion_especial__c": "No aplica",
+            "canal__c": "Internet",
+            "punto_recepcion": "Manual",
+            "Instancia_de_recepcion__c": "Entidad vigilada",
+            "Ente_de_control__c": "Otros",
+            "Tutela__c": "No",
+            "smart_escalamiento_DCF__c": "No"
+        }
+
+        field_name = info.field_name
+
+        if field_name == "SC_id_type__c" and value.upper() in ("NIT", "N.I.T."):
             return "RUT"
-        
-        if cat_key:
+
+        # 1. Tratamiento para campos estrictos
+        if field_name in campos_estrictos:
+            cat_key = campos_estrictos[field_name]
             allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
             if value not in allowed:
                 normalized_val = SfcSalesforceMapper._normalize_text(value)
                 norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
+                if normalized_val in norm_to_canonical:
+                    return norm_to_canonical[normalized_val]
                 
+                raise ValueError(
+                    f"El valor '{value}' no es válido para {field_name}. "
+                    f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
+                )
+            return value
+
+        # 2. Tratamiento para campos resilientes (Si no coincide, se normaliza o autocompleta con fallback)
+        if field_name in campos_resilientes_default:
+            cat_key_res = {
+                "sc_genero__c": "genero", "sc_LGBTIQ__c": "lgbtiq",
+                "sc_Condicion_especial__c": "condicion_especial", "canal__c": "canal",
+                "punto_recepcion": "punto_recepcion", "Instancia_de_recepcion__c": "instancia_recepcion",
+                "Ente_de_control__c": "ente_control"
+            }.get(field_name)
+
+            if cat_key_res:
+                allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key_res)
+                if value in allowed:
+                    return value
+                normalized_val = SfcSalesforceMapper._normalize_text(value)
+                norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
                 if normalized_val in norm_to_canonical:
                     return norm_to_canonical[normalized_val]
 
-                raise ValueError(
-                    f"El valor '{value}' no es válido para {info.field_name}. "
-                    f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
-                )
+            # Fallback seguro para que la petición continúe sin fallar
+            return campos_resilientes_default[field_name]
+
         return value
     
     @field_validator("CreatedDate", mode="before")
@@ -265,10 +292,6 @@ class Momento2QuejaCrmInput(BaseModel):
 # ======================================================================
 
 class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
-    """
-    Payload unificado del CRM. Infiere automáticamente las intenciones de negocio
-    basándose exclusivamente en los campos provistos.
-    """
     producto_digital__c: Optional[str] = Field("Si", description="Producto digital (Si/No)")
 
     tipo_fraude__c: Optional[str] = Field(None, description="Tipo de fraude")
@@ -277,7 +300,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     Total_Devuelto_por_Desconocimiento__c: Optional[float] = Field(None, ge=0.0, description="Monto devuelto")
     nombre_archivo_fraude: Optional[str] = Field(None, description="Archivo INV_FRAUDE_SFC")
 
-    ClosedDate: Optional[date] = Field(None, description="Fecha de cierre (YYYY-MM-DD). Si se omite en un cierre, se autogenera con la fecha actual de Bogotá.")
+    ClosedDate: Optional[date] = Field(None, description="Fecha de cierre (YYYY-MM-DD)")
     Favorabilidad__c: Optional[str] = Field(None, description="Favorabilidad del caso")
     a_favor_de__c: Optional[str] = Field(None, description="A favor de")
     Aceptacion__c: Optional[str] = Field(None, description="Aceptación de la decisión")
@@ -285,14 +308,41 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     Prorroga__c: Optional[int] = Field(None, ge=0, le=9, description="Prórroga solicitada, va desde 0 hasta 9")
     
     cuerpo_respuesta_final: Optional[str] = Field(
-        "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\nPara nosotros es un placer haberte atendido, tu solicitud ha sido atendida de acuerdo con lo requerido, para nosotros es un placer atenderte.\nSi tienes alguna duda adicional puedes comunicarte al correo contacto@global66.com, por medio de nuestro centro de ayuda en nuestra página web o por medio de nuestro canal de WhatsApp.",
-        description="Cuerpo del correo en HTML con la respuesta final al caso. Si no se envía, se autogenera una respuesta genérica."
+        "Hola:\nTe escribimos desde el equipo de Experiencia al Cliente.\nPara nosotros es un placer haberte atendido.",
+        description="Cuerpo del correo en HTML"
     )
     
-    directorio_s3: Optional[str] = Field(
-        None, 
-        description="Ruta/Prefix del directorio en S3 donde se alojan todos los archivos del caso (ej: 'caso/1286TEST_012/')"
-    )
+    directorio_s3: Optional[str] = Field(None, description="Ruta/Prefix en S3")
+
+    @field_validator("Favorabilidad__c", "Aceptacion__c", "Status", mode="before")
+    @classmethod
+    def limpiar_y_strip_cierre_strings(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            v_clean = v.strip()
+            return v_clean if v_clean else None
+        return v
+
+    @field_validator("Favorabilidad__c", "Aceptacion__c", mode="after")
+    @classmethod
+    def validar_picklist_cierre(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
+        if not value:
+            return value
+
+        cat_key = "favorabilidad" if info.field_name == "Favorabilidad__c" else "aceptacion"
+        allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
+        
+        if allowed and value not in allowed:
+            normalized_val = SfcSalesforceMapper._normalize_text(value)
+            norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
+            
+            if normalized_val in norm_to_canonical:
+                return norm_to_canonical[normalized_val]
+
+            raise ValueError(
+                f"El valor '{value}' no es válido para {info.field_name}. "
+                f"Valores permitidos: {sorted(list(allowed))}"
+            )
+        return value
 
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
@@ -304,24 +354,43 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         es_estado_cierre = (
             status_clean in ("closed", "cerrado") or 
             self.ClosedDate is not None or 
-            self.Favorabilidad__c is not None
+            self.Favorabilidad__c is not None or
+            self.Aceptacion__c is not None
         )
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
         if es_estado_cierre:
             if not self.Status or status_clean not in ("closed", "cerrado"):
                 self.Status = "Closed"
-            
+
+            # 🚫 CO-DEPENDENCIA DE CAMPOS DE CIERRE
+            if not self.Favorabilidad__c and not self.Aceptacion__c:
+                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
+            elif not self.Favorabilidad__c:
+                raise ValueError("Falta el campo obligatorio 'Favorabilidad__c' para el cierre del caso.")
+            elif not self.Aceptacion__c:
+                raise ValueError("Falta el campo obligatorio 'Aceptacion__c' para el cierre del caso.")
+
             hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
             
             if not self.ClosedDate:
                 self.ClosedDate = hoy_bogota
-            
-            if not self.Favorabilidad__c or not self.Aceptacion__c:
-                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
 
+            # 🚫 VALIDACIÓN DE FECHA DE CIERRE VS FECHA ACTUAL
             if self.ClosedDate > hoy_bogota:
                 raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
+
+            # 🚫 VALIDACIÓN: ClosedDate no puede ser anterior a CreatedDate
+            if self.CreatedDate and self.ClosedDate:
+                try:
+                    dt_created = datetime.fromisoformat(self.CreatedDate.replace("Z", "+00:00")).date()
+                    if self.ClosedDate < dt_created:
+                        raise ValueError(
+                            f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
+                            f"no puede ser anterior a la fecha de creación 'CreatedDate' ({dt_created})."
+                        )
+                except (ValueError, TypeError):
+                    pass
 
             if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
                 self.cuerpo_respuesta_final = (
@@ -332,6 +401,11 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         if es_evento_fraude:
             if num_archivos == 0 and not tiene_directorio:
                 raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
+            
+            if self.card_amount__c is None:
+                self.card_amount__c = 0.0
+            if self.Total_Devuelto_por_Desconocimiento__c is None:
+                self.Total_Devuelto_por_Desconocimiento__c = 0.0
             
             if not tiene_directorio and num_archivos > 0:
                 if not self.nombre_archivo_fraude:

@@ -11,15 +11,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================================================================
-# ⚙️ CONFIGURACIÓN DEL TEST SECUENCIAL
+# ⚙️ CONFIGURACIÓN DEL TEST SECUENCIAL EXTREMO
 # ==============================================================================
 TARGET_URL = os.getenv("TEST_TARGET_URL", "http://localhost:8000/api/v1/quejas/sync/despacho")
 API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 OUTPUT_LOG_FILE = "test_secuencial_results.json"
 
 # 🎯 PARÁMETROS CONFIGURABLES
-TOTAL_PETICIONES = 80   # Cantidad total de peticiones
-COOLDOWN_SECONDS = 2.0  # Pausa entre peticiones para no agotar la cuota de la SFC
+TOTAL_PETICIONES = 160   # Peticiones para cubrir los 80 escenarios base + fuzzing
+COOLDOWN_SECONDS = 1.0   # Pausa entre peticiones
 
 # 🎯 CONFIGURACIÓN ÚNICA DE S3 / MINIO
 DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/"
@@ -27,8 +27,8 @@ FIXED_FILE_NAME = "soporte_prueba.pdf"
 FIXED_S3_KEY = f"{DEFAULT_DIRECTORIO_S3}{FIXED_FILE_NAME}"
 FIXED_BUCKET = "global66-sfc-bucket-local"
 
-# 🎯 Total de escenarios base ajustado (0 al 20 = 21 escenarios)
-NUM_ESCENARIOS_BASE = 21
+# 🎯 Total de escenarios base ampliado (0 al 79 = 80 escenarios base)
+NUM_ESCENARIOS_BASE = 80
 
 # ==============================================================================
 # 📋 CATÁLOGOS Y SEMILLAS
@@ -54,7 +54,7 @@ PUNTOS_RECEPCION = ["Web", "WhatsApp", "Email", "Manual"]
 
 UNICODE_EMOJI_SEEDS = [
     "Renée-Ángel 🦙 ñandú", "Иван 🤖 Смирнов", "佐藤 🐉 健", 
-    "María 🚀 Ñuñez", "Jöhn 💥 Døe", "<script>alert('XSS')</script> 🥷"
+    "María 🚀 Ñuñez", "Jöhn 💥 Døe"
 ]
 
 BAD_EMAIL_PATTERNS = [
@@ -80,7 +80,7 @@ def _generar_ids(secuencia: int) -> tuple[str, str]:
     """Genera Case_id e id_number__c únicos por prueba."""
     timestamp = str(int(time.time()))[-6:]
     case_id = f"SEQ_{timestamp}_{secuencia:04d}"
-    doc_number = f"1000{secuencia:04d}{random.randint(100, 999)}"
+    doc_number = f"1001{secuencia:04d}{random.randint(100, 999)}"
     return case_id, doc_number
 
 
@@ -126,7 +126,7 @@ def _base_mandatory_payload(case_id: str, doc_number: str, secuencia: int) -> Di
     }
 
 # ==============================================================================
-# 🧪 GENERADOR DINÁMICO DE CASOS (ESTÁNDAR + FUZZING EN BORDES)
+# 🧪 GENERADOR DINÁMICO DE CASOS (ESTÁNDAR + FUZZING + CASOS EXTREMOS)
 # ==============================================================================
 def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     cid, doc = _generar_ids(secuencia)
@@ -158,7 +158,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         nombre = "M3 Trámite B2B Corporativo (NIT)"
         payload.update({
             "tipo_de_persona__c": "B2B",
-            "SC_id_type__c": "NIT",
+            "SC_id_type__c": "RUT",
             "SuppliedName": f"Empresa Corporativa {secuencia}-{random.randint(100, 999)} SAS",
             "Departamento__c": "Antioquia",
             "SC_municipio__c": "Medellín",
@@ -261,8 +261,8 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = False
 
     elif tipo_escenario == 10:
-        nombre = "Error Controlado: Documento sin números"
-        payload["id_number__c"] = "".join(random.choices(string.ascii_uppercase, k=8))
+        nombre = "Error Controlado: Documento sin números ni letras válidas"
+        payload["id_number__c"] = "---===---"
         espera_exito = False
 
     elif tipo_escenario == 11:
@@ -334,11 +334,450 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         payload["SuppliedEmail"] = random.choice(BAD_EMAIL_PATTERNS)
         espera_exito = False
 
-    else:
+    elif tipo_escenario == 20:
         nombre = "Prueba Límite: Inyección de Campos Extra Inexistentes en JSON"
         inyeccion_sql = random.choice(SQL_XSS_INJECTIONS)
         payload["campo_hacker_desconocido__c"] = inyeccion_sql
         payload["objeto_extra_rnd"] = {"random_id": random.randint(1000, 9999), "test": True}
+        espera_exito = True
+
+    # --------------------------------------------------------------------------
+    # 🔥 EXTREME EDGE CASES & SCHEMA TESTS (21 a 35)
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 21:
+        nombre = "Error Extremo: Nombre compuesto 100% por tags HTML/Script/Style (Sanitizado a Vacío)"
+        payload["SuppliedName"] = "<script>alert('hacked')</script><style>body{display:0;}</style><iframe></iframe>"
+        espera_exito = False
+
+    elif tipo_escenario == 22:
+        nombre = "Error Extremo: Omitir simultáneamente Case_id y Smart_Code__c"
+        payload.pop("Case_id", None)
+        payload.pop("Smart_Code__c", None)
+        espera_exito = False
+
+    elif tipo_escenario == 23:
+        nombre = "Error Extremo: Case_id con Caracteres Especiales no Permitidos"
+        payload["Case_id"] = f"CASE#INVALIDO%{random.randint(10,99)}"
+        espera_exito = False
+
+    elif tipo_escenario == 24:
+        nombre = "Error Extremo: Case_id Demasiado Largo (> 26 caracteres)"
+        payload["Case_id"] = "A" * 30
+        espera_exito = False
+
+    elif tipo_escenario == 25:
+        nombre = "Error Extremo: CreatedDate con Formato No-ISO"
+        payload["CreatedDate"] = "05/08/2026 10:30:00"
+        espera_exito = False
+
+    elif tipo_escenario == 26:
+        nombre = "Error Extremo: Fecha de Cierre (ClosedDate) en el Futuro"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "ClosedDate": "2099-12-31"
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 27:
+        nombre = "Error Extremo: Prórroga fuera del rango permitido (Prorroga__c = 15 > 9)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Prorroga__c": 15
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 28:
+        nombre = "Error Extremo: Fraude con Múltiples Archivos S3 sin 'nombre_archivo_fraude'"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "archivos_s3": [
+                {"nombre_archivo": "soporte1.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET},
+                {"nombre_archivo": "soporte2.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 29:
+        nombre = "Error Extremo: Fraude con 'nombre_archivo_fraude' Inexistente en la Lista S3"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "nombre_archivo_fraude": "archivo_fantasma.pdf",
+            "archivos_s3": [
+                {"nombre_archivo": "soporte_real.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 30:
+        nombre = "Error Extremo: Producto Inexistente en Catálogo"
+        payload["Product__c"] = "CriptoInversionesFalsas 3000"
+        espera_exito = False
+
+    elif tipo_escenario == 31:
+        nombre = "Prueba Límite: Punto de Recepción Fuera de Catálogo (Mapeado a Fallback 'Manual')"
+        payload["punto_recepcion"] = "TikTok Direct Message"
+        espera_exito = True
+
+    elif tipo_escenario == 32:
+        nombre = "Error Extremo: Tipo de Persona Inexistente"
+        payload["tipo_de_persona__c"] = "B2G_GOBIERNO"
+        espera_exito = False
+
+    elif tipo_escenario == 33:
+        nombre = "Prueba Límite: Normalización de Minúsculas y Sin Tildes en Picklists (Exitoso)"
+        payload.update({
+            "SC_id_type__c": "cc",
+            "sc_genero__c": "femenino",
+            "tipo_de_persona__c": "b2c",
+            "punto_recepcion": "web",
+            "Product__c": "wallet"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 34:
+        nombre = "Prueba Límite: Mapeo de Alias de Tipo Documento 'N.I.T.' -> 'RUT' (Exitoso)"
+        payload.update({
+            "tipo_de_persona__c": "B2B",
+            "SC_id_type__c": "N.I.T.",
+            "SuppliedName": f"Empresa Alias {secuencia} SAS"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 35:
+        nombre = "Prueba Límite: Inyección XSS en Descripción con Texto Válido (Sanitización Exitosa)"
+        payload["Description"] = "Reclamo normal de cliente <script>alert('hack')</script> con continuación de texto legítimo."
+        espera_exito = True
+
+    # --------------------------------------------------------------------------
+    # ⚡ ESCENARIOS EXTREMOS DE BORDES Y LÍMITES DE ESQUEMA (36 a 50)
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 36:
+        nombre = "Error Extremo: SuppliedEmail Excediendo Longitud Máxima (> 100 caracteres)"
+        email_largo = "usuario_extremadamente_largo_para_probar_limites_max_length_pydantic" * 2 + "@dominioextremadamentelargo.com"
+        payload["SuppliedEmail"] = email_largo
+        espera_exito = False
+
+    elif tipo_escenario == 37:
+        nombre = "Error Extremo: SuppliedName Excediendo Longitud Máxima (> 100 caracteres)"
+        payload["SuppliedName"] = "Juan " * 35  # > 140 caracteres
+        espera_exito = False
+
+    elif tipo_escenario == 38:
+        nombre = "Error Extremo: Prórroga Negativa (Prorroga__c = -1 < 0)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Prorroga__c": -1
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 39:
+        nombre = "Error Extremo: Total_Devuelto_por_Desconocimiento__c Negativo"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 500000.0,
+            "Total_Devuelto_por_Desconocimiento__c": -100.0,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 40:
+        nombre = "Error Extremo: Documento con Formateo Especial que Supera 15 Dígitos al Limpiar"
+        payload["id_number__c"] = "1.040.011.014.015.016"  # 16 dígitos limpios > 15
+        espera_exito = False
+
+    elif tipo_escenario == 41:
+        nombre = "Error Extremo: smart_Producto_nombre__c Excediendo Longitud Máxima (> 100 caracteres)"
+        payload["smart_Producto_nombre__c"] = "Producto " * 25
+        espera_exito = False
+
+    elif tipo_escenario == 42:
+        nombre = "Error Extremo: Categorias_COL__c Excediendo Longitud Máxima (> 150 caracteres)"
+        payload["Categorias_COL__c"] = "Categoría " * 30
+        espera_exito = False
+
+    elif tipo_escenario == 43:
+        nombre = "Error Extremo: Cierre con Favorabilidad__c Cadena Vacía o Solo Espacios"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "   ",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad"
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 44:
+        nombre = "Error Extremo: Cierre con Aceptacion__c Cadena Vacía o Solo Espacios"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "   "
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 45:
+        nombre = "Prueba Límite: Documento con Puntos y Guiones Limpiado Exitosamente (<= 15 dígitos)"
+        payload["id_number__c"] = "1.040.011.014-9"  # Se limpia a "10400110149" (11 caracteres)
+        espera_exito = True
+
+    elif tipo_escenario == 46:
+        nombre = "Prueba Límite: CreatedDate en Formato ISO con Sufijo Zulu 'Z' (Exitoso)"
+        payload["CreatedDate"] = "2026-08-05T10:30:00Z"
+        espera_exito = True
+
+    elif tipo_escenario == 47:
+        nombre = "Prueba Límite: Cierre enviando cuerpo_respuesta_final en Blanco (Autogenera Fallback Exitoso)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "cuerpo_respuesta_final": "   "
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 48:
+        nombre = "Prueba Límite: Canal Fuera de Catálogo (Mapeado a Fallback 'Internet')"
+        payload["canal__c"] = "Telepatía Cuántica 5G"
+        espera_exito = True
+
+    elif tipo_escenario == 49:
+        nombre = "Prueba Límite: Ente de Control Fuera de Catálogo (Mapeado a Fallback 'Otros')"
+        payload["Ente_de_control__c"] = "Comisión Intergaláctica de Vigilancia"
+        espera_exito = True
+
+    elif tipo_escenario == 50:
+        nombre = "Prueba Límite: Condición Especial Fuera de Catálogo (Mapeado a Fallback 'No aplica')"
+        payload["sc_Condicion_especial__c"] = "Superhéroe de Cómics"
+        espera_exito = True
+
+    # --------------------------------------------------------------------------
+    # 💥 ESCENARIOS ULTRA EXTREMOS BORDES Y DE SANITIZACIÓN (51 a 65)
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 51:
+        nombre = "Error Extremo: Teléfono Excediendo Longitud Máxima (SuppliedPhone > 15 caracteres)"
+        payload["SuppliedPhone"] = "+57 310 9876 5432 101"  # > 15 caracteres
+        espera_exito = False
+
+    elif tipo_escenario == 52:
+        nombre = "Prueba Límite: Dirección 100% HTML (Sanitizada a Fallback 'Dirección no registrada')"
+        payload["direccion__c"] = "<script>alert('xss')</script><style>body{color:red;}</style>"
+        espera_exito = True
+
+    elif tipo_escenario == 53:
+        nombre = "Prueba Límite: Inyección de Caracteres de Control Nulos (\\x00) en Nombre"
+        payload["SuppliedName"] = "Juan\x00Perez\x00Inyeccion"
+        espera_exito = True
+
+    elif tipo_escenario == 54:
+        nombre = "Error Extremo: Cierre Definitivo con ClosedDate Anterior a Fecha de Creación"
+        payload.update({
+            "CreatedDate": "2026-08-05T10:00:00",
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "ClosedDate": "2020-01-01"
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 55:
+        nombre = "Prueba Límite: Descripción Exactamente con 4500 Caracteres (Límite Superior Permitido Exitoso)"
+        payload["Description"] = "A" * 4500
+        espera_exito = True
+
+    elif tipo_escenario == 56:
+        nombre = "Prueba Límite: Cierre Definitivo con Favorabilidad 'Parcialmente favorable' (Exitoso)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Parcialmente favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 57:
+        nombre = "Prueba Límite: Género Fuera de Catálogo (Mapeado a Fallback 'No Aplica')"
+        payload["sc_genero__c"] = "Alienígena"
+        espera_exito = True
+
+    elif tipo_escenario == 58:
+        nombre = "Prueba Límite: LGBTIQ Fuera de Catálogo (Mapeado a Fallback 'No')"
+        payload["sc_LGBTIQ__c"] = "Tal vez"
+        espera_exito = True
+
+    elif tipo_escenario == 59:
+        nombre = "Prueba Límite: Tutela Fuera de Catálogo (Mapeado a Fallback 'No')"
+        payload["Tutela__c"] = "En tramite judicial"
+        espera_exito = True
+
+    elif tipo_escenario == 60:
+        nombre = "Prueba Límite: Escalamiento DCF Fuera de Catálogo (Mapeado a Fallback 'No')"
+        payload["smart_escalamiento_DCF__c"] = "Quizás"
+        espera_exito = True
+
+    elif tipo_escenario == 61:
+        nombre = "Prueba Límite: SuppliedEmail con Espacios en Extremos (Trim y Validación Exitosa)"
+        payload["SuppliedEmail"] = f"   usuario_limpio_{secuencia}@global66.com   "
+        espera_exito = True
+
+    elif tipo_escenario == 62:
+        nombre = "Error Extremo: Objeto de Archivo S3 con s3_key Vacía"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "archivos_s3": [
+                {"nombre_archivo": "soporte.pdf", "s3_key": "", "bucket": FIXED_BUCKET}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 63:
+        nombre = "Error Extremo: Objeto de Archivo S3 con Bucket Vacío"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "archivos_s3": [
+                {"nombre_archivo": "soporte.pdf", "s3_key": FIXED_S3_KEY, "bucket": "   "}
+            ]
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 64:
+        nombre = "Prueba Límite: Unificación de Genero 'No binario' y LGBTIQ 'Si' (Exitoso)"
+        payload.update({
+            "sc_genero__c": "No binario",
+            "sc_LGBTIQ__c": "Si",
+            "sc_Condicion_especial__c": "Adulto mayor"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 65:
+        nombre = "Prueba Límite: Teléfono Internacional Válido con Prefijo '+' (<= 15 caracteres Exitoso)"
+        payload["SuppliedPhone"] = "+573001234567"  # 13 caracteres
+        espera_exito = True
+
+    # --------------------------------------------------------------------------
+    # 🚀 ESCENARIOS ADICIONALES DE BORDES Y LÍMITES AVANZADOS (66 a 79) [NUEVO]
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 66:
+        nombre = "Prueba Límite: Fecha de Creación (CreatedDate) Antigua (1999 ISO Exitoso)"
+        payload["CreatedDate"] = "1999-01-01T00:00:00"
+        espera_exito = True
+
+    elif tipo_escenario == 67:
+        nombre = "Prueba Límite: Cierre enviando Alias de Estado 'RESOLVED' (Normalizado a Closed)"
+        payload.update({
+            "Status": "RESOLVED",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 68:
+        nombre = "Prueba Límite: Prórroga Mínima Permitida (Prorroga__c = None)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Prorroga__c": None
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 69:
+        nombre = "Prueba Límite: Prórroga Máxima no Permitida (Prorroga__c = 9) sin pasar por valores anteriores"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Prorroga__c": 9
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 70:
+        nombre = "Error Extremo: Prórroga Superando Límite Superior (Prorroga__c = 10)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Prorroga__c": 10
+        })
+        espera_exito = False
+
+    elif tipo_escenario == 71:
+        nombre = "Prueba Límite: Teléfono con Paréntesis y Guiones Formateado (<= 15 Dígitos Limpios)"
+        payload["SuppliedPhone"] = "(310) 123-4567"  # Limpia a "3101234567"
+        espera_exito = True
+
+    elif tipo_escenario == 72:
+        nombre = "Error Extremo: Teléfono Formateado que Supera 15 Dígitos al Limpiar"
+        payload["SuppliedPhone"] = "+57 (310) 123-4567 ext 89012"  # Limpia a > 15 caracteres
+        espera_exito = False
+
+    elif tipo_escenario == 73:
+        nombre = "Prueba Límite: Favorabilidad__c en Minúsculas y Variación Texto (Normalización Exitosa)"
+        payload.update({
+            "Status": "Closed",
+            "Favorabilidad__c": "favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad"
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 74:
+        nombre = "Prueba Límite: Monto Reclamado en Fraude de Valor Cero (card_amount__c = 0.0 Exitoso)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 0.0,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 75:
+        nombre = "Prueba Límite: Total Devuelto en Fraude de Valor Cero (Total_Devuelto = 0.0 Exitoso)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "directorio_s3": DEFAULT_DIRECTORIO_S3
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 76:
+        nombre = "Prueba Límite: directorio_s3 con Espacios en Extremos (Trim y Éxito)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "directorio_s3": f"   {DEFAULT_DIRECTORIO_S3}   "
+        })
+        espera_exito = True
+
+    elif tipo_escenario == 77:
+        nombre = "Prueba Límite: Descripción con Caracteres de Salto de Línea y Tabuladores (\\n, \\r, \\t)"
+        payload["Description"] = "Línea 1 del reclamo.\nLínea 2 con tabulador:\tDetalle pericial.\r\nLínea final."
+        espera_exito = True
+
+    elif tipo_escenario == 78:
+        nombre = "Prueba Límite: Case_id con Guiones Bajos y Medios Combinados (Exitoso)"
+        payload["Case_id"] = f"SEQ-TEST_2026-{secuencia:04d}"
+        espera_exito = True
+
+    else:
+        nombre = "Prueba Límite: Instancia de Recepción Fuera de Catálogo (Mapeado a Fallback 'Entidad vigilada')"
+        payload["Instancia_de_recepcion__c"] = "Tribunal de Justicia Especial"
         espera_exito = True
 
     return {
@@ -353,7 +792,7 @@ def construir_banco_de_pruebas(total_peticiones: int) -> List[Dict[str, Any]]:
     casos = []
     for i in range(1, total_peticiones + 1):
         if i <= NUM_ESCENARIOS_BASE:
-            # Cobertura inicial garantizada (Casos 0 al 20)
+            # Cobertura inicial garantizada (Casos 0 al 79)
             tipo_escenario = i - 1
         else:
             # Elección aleatoria de escenarios para peticiones posteriores
@@ -369,12 +808,12 @@ def construir_banco_de_pruebas(total_peticiones: int) -> List[Dict[str, Any]]:
 # ==============================================================================
 def ejecutar_pruebas_secuenciales():
     print("=" * 85)
-    print("🚀 INICIANDO PRUEBAS SECUENCIALES CON FUZZING Y CASOS BORDES (1 A LA VEZ)")
+    print("🚀 INICIANDO PRUEBAS SECUENCIALES EXTREMAS CON FUZZING Y CASOS BORDES (1 A LA VEZ)")
     print(f"🎯 URL Destino: {TARGET_URL}")
     print(f"📦 Total Peticiones Solicitadas: {TOTAL_PETICIONES}")
-    print(f"📌 Estrategia: Cobertura base de {NUM_ESCENARIOS_BASE} casos + muestreo fuzzing aleatorio")
-    print(f"📁 Directorio por defecto: {DEFAULT_DIRECTORIO_S3}")
-    print(f"📄 Archivo fijo de prueba: {FIXED_S3_KEY}")
+    print(f"📌 Cobertura Base: {NUM_ESCENARIOS_BASE} escenarios configurados")
+    print(f"📁 Directorio S3 Default: {DEFAULT_DIRECTORIO_S3}")
+    print(f"📄 Archivo Fijo: {FIXED_S3_KEY}")
     print("=" * 85 + "\n")
 
     banco_casos = construir_banco_de_pruebas(TOTAL_PETICIONES)
@@ -386,7 +825,7 @@ def ejecutar_pruebas_secuenciales():
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": API_KEY,
-        "User-Agent": "SequentialFuzzTester/1.0"
+        "User-Agent": "SequentialFuzzTesterExtreme/5.0"
     }
 
     with httpx.Client(timeout=35.0) as client:
@@ -395,10 +834,10 @@ def ejecutar_pruebas_secuenciales():
             nombre = caso["nombre"]
             espera_exito = caso["espera_exito"]
             payload = caso["payload"]
-            case_id = payload.get("Case_id", "N/A")
+            case_id = payload.get("Case_id", "SIN_CASE_ID")
 
             fase = "COBERTURA BASE" if case_num <= NUM_ESCENARIOS_BASE else "FUZZING ALEATORIO"
-            print(f"▶️ [{case_num:02d}/{total_casos:02d}] ({fase}) Probando: {nombre} (Case_id: {case_id})...")
+            print(f"▶️ [{case_num:03d}/{total_casos:03d}] ({fase}) Probando: {nombre} (Case_id: {case_id})...")
 
             start_time = time.perf_counter()
             try:
@@ -422,7 +861,7 @@ def ejecutar_pruebas_secuenciales():
                 else:
                     fallados += 1
                     print(f"   ❌ RESULTADO: DESVIACIÓN INESPERADA (HTTP {status_code}) - {elapsed_ms}ms")
-                    print(f"      📄 Detalle/Error: {json.dumps(res_body, ensure_ascii=False)}")
+                    print(f"      📄 Detalle/Respuesta: {json.dumps(res_body, ensure_ascii=False)}")
 
             except Exception as exc:
                 elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
@@ -446,16 +885,13 @@ def ejecutar_pruebas_secuenciales():
             })
             
             if case_num < total_casos and COOLDOWN_SECONDS > 0:
-                print(f"   ⏳ Pausa de cooldown: {COOLDOWN_SECONDS}s...")
                 time.sleep(COOLDOWN_SECONDS)
-                
-            print("-" * 85)
 
     # ==============================================================================
     # 📊 RESUMEN FINAL
     # ==============================================================================
     print("\n" + "=" * 85)
-    print("📈 RESUMEN FINAL DE LA EJECUCIÓN SECUENCIAL")
+    print("📈 RESUMEN FINAL DE LA EJECUCIÓN SECUENCIAL EXTREMA")
     print("=" * 85)
     print(f"📦 Total Casos Evaluados: {total_casos}")
     print(f"✅ Pruebas Conformes (Según lo planeado): {pasados} / {total_casos}")

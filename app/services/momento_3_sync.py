@@ -107,8 +107,12 @@ class Momento3SincronizacionService:
 
             if pdf_generado_exito:
                 sfc_raw_payload["documentacion_rta_final"] = True
+                
+            es_pipeline_fraude = (afijo_regulatorio == "INV_FRAUDE_SFC") or (
+                crm_dict.get("tipo_fraude__c") is not None or crm_dict.get("modalidad_fraude__c") is not None
+            )
             
-            if not target_file_name and not afijo_regulatorio:
+            if not es_pipeline_fraude:
                 sfc_raw_payload["tipo_fraude"] = None
                 sfc_raw_payload["modalidad_fraude"] = None
                 sfc_raw_payload["monto_reclamado"] = None

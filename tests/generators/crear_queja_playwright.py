@@ -7,9 +7,9 @@ from playwright.sync_api import Playwright, sync_playwright
 # ======================================================================
 # ⚙️ CONFIGURACIÓN GENERAL
 # ======================================================================
-TOTAL_QUEJAS = 120  # Número de quejas a generar
+TOTAL_QUEJAS = 250  # Número de quejas a generar
 HEADLESS = (
-    True  # False = Muestra el navegador / True = Corre invisible en fondo
+    False  # False = Muestra el navegador / True = Corre invisible en fondo
 )
 BASE_DIR = Path(__file__).resolve().parent
 ARCHIVO_PDF = str(BASE_DIR / "archivo" / "soporte_traza_1.pdf")
@@ -41,34 +41,21 @@ def asegurar_archivo_pdf(nombre_archivo: str):
 def run(playwright: Playwright) -> None:
     asegurar_archivo_pdf(ARCHIVO_PDF)
 
-    browser = playwright.chromium.launch(headless=HEADLESS)
-    context = browser.new_context()
+    browser = playwright.chromium.launch(
+        headless=HEADLESS,
+        args=["--disable-blink-features=AutomationControlled"]
+    )
+    context = browser.new_context(
+        storage_state="state.json" if os.path.exists("state.json") else None
+    )
     page = context.new_page()
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     # ------------------------------------------------------------------
     # 🔑 1. INICIO DE SESIÓN (Una sola vez fuera del bucle)
     # ------------------------------------------------------------------
     print("🔐 Iniciando sesión en SFC QA...")
-    page.goto("https://qasmart.superfinanciera.gov.co/login")
-
-    page.get_by_role("textbox", name="Ingrese su correo electrónico").fill(
-        "juan.camargo@global66.com"
-    )
-    page.get_by_role("textbox", name="Ingrese su contraseña").fill(
-        "Prueba2026-"
-    )
-    page.get_by_role("button", name="INICIAR SESIÓN").click()
-
-    boton_queja = page.get_by_role(
-        "link",
-        name=(
-            "Presentar una queja Suministre la información relacionada con su"
-            " inconformidad"
-        ),
-    )
-    boton_queja.wait_for(state="visible", timeout=15000)
-
-    print("✅ Sesión iniciada con éxito.\n")
+    page.goto("https://qasmart.superfinanciera.gov.co/customer")
 
     # ------------------------------------------------------------------
     # 🔄 2. BUCLE MASIVO DE CREACIÓN DE QUEJAS

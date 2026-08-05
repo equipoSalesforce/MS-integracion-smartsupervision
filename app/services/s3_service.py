@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 class S3StorageService:
     """
     Servicio unificado para abstraer operaciones sobre AWS S3 / MinIO.
-    Centraliza el manejo asíncrono, validaciones de tamaño, orquestación en lote
-    y excepciones estandarizadas.
+    Centraliza el manejo asíncrono, validaciones de tamaño e integridad,
+    orquestación en lote y excepciones estandarizadas.
     """
 
     def __init__(self, s3_client=None, http_client: Optional[httpx.AsyncClient] = None):
@@ -53,19 +53,66 @@ class S3StorageService:
                 return possible_ext, f"application/{possible_ext}"
         return (val if val else "pdf"), f"application/{val if val else 'pdf'}"
 
+    @staticmethod
+    def validar_integridad_archivo(file_bytes: bytes, file_name: str):
+        """
+        🔍 Valida que el archivo no esté vacío (0 bytes) y que sus Magic Bytes
+        coincidan con la firma de formato esperada según su extensión.
+        """
+        if not file_bytes or len(file_bytes) == 0:
+            raise SfcIntegrationException(
+                status_code=400,
+                error_type="FILE_EMPTY_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
+                crm_action="Verifique y cargue un archivo válido con contenido en S3 antes de reintentar."
+            )
+
+        ext = file_name.split(".")[-1].lower().strip() if "." in file_name else ""
+
+        # Firmas de cabecera estándar (Magic Bytes)
+        magic_headers = {
+            "pdf": [b"%PDF-"],
+            "png": [b"\x89PNG\r\n\x1a\n"],
+            "jpg": [b"\xff\xd8\xff"],
+            "jpeg": [b"\xff\xd8\xff"],
+            "zip": [b"PK\x03\x04"],
+        }
+
+        if ext in magic_headers:
+            signatures = magic_headers[ext]
+            if not any(file_bytes.startswith(sig) for sig in signatures):
+                logger.error(f"❌ [S3 Integrity] Archivo '{file_name}' no coincide con los Magic Bytes de tipo {ext.upper()}.")
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="CORRUPTED_OR_INVALID_FILE",
+                    sfc_field="archivos_s3",
+                    raw_message=f"El archivo '{file_name}' está corrupto o su contenido no corresponde a un formato {ext.upper()} válido.",
+                    crm_action="Verifique la integridad y formato real del archivo antes de subirlo a S3."
+                )
+
     async def obtener_bytes_archivo(
         self, 
         s3_key: str, 
         bucket: Optional[str] = None, 
         max_size_mb: int = 30
     ) -> bytes:
-        """Valida existencia, tamaño y retorna bytes desde S3 de forma asíncrona."""
+        """Valida existencia, tamaño, integridad y retorna bytes desde S3 de forma asíncrona."""
         target_bucket = bucket or self.default_bucket
+        file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
 
         if not self.s3_client:
             if self.is_local:
-                logger.info(f"[LOCAL S3 MOCK] Generando bytes simulados para key: {s3_key}")
-                return b"Contenido ficticio simulado localmente por el gateway de Global66."
+                logger.info(f"[LOCAL S3 MOCK] Generando bytes simulados válidos para key: {s3_key}")
+                ext = file_name.split(".")[-1].lower() if "." in file_name else "pdf"
+                mock_headers = {
+                    "pdf": b"%PDF-1.4 Mock PDF content for local testing",
+                    "png": b"\x89PNG\r\n\x1a\nMock PNG content",
+                    "jpg": b"\xff\xd8\xffMock JPG content",
+                    "jpeg": b"\xff\xd8\xffMock JPEG content",
+                    "zip": b"PK\x03\x04Mock ZIP content"
+                }
+                return mock_headers.get(ext, b"%PDF-1.4 Mock content default")
             else:
                 raise SfcIntegrationException(
                     status_code=500,
@@ -74,8 +121,6 @@ class S3StorageService:
                     raw_message="El cliente de almacenamiento S3 no está inicializado en producción.",
                     crm_action="Contactar al equipo de infraestructura para validar la configuración de AWS S3."
                 )
-
-        file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
 
         try:
             metadata = await asyncio.to_thread(
@@ -97,6 +142,18 @@ class S3StorageService:
             raise
 
         file_size = metadata.get("ContentLength", 0)
+        
+        # 1. Validación preventiva de tamaño 0 bytes
+        if file_size == 0:
+            raise SfcIntegrationException(
+                status_code=400,
+                error_type="FILE_EMPTY_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
+                crm_action="Cargue un archivo válido con contenido en S3 antes de reintentar."
+            )
+
+        # 2. Validación de tamaño máximo
         limit_bytes = max_size_mb * 1024 * 1024
         if file_size > limit_bytes:
             raise SfcIntegrationException(
@@ -111,7 +168,12 @@ class S3StorageService:
             s3_file = self.s3_client.get_object(Bucket=target_bucket, Key=s3_key)
             return s3_file["Body"].read()
 
-        return await asyncio.to_thread(_descargar)
+        file_bytes = await asyncio.to_thread(_descargar)
+
+        # 3. Validación de integridad de Magic Bytes
+        self.validar_integridad_archivo(file_bytes=file_bytes, file_name=file_name)
+
+        return file_bytes
 
     async def subir_bytes_archivo(
         self, 
@@ -290,6 +352,9 @@ class S3StorageService:
                     file_bytes = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
                     if not file_bytes:
                         file_bytes = await self.obtener_bytes_archivo(s3_key=s3_key, bucket=bucket)
+                    else:
+                        # Validar bytes pasados directamente en memoria RAM
+                        self.validar_integridad_archivo(file_bytes=file_bytes, file_name=original_name)
                         
                     # 2. Aplicar lógica de afijos regulatorios si aplica
                     debe_aplicar_afijo = afijo_masivo or (target_file_name and original_name == target_file_name)
