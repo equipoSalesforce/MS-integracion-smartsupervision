@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from zoneinfo import ZoneInfo
 from pydantic import (
     BaseModel,
@@ -313,6 +313,30 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
     )
     
     directorio_s3: Optional[str] = Field(None, description="Ruta/Prefix en S3")
+    
+    @field_validator("ClosedDate", mode="before")
+    @classmethod
+    def normalizar_closed_date(cls, v: Any) -> Optional[Any]:
+        if isinstance(v, str):
+            v_clean = v.strip()
+            if not v_clean:
+                return None
+            
+            # Si viene en formato ISO completo con hora (ej. "2026-08-05T14:20:00" o "2026-08-05T14:20:00Z")
+            if "T" in v_clean:
+                try:
+                    return datetime.fromisoformat(v_clean.replace("Z", "+00:00")).date()
+                except ValueError:
+                    pass
+
+            # Si viene en formato fecha estándar YYYY-MM-DD
+            try:
+                return date.fromisoformat(v_clean)
+            except ValueError:
+                raise ValueError(
+                    f"El campo 'ClosedDate' con valor '{v}' debe cumplir con un formato de fecha válido (YYYY-MM-DD o ISO 8601)."
+                )
+        return v
 
     @field_validator("Favorabilidad__c", "Aceptacion__c", "Status", mode="before")
     @classmethod
