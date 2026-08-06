@@ -3170,7 +3170,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Smart_Code__c\": \"TEST-TRAMITE-SSV-001\",\n  \"Status\": \"In Progress\",\n  \"SuppliedName\": \"Daniela Rojas Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001122\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3104488899\",\n  \"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n  \"direccion__c\": \"Carrera 15 # 82-30\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Actualización intermedia de trámite con recolección de soportes desde la carpeta S3 del caso.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Prorroga__c\": 1,\n  \"directorio_s3\": \"caso/TEST-TRAMITE-SSV-001/\",\n  \"archivos_s3\": []\n}",
+                  "raw": "{\n  \"Smart_Code__c\": \"TEST-TRAMITE-SSV-111\",\n  \"SuppliedName\": \"Daniela Rojas Mock\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"1099001123\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3104488899\",\n  \"SuppliedEmail\": \"daniela.rojas.mock@global66.test\",\n  \"direccion__c\": \"Carrera 15 # 82-30\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Manual\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"Queja o reclamo admitida por el DCF\",\n  \"Description\": \"Actualización intermedia de trámite con recolección de soportes desde la carpeta S3 del caso.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Quejas_express__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"Product__c\": \"P2P\",\n  \"smart_Producto_nombre__c\": \"Global Account Digital\",\n  \"Categorias_COL__c\": \"Remesas\",\n  \"Prorroga__c\": 1,\n  \"directorio_s3\": \"caso/TEST-TRAMITE-SSV-001/\",\n  \"archivos_s3\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3220,6 +3220,94 @@
       ]
     },
     {
+      "name": "Momento 4",
+      "item": [
+        {
+          "name": "Momento 4 - Obtener actualización de usuarios",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/momento-4",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "momento-4"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Momento 4 - Obtener actualización de usuarios",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/momento-4",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "momento-4"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "server",
+                  "value": "nginx/1.31.3"
+                },
+                {
+                  "key": "date",
+                  "value": "Thu, 06 Aug 2026 14:06:34 GMT"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "content-length",
+                  "value": "774"
+                },
+                {
+                  "key": "connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "x-correlation-id",
+                  "value": "b2b08c15-ae01-4daa-9f3e-8cfcc621869d"
+                }
+              ],
+              "cookie": [],
+              "body": "[\n  {\n    \"id_number__c\": \"1020779357\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Erika\",\n    \"LastName\": \"Ardila Greiff\",\n    \"fecha_nacimiento__c\": \"1993-03-10T00:00:00\",\n    \"SuppliedEmail\": \"erika.ardila@global66.com\",\n    \"SuppliedPhone\": \"3173642766\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Carrera 18 #134 60\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"SuppliedName\": \"Erika Ardila Greiff\"\n  },\n  {\n    \"id_number__c\": \"100132448\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Pepito\",\n    \"LastName\": \"Perez\",\n    \"fecha_nacimiento__c\": \"2001-02-20T00:00:00\",\n    \"SuppliedEmail\": \"sebas.qa22@gmail.com\",\n    \"SuppliedPhone\": \"30087323232\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Calle 56-87 sur\",\n    \"Departamento__c\": \"Archipiélago De San Andrés, Providencia Y Santa Catalina\",\n    \"SC_municipio__c\": \"Providencia\",\n    \"SuppliedName\": \"Pepito Perez\"\n  }\n]"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Revisar queue pendientes",
       "request": {
         "method": "GET",
@@ -3230,7 +3318,7 @@
           }
         ],
         "url": {
-          "raw": "{{base_url}}/api/v1/quejas/queue?=PENDIENTE",
+          "raw": "{{base_url}}/api/v1/quejas/queue?estado=PENDIENTE",
           "host": [
             "{{base_url}}"
           ],
@@ -3242,7 +3330,7 @@
           ],
           "query": [
             {
-              "key": "",
+              "key": "estado",
               "value": "PENDIENTE"
             }
           ]
