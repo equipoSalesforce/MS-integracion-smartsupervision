@@ -71,38 +71,55 @@ class UserSync:
     async def confirmar_recepcion_ack_usuarios(self, numeros_id_cf: List[str]) -> Dict[str, Any]:
         """
         Recibe la lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM
-        y transmite la confirmación ACK en lotes de máximo 100 registros hacia la SFC.
+        y transmite la confirmación ACK en lotes de máximo 100 registros hacia la SFC,
+        clasificando los registros confirmados y los que presentaron fallas.
         """
         if not numeros_id_cf:
             return {
                 "status": "warning",
                 "message": "No se proporcionaron números de identificación (numero_id_CF) para confirmar ACK.",
-                "confirmados": 0
+                "confirmados": 0,
+                "ids_procesados": [],
+                "ids_error": []
             }
 
         logger.info(f"[Momento 4 ACK] Iniciando confirmación ACK para {len(numeros_id_cf)} usuarios.")
 
-        # Lotes de máximo 100 elementos
         TAMANO_LOTE = 100
         lotes = [numeros_id_cf[i:i + TAMANO_LOTE] for i in range(0, len(numeros_id_cf), TAMANO_LOTE)]
-
-        total_confirmados = 0
+        
+        ids_exitosos = []
+        ids_con_error = []
 
         for index, lote in enumerate(lotes):
             logger.info(f"[Momento 4 ACK] Enviando lote {index + 1}/{len(lotes)} ({len(lote)} usuarios) a la SFC...")
             try:
-                await self.sfc_client.send_user_ack_batch(lote)
-                total_confirmados += len(lote)
-            except Exception as e:
-                logger.error(
-                    f"❌ Error crítico al confirmar ACK de usuarios en el lote {index + 1}. "
-                    f"Confirmados previamente: {total_confirmados}. Detalle: {str(e)}"
+                respuesta_sfc = await self.sfc_client.send_user_ack_batch(lote)
+                data_sfc = respuesta_sfc.get("Response") if isinstance(respuesta_sfc, dict) and "Response" in respuesta_sfc else respuesta_sfc
+                
+                raw_errors = (
+                    data_sfc.get("numero_id_CF_error", data_sfc.get("pqrs_error", [])) 
+                    if isinstance(data_sfc, dict) else []
                 )
-                raise
+                set_errores = {str(err_id).strip() for err_id in raw_errors}
+
+                for user_id in lote:
+                    str_id = str(user_id).strip()
+                    if str_id in set_errores:
+                        ids_con_error.append(str_id)
+                    else:
+                        ids_exitosos.append(str_id)
+
+            except Exception as e:
+                logger.error(f"❌ Error enviando lote {index + 1} de ACK de usuarios: {e}")
+                ids_con_error.extend([str(x).strip() for x in lote])
+
+        status = "success" if not ids_con_error else ("partial" if ids_exitosos else "error")
 
         return {
-            "status": "success",
-            "message": f"ACK de usuarios confirmado exitosamente ante la SFC para {total_confirmados} de {len(numeros_id_cf)} registros.",
-            "confirmados": total_confirmados,
-            "ids_procesados": numeros_id_cf
+            "status": status,
+            "message": f"ACK de usuarios procesado ante la SFC: {len(ids_exitosos)} exitosos, {len(ids_con_error)} con error.",
+            "confirmados": len(ids_exitosos),
+            "ids_procesados": ids_exitosos,
+            "ids_error": ids_con_error
         }

@@ -3304,6 +3304,117 @@
               "body": "[\n  {\n    \"id_number__c\": \"1020779357\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Erika\",\n    \"LastName\": \"Ardila Greiff\",\n    \"fecha_nacimiento__c\": \"1993-03-10T00:00:00\",\n    \"SuppliedEmail\": \"erika.ardila@global66.com\",\n    \"SuppliedPhone\": \"3173642766\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Carrera 18 #134 60\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"SuppliedName\": \"Erika Ardila Greiff\"\n  },\n  {\n    \"id_number__c\": \"100132448\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Pepito\",\n    \"LastName\": \"Perez\",\n    \"fecha_nacimiento__c\": \"2001-02-20T00:00:00\",\n    \"SuppliedEmail\": \"sebas.qa22@gmail.com\",\n    \"SuppliedPhone\": \"30087323232\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Calle 56-87 sur\",\n    \"Departamento__c\": \"Archipiélago De San Andrés, Providencia Y Santa Catalina\",\n    \"SC_municipio__c\": \"Providencia\",\n    \"SuppliedName\": \"Pepito Perez\"\n  }\n]"
             }
           ]
+        },
+        {
+          "name": "Confirmar recepción usuarios ACK",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"numeros_id_cf\": [\r\n    \"1000024622\",\r\n    \"12861785166\"\r\n  ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/quejas/sync/momento-4/ack",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quejas",
+                "sync",
+                "momento-4",
+                "ack"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Confirmar recepción usuarios ACK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-api-key",
+                    "value": "{{api_key}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"numeros_id_cf\": [\r\n    \"1000024622\",\r\n    \"12861785166\"\r\n  ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/quejas/sync/momento-4/ack",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "quejas",
+                    "sync",
+                    "momento-4",
+                    "ack"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "server",
+                  "value": "nginx/1.31.3"
+                },
+                {
+                  "key": "date",
+                  "value": "Thu, 06 Aug 2026 20:04:25 GMT"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "content-length",
+                  "value": "172"
+                },
+                {
+                  "key": "connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "x-correlation-id",
+                  "value": "a53afe36-97b2-417e-929a-b15c201bc13e"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"partial\",\n  \"message\": \"ACK de usuarios procesado ante la SFC: 1 exitosos, 1 con error.\",\n  \"confirmados\": 1,\n  \"ids_procesados\": [\n    \"1000024622\"\n  ],\n  \"ids_error\": [\n    \"12861785166\"\n  ]\n}"
+            }
+          ]
         }
       ]
     },
