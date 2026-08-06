@@ -121,6 +121,7 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: Optional[str] = None
     GOOGLE_SPREADSHEET_ID: Optional[str] = None
     GOOGLE_SHEET_RANGE: Optional[str] = None
+    GOOGLE_CATALOGS_SPREADSHEET_ID: Optional[str] = None
     
     # --- Control de Throttling (Mini-retries) ---
     SFC_MINI_RETRY_ATTEMPTS: int = Field(

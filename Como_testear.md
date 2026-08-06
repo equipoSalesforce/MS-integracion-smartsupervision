@@ -124,7 +124,6 @@ Este script ejecuta **180 peticiones secuenciales** cubriendo **90 escenarios ba
 ```bash
 
    python tests/generators/test_secuencial_despacho.py
-
 ```
 
 * **Comportamiento Automático:** El script se conecta autónomamente a MinIO (`http://localhost:9000`) antes de iniciar, pre-cargando los archivos `archivo_vacio.pdf` (0 bytes) y `soporte_corrupto.pdf` (magic bytes inválidos) para validar el rechazo de archivos dañados.

@@ -1,12 +1,13 @@
-# app/core/mapping.py
 import json
 import logging
 import os
 import re
+import time
 import unicodedata
 from datetime import datetime, date
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Optional, Set, List
 from zoneinfo import ZoneInfo
+import httpx
 
 from app.core.config import settings
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload, SfcActualizarQuejaPayload
@@ -18,9 +19,16 @@ class SfcSalesforceMapper:
     HTML_REGEX = re.compile(r'<[^>]*>')
     CLEAN_PHONE_DOC_REGEX = re.compile(r'[^\d+]')
 
-    # 🎯 CACHÉ DE CATÁLOGOS EN MEMORIA RAM
+    # 🎯 CACHÉ EN MEMORIA RAM (TTL: 10 Minutos)
     CATALOGOS: Dict[str, Dict[str, str]] = {}
-    INVERSE_CATALOGS: Dict[str, Dict[str, int]] = {}
+    INVERSE_CATALOGS: Dict[str, Dict[str, Any]] = {}
+    
+    # Mapeos dinámicos de nombres de campos
+    MAPPING_MOMENTO_1_SFC_TO_CRM: Dict[str, str] = {}
+    MAPPING_MOMENTO_4_SFC_TO_CRM: Dict[str, str] = {}
+
+    ULTIMA_ACTUALIZACION: float = 0
+    CACHE_TTL_SEGUNDOS: int = 600
 
     DEPT_DIVIPOLA_INV: Dict[str, str] = {}  
     MUNI_DIVIPOLA_INV: Dict[str, str] = {}  
@@ -33,7 +41,8 @@ class SfcSalesforceMapper:
         "cuenta perfil": "Cuenta perfil", "otro": "Otro"
     }
 
-    MAPPING_MOMENTO_1_SFC_TO_CRM = {
+    # Respaldo por defecto para Mapeos de Campos
+    DEFAULT_MAPPING_M1 = {
         "codigo_queja": "Smart_Code__c", "fecha_creacion": "CreatedDate", "nombres": "SuppliedName",
         "numero_id_CF": "id_number__c", "correo": "SuppliedEmail", "telefono": "SuppliedPhone",
         "direccion": "direccion__c", "departamento_cod": "Departamento__c", "municipio_cod": "SC_municipio__c",
@@ -46,7 +55,7 @@ class SfcSalesforceMapper:
         "replica": "replica__c", "argumento_replica": "argumento_replica__c"
     }
 
-    MAPPING_MOMENTO_4_SFC_TO_CRM = {
+    DEFAULT_MAPPING_M4 = {
         "numero_id_CF": "id_number__c", "tipo_id_CF": "SC_id_type__c",
         "nombre": "FirstName", "nombres": "FirstName", "Nombres": "FirstName",
         "apellido": "LastName", "apellidos": "LastName", "Apellidos": "LastName",
@@ -68,10 +77,176 @@ class SfcSalesforceMapper:
         return normalized.lower().strip()
 
     @classmethod
+    async def _obtener_google_access_token(cls) -> Optional[str]:
+        """Obtiene token de acceso vía Google OAuth 2.0."""
+        client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
+        client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
+        refresh_token = getattr(settings, "GOOGLE_REFRESH_TOKEN", None)
+
+        if not all([client_id, client_secret, refresh_token]):
+            return None
+
+        url_oauth = "https://oauth2.googleapis.com/token"
+        payload = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.post(url_oauth, data=payload)
+                if res.status_code == 200:
+                    return res.json().get("access_token")
+        except Exception as e:
+            logger.warning(f"⚠️ [SfcSalesforceMapper] Error solicitando Access Token a Google: {e}")
+
+        return None
+
+    @classmethod
+    async def obtener_catalogos_y_mapeos(cls) -> None:
+        """
+        Sincroniza Catálogos y Mapeos consultando las pestañas individuales de Google Sheets en un solo lote (batchGet).
+        """
+        ahora = time.time()
+        if cls.CATALOGOS and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
+            return
+
+        spreadsheet_id = getattr(settings, "GOOGLE_CATALOGS_SPREADSHEET_ID", None)
+
+        if spreadsheet_id:
+            try:
+                logger.info("🔄 [SfcSalesforceMapper] Sincronizando pestañas de Google Sheets...")
+                access_token = await cls._obtener_google_access_token()
+
+                if access_token:
+                    headers = {"Authorization": f"Bearer {access_token}"}
+                    
+                    # 1. Obtener lista de títulos de todas las pestañas existentes en el libro
+                    url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
+                    
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        res_meta = await client.get(url_meta, headers=headers)
+                        
+                        if res_meta.status_code == 200:
+                            sheet_titles = [
+                                s["properties"]["title"] 
+                                for s in res_meta.json().get("sheets", []) 
+                                if "properties" in s and "title" in s["properties"]
+                            ]
+
+                            # 2. Consultar todas las pestañas en una única llamada batchGet
+                            params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
+                            url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
+                            
+                            res_batch = await client.get(url_batch, headers=headers, params=params)
+                            if res_batch.status_code == 200:
+                                value_ranges = res_batch.json().get("valueRanges", [])
+                                
+                                nuevos_catalogos: Dict[str, Dict[str, str]] = {}
+                                m1_map, m4_map = {}, {}
+
+                                for vr in value_ranges:
+                                    range_str = vr.get("range", "")
+                                    tab_title = range_str.split("!")[0].replace("'", "").strip()
+                                    rows = vr.get("values", [])[1:] # Omitir fila de encabezados
+
+                                    # Caso Pestaña de Mapeo de Nombres de Campos
+                                    if tab_title.lower() == "mapeo_campos":
+                                        for row in rows:
+                                            if len(row) >= 3 and row[0] and row[1] and row[2]:
+                                                momento = str(row[0]).strip().upper()
+                                                campo_sfc = str(row[1]).strip()
+                                                campo_crm = str(row[2]).strip()
+                                                
+                                                if "MOMENTO_1" in momento or "M1" in momento:
+                                                    m1_map[campo_sfc] = campo_crm
+                                                elif "MOMENTO_4" in momento or "M4" in momento:
+                                                    m4_map[campo_sfc] = campo_crm
+                                    else:
+                                        # Caso Pestaña de Catálogo por Valor (ej: genero, tipo_id, canal, etc.)
+                                        cat_key = tab_title.lower()
+                                        cat_dict = {}
+                                        for row in rows:
+                                            if len(row) >= 2 and row[0] and row[1]:
+                                                code = str(row[0]).strip()
+                                                val = str(row[1]).strip()
+                                                cat_dict[code] = val
+                                        
+                                        if cat_dict:
+                                            nuevos_catalogos[cat_key] = cat_dict
+
+                                if nuevos_catalogos:
+                                    cls.CATALOGOS = nuevos_catalogos
+                                    cls._construir_indices_inversos()
+                                    cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
+                                    cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
+                                    cls.ULTIMA_ACTUALIZACION = ahora
+                                    logger.info(
+                                        f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
+                                        f"cargados desde pestañas de Google Sheets."
+                                    )
+                                    return
+            except Exception as e:
+                logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Cargando respaldo local.")
+
+        if not cls.CATALOGOS:
+            cls.cargar_catalogos_local()
+
+    @classmethod
+    def _construir_indices_inversos(cls):
+        """Genera diccionarios inversos optimizados para búsquedas CRM -> SFC."""
+        if "producto" not in cls.CATALOGOS or not cls.CATALOGOS["producto"]:
+            cls.CATALOGOS["producto"] = {
+                f"207_{idx}": nombre
+                for idx, nombre in enumerate(cls.PRODUCTO_SFC_TEXTO_TO_SF.values(), 1)
+            }
+
+        cls.INVERSE_CATALOGS = {}
+        for cat_key, cat_dict in cls.CATALOGOS.items():
+            cat_inverse = {}
+            for k, v in cat_dict.items():
+                val_to_store = int(k) if str(k).isdigit() else str(k)
+                cat_inverse[cls._normalize_text(v)] = val_to_store
+                cat_inverse[str(k)] = val_to_store 
+            cls.INVERSE_CATALOGS[cat_key] = cat_inverse
+        
+        if "tipo_id" in cls.INVERSE_CATALOGS:
+            cls.INVERSE_CATALOGS["tipo_id"].update({
+                "cc": 1, "ce": 2, "rut": 3, "nit": 3, "dni": 4, "pass": 5, "passport": 5, "pasaporte": 5
+            })
+        if "punto_recepcion" in cls.INVERSE_CATALOGS:
+            cls.INVERSE_CATALOGS["punto_recepcion"].update({
+                "activate b2c": 99, "form: change data": 99, "updatecom": 99, "manual": 1, "internet": 2
+            })
+
+    @classmethod
+    def cargar_catalogos_local(cls, force: bool = False):
+        """Carga el respaldo local desde catalogos_sfc_crm.json."""
+        if cls.CATALOGOS and cls.INVERSE_CATALOGS and not force:
+            return
+
+        ruta = os.path.join(os.path.dirname(__file__), "resources/catalogos_sfc_crm.json")
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                cls.CATALOGOS = json.load(f)
+            
+            cls._construir_indices_inversos()
+            cls.MAPPING_MOMENTO_1_SFC_TO_CRM = cls.DEFAULT_MAPPING_M1
+            cls.MAPPING_MOMENTO_4_SFC_TO_CRM = cls.DEFAULT_MAPPING_M4
+            cls.cargar_divipola(force=force)
+            cls.ULTIMA_ACTUALIZACION = 0
+
+            logger.info("📂 [SfcSalesforceMapper] Respaldo local de catálogos cargado en RAM.")
+        except Exception as e:
+            logger.error(f"❌ Error al cargar catalogos_sfc_crm.json: {e}")
+
+    @classmethod
     def cargar_divipola(cls, force: bool = False):
-        """Carga y construye los diccionarios bidireccionales de DIVIPOLA en RAM."""
+        """Carga la codificación DIVIPOLA de departamentos y municipios."""
         if cls.DEPT_DIVIPOLA and cls.MUNI_DIVIPOLA and not force:
-            return  # ⚡ Ya está precargado en memoria RAM
+            return
 
         ruta = os.path.join(os.path.dirname(__file__), "resources/divipola_sfc_crm.json")
         try:
@@ -81,73 +256,20 @@ class SfcSalesforceMapper:
             cls.DEPT_DIVIPOLA_INV = data.get("departamentos", {})
             cls.MUNI_DIVIPOLA_INV = data.get("municipios", {})
 
-            cls.DEPT_DIVIPOLA = {
-                cls._normalize_text(nombre): cod
-                for cod, nombre in cls.DEPT_DIVIPOLA_INV.items()
-            }
-            cls.MUNI_DIVIPOLA = {
-                cls._normalize_text(nombre): cod
-                for cod, nombre in cls.MUNI_DIVIPOLA_INV.items()
-            }
+            cls.DEPT_DIVIPOLA = {cls._normalize_text(v): k for k, v in cls.DEPT_DIVIPOLA_INV.items()}
+            cls.MUNI_DIVIPOLA = {cls._normalize_text(v): k for k, v in cls.MUNI_DIVIPOLA_INV.items()}
 
-            # Aliases para Bogotá
             cls.DEPT_DIVIPOLA["bogota"] = "11"
             cls.DEPT_DIVIPOLA["bogota dc"] = "11"
             cls.MUNI_DIVIPOLA["bogota"] = "11001"
             cls.MUNI_DIVIPOLA["bogota dc"] = "11001"
-
-            logger.info(
-                f"🟢 [SfcSalesforceMapper] DIVIPOLA cargada en RAM: "
-                f"{len(cls.DEPT_DIVIPOLA_INV)} deptos y {len(cls.MUNI_DIVIPOLA_INV)} municipios."
-            )
         except Exception as e:
             logger.error(f"❌ Error al cargar divipola_sfc_crm.json: {e}")
 
     @classmethod
-    def cargar_catalogos(cls, force: bool = False):
-        """Carga los catálogos normativos SFC en RAM y genera los índices inversos."""
-        if cls.CATALOGOS and cls.INVERSE_CATALOGS and not force:
-            return  # ⚡ Ya está precargado en memoria RAM
-
-        ruta = os.path.join(os.path.dirname(__file__), "resources/catalogos_sfc_crm.json")
-        try:
-            with open(ruta, "r", encoding="utf-8") as f:
-                cls.CATALOGOS = json.load(f)
-            
-            if "producto" not in cls.CATALOGOS or not cls.CATALOGOS["producto"]:
-                cls.CATALOGOS["producto"] = {
-                    f"207_{idx}": nombre
-                    for idx, nombre in enumerate(cls.PRODUCTO_SFC_TEXTO_TO_SF.values(), 1)
-                }
-            
-            cls.INVERSE_CATALOGS = {}
-            for cat_key, cat_dict in cls.CATALOGOS.items():
-                cat_inverse = {}
-                for k, v in cat_dict.items():
-                    val_to_store = int(k) if str(k).isdigit() else str(k)
-                    cat_inverse[cls._normalize_text(v)] = val_to_store
-                    cat_inverse[str(k)] = val_to_store 
-                cls.INVERSE_CATALOGS[cat_key] = cat_inverse
-            
-            if "tipo_id" in cls.INVERSE_CATALOGS:
-                cls.INVERSE_CATALOGS["tipo_id"].update({
-                    "cc": 1, "ce": 2, "rut": 3, "nit": 3, "dni": 4, "pass": 5, "passport": 5, "pasaporte": 5
-                })
-            if "punto_recepcion" in cls.INVERSE_CATALOGS:
-                cls.INVERSE_CATALOGS["punto_recepcion"].update({
-                    "activate b2c": 99, "form: change data": 99, "updatecom": 99, "manual": 1, "internet": 2
-                })
-
-            cls.cargar_divipola(force=force)
-
-            logger.info(f"🟢 [SfcSalesforceMapper] Cargados {len(cls.CATALOGOS)} catálogos en RAM.")
-        except Exception as e:
-            logger.error(f"❌ Error al cargar catalogos_sfc_crm.json: {e}")
-
-    @classmethod
     def get_crm_allowed_values(cls, catalog_key: str) -> Set[str]:
         if not cls.CATALOGOS:
-            cls.cargar_catalogos()
+            cls.cargar_catalogos_local()
             
         allowed = set(cls.CATALOGOS.get(catalog_key, {}).values())
         if catalog_key == "tipo_id":
@@ -265,7 +387,7 @@ class SfcSalesforceMapper:
             v_clean = str(sf_value).lower().strip()
             if v_clean in ("si", "sí", "true", "1"): return 1
             if v_clean in ("no", "false", "2"): return 2
-            return 2  # Fallback seguro a "No" (2)
+            return 2
 
         if sf_key == "sinRespuestaFinal__c":
             v_clean = str(sf_value).lower().strip()
@@ -328,9 +450,11 @@ class SfcSalesforceMapper:
     @classmethod
     def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
         crm_data = {}
+        mapping_m1 = cls.MAPPING_MOMENTO_1_SFC_TO_CRM or cls.DEFAULT_MAPPING_M1
+
         for sfc_key, value in sfc_data.items():
-            if sfc_key in cls.MAPPING_MOMENTO_1_SFC_TO_CRM:
-                crm_key = cls.MAPPING_MOMENTO_1_SFC_TO_CRM[sfc_key]
+            if sfc_key in mapping_m1:
+                crm_key = mapping_m1[sfc_key]
                 if sfc_key == "fecha_creacion" and isinstance(value, str):
                     try: 
                         crm_data[crm_key] = datetime.fromisoformat(value.replace(" ", "T")).isoformat()
@@ -347,27 +471,23 @@ class SfcSalesforceMapper:
         tipo_persona_raw = str(sfc_data.get("tipo_persona", "")).strip()
 
         if tipo_id_raw == "3":
-            if tipo_persona_raw == "2":
-                crm_data["SC_id_type__c"] = "NIT"
-            else:
-                crm_data["SC_id_type__c"] = "RUT"
+            crm_data["SC_id_type__c"] = "NIT" if tipo_persona_raw == "2" else "RUT"
         
         return crm_data
 
     @classmethod
     def sfc_user_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Mapea el JSON de un usuario del Momento 4 (SFC) al formato del CRM local."""
         crm_data = {}
         if not isinstance(sfc_data, dict):
             return crm_data
+
+        mapping_m4 = cls.MAPPING_MOMENTO_4_SFC_TO_CRM or cls.DEFAULT_MAPPING_M4
 
         for sfc_key, value in sfc_data.items():
             if value is None:
                 continue
 
-            crm_key = cls.MAPPING_MOMENTO_4_SFC_TO_CRM.get(sfc_key)
-            if not crm_key:
-                crm_key = cls.MAPPING_MOMENTO_4_SFC_TO_CRM.get(str(sfc_key).lower())
+            crm_key = mapping_m4.get(sfc_key) or mapping_m4.get(str(sfc_key).lower())
 
             if crm_key:
                 if sfc_key == "fecha_nacimiento" and isinstance(value, str) and value.strip():
@@ -399,10 +519,7 @@ class SfcSalesforceMapper:
     def crm_entity_to_sfc_momento2_payload(cls, entity: Any) -> Dict[str, Any]:
         prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}"
         raw_code = cls._get_sf_field_value(entity, "Smart_Code__c") or ""
-        if raw_code and not str(raw_code).startswith(prefix):
-            codigo_queja = f"{prefix}{raw_code}"
-        else:
-            codigo_queja = raw_code
+        codigo_queja = f"{prefix}{raw_code}" if raw_code and not str(raw_code).startswith(prefix) else raw_code
 
         created_raw = str(cls._get_sf_field_value(entity, "CreatedDate") or datetime.now(ZoneInfo("America/Bogota")).isoformat())
         fecha_iso = created_raw
@@ -442,10 +559,7 @@ class SfcSalesforceMapper:
     def crm_entity_to_sfc_momento3_payload(cls, entity: Any) -> Dict[str, Any]:
         prefix = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}"
         raw_code = cls._get_sf_field_value(entity, "Smart_Code__c") or ""
-        if raw_code and not str(raw_code).startswith(prefix):
-            codigo_queja = f"{prefix}{raw_code}"
-        else:
-            codigo_queja = raw_code
+        codigo_queja = f"{prefix}{raw_code}" if raw_code and not str(raw_code).startswith(prefix) else raw_code
 
         fecha_act = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -454,22 +568,17 @@ class SfcSalesforceMapper:
 
         if closed_date_raw:
             hora_actual = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
-
             if isinstance(closed_date_raw, datetime):
                 fecha_cierre_val = closed_date_raw.strftime("%Y-%m-%dT%H:%M:%S")
             elif isinstance(closed_date_raw, date):
                 fecha_cierre_val = f"{closed_date_raw.isoformat()}T{hora_actual}"
             elif isinstance(closed_date_raw, str) and closed_date_raw.strip():
                 clean_str = closed_date_raw.strip()
-                if "T" in clean_str:
-                    fecha_cierre_val = clean_str
-                else:
-                    fecha_cierre_val = f"{clean_str.split()[0]}T{hora_actual}"
+                fecha_cierre_val = clean_str if "T" in clean_str else f"{clean_str.split()[0]}T{hora_actual}"
                 
         status_val = cls._get_sf_field_value(entity, "Status")
         estado_cod_val = cls._translate_value_to_sfc("Status", status_val) or 2
 
-        # 🚫 VALIDACIÓN DE SEGURIDAD EN MAPPER PARA CIERRE DEFINITIVO
         if estado_cod_val == 4:
             fav_val = cls._translate_value_to_sfc("Favorabilidad__c", cls._get_sf_field_value(entity, "Favorabilidad__c"))
             acep_val = cls._translate_value_to_sfc("Aceptacion__c", cls._get_sf_field_value(entity, "Aceptacion__c"))
@@ -477,7 +586,6 @@ class SfcSalesforceMapper:
                 raise ValueError("No es posible construir el payload de Cierre (Estado 4) sin valores válidos en 'Favorabilidad__c' y 'Aceptacion__c'.")
 
         doc_rta_final = cls._get_sf_field_value(entity, "sinRespuestaFinal__c")
-        doc_rta_final_val = bool(doc_rta_final) if doc_rta_final is not None else False
 
         payload_obj = SfcActualizarQuejaPayload(
             codigo_queja=str(codigo_queja),
@@ -500,7 +608,7 @@ class SfcSalesforceMapper:
             aceptacion_queja=cls._safe_int(cls._translate_value_to_sfc("Aceptacion__c", cls._get_sf_field_value(entity, "Aceptacion__c"))),
             rectificacion_queja=cls._safe_int(cls._translate_value_to_sfc("Rectificacion__c", cls._get_sf_field_value(entity, "Rectificacion__c"))),
             prorroga_queja=cls._safe_int(cls._translate_value_to_sfc("Prorroga__c", cls._get_sf_field_value(entity, "Prorroga__c"))),
-            documentacion_rta_final=doc_rta_final_val,
+            documentacion_rta_final=bool(doc_rta_final) if doc_rta_final is not None else False,
             fecha_cierre=fecha_cierre_val,
             marcacion=cls._safe_int(cls._translate_value_to_sfc("marcacion__c", cls._get_sf_field_value(entity, "marcacion__c"))),
             tipo_fraude=cls._safe_int(cls._translate_value_to_sfc("tipo_fraude__c", cls._get_sf_field_value(entity, "tipo_fraude__c"))),
@@ -518,10 +626,10 @@ class SfcSalesforceMapper:
         return cls.crm_entity_to_sfc_momento2_payload(entity)
 
 
-# ⚡ Precargar en memoria RAM al importar el módulo
-SfcSalesforceMapper.cargar_catalogos()
+# ⚡ Cargar respaldo local inicial al importar el módulo
+SfcSalesforceMapper.cargar_catalogos_local()
 
-# 🔄 Alias a nivel de módulo para mantener compatibilidad total
+# Aliases de compatibilidad
 sfc_payload_to_db_dict = SfcSalesforceMapper.sfc_payload_to_db_dict
 sfc_user_payload_to_db_dict = SfcSalesforceMapper.sfc_user_payload_to_db_dict
 crm_entity_to_sfc_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload

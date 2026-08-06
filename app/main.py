@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     # 5. Cargar matriz de errores y catálogos en RAM
     try:
         await SfcErrorTranslator.obtener_matriz_errores()
-        SfcSalesforceMapper.cargar_catalogos()
+        await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
     except Exception as e:
         logger.error(f"Fallo al precargar catálogos/errores en RAM: {str(e)}")
 
