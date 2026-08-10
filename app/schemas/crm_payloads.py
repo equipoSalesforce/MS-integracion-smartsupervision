@@ -116,6 +116,25 @@ class Momento2QuejaCrmInput(BaseModel):
             clean = re.sub(r"<[^>]*>", "", clean)
             return clean.strip()
         return v
+    
+    @field_validator("archivos_s3", mode="before")
+    @classmethod
+    def normalizar_archivos_s3(cls, v: Any) -> Any:
+        """
+        Garantiza que si 'archivos_s3' llega como objeto vacío {}, null o un único diccionario,
+        se transforme a una lista [] válida antes de la validación de tipo de Pydantic.
+        """
+        if v is None:
+            return []
+        if isinstance(v, dict):
+            # Si es un diccionario vacío {} -> lista vacía
+            if not v:
+                return []
+            # Si es un diccionario con un archivo individual -> envolver en lista
+            if "s3_key" in v or "nombre_archivo" in v:
+                return [v]
+            return []
+        return v
 
     # 🚫 RESILIENCIA EN DIRECCIÓN: Si la dirección queda vacía por sanitización XSS, asigna un fallback válido
     @field_validator("direccion__c", mode="after")
