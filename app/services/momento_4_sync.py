@@ -113,6 +113,7 @@ class UserSync:
             except Exception as e:
                 logger.error(f"❌ Error enviando lote {index + 1} de ACK de usuarios: {e}")
                 ids_con_error.extend([str(x).strip() for x in lote])
+                raise
 
         status = "success" if not ids_con_error else ("partial" if ids_exitosos else "error")
 

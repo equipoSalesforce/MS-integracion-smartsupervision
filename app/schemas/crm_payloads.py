@@ -207,7 +207,8 @@ class Momento2QuejaCrmInput(BaseModel):
         "Instancia_de_recepcion__c", "Ente_de_control__c", "Categorias_COL__c",
         "Product__c", "Tutela__c", "smart_escalamiento_DCF__c", "admision_col__c",
         "codigo_pais__c", "producto_digital__c", "Quejas_express__c",
-        mode="after"
+        mode="after",
+        check_fields=False  # 👈 Permite validar campos presentes en subclases derivadas
     )
     @classmethod
     def validar_picklist_contra_mapper(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
