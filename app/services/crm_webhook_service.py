@@ -36,7 +36,6 @@ async def close_crm_webhook_client():
         logger.info("🛑 Pool de conexiones HTTP Client para CRM Webhook liberado limpiamente.")
 
 
-# 🔄 Alias de compatibilidad hacia atrás para main.py y suite de pruebas
 close_crm_fallback_client = close_crm_webhook_client
 
 
@@ -57,7 +56,9 @@ class CrmWebhookService:
 
         if not webhook_url:
             logger.info("ℹ️ [CRM Webhook] CRM_WEBHOOK_URL no configurada. Omitiendo notificación.")
-            return False
+            # 🟢 Si no está configurada la URL, no se requiere notificación Webhook.
+            # Retorna True para no bloquear el estado EXITOSO en la cola de Redis.
+            return True
 
         cid = get_correlation_id()
 

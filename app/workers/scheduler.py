@@ -34,8 +34,8 @@ def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
 
 async def reintentar_despachos_pendientes_job():
     """
-    Job distribuido que procesa casos pendientes en Redis mediante Reclamos Atómicos por ítem (Leases).
-    Permite escalado horizontal seguro entre múltiples instancias ECS sin condiciones de carrera.
+    Job distribuido que procesa casos pendientes en Redis mediante Reclamos Atómicos por ítem (Leases)[cite: 86].
+    Garantiza consistencia transaccional de extremo a extremo (SFC + CRM).
     """
     redis = get_redis_client()
     if not redis:
@@ -95,23 +95,38 @@ async def reintentar_despachos_pendientes_job():
             resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
 
             if resultado.get("status") != "error":
-                await queue_service.marcar_exitoso(item.id)
-                casos_despachados_exito += 1
-                
-                idempotency_service = IdempotencyService(redis)
-                await idempotency_service.registrar_exito(
-                    smart_code=item.smart_code,
-                    payload_dict=item.payload_json,
-                    sfc_response=resultado
-                )
-                
+                # 1. 🔔 NOTIFICAR AL CRM WEBHOOK PRIMERO (Notificación de extremo a extremo)
                 case_id_crm = item.payload_json.get("Case_id") or item.smart_code
-                await CrmWebhookService.notificar_creacion_exitosa(
+                crm_notificado = await CrmWebhookService.notificar_creacion_exitosa(
                     case_id_crm=case_id_crm,
                     smart_code=item.smart_code
                 )
-                
-                logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde Redis.")
+
+                if not crm_notificado:
+                    # ⚠️ Si el CRM respondió con error 500/timeout, NO marcamos exitoso.
+                    # Mantenemos el ítem PENDIENTE para que se reintente la notificación.
+                    error_msg = (
+                        f"SFC procesó la queja exitosamente ({resultado.get('message', '')}), "
+                        f"pero la notificación hacia el CRM Webhook falló o no respondió con éxito."
+                    )
+                    logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+                    await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                else:
+                    # 2. REGISTRAR ÉXITO EN IDEMPOTENCY STORE
+                    idempotency_service = IdempotencyService(redis)
+                    await idempotency_service.registrar_exito(
+                        smart_code=item.smart_code,
+                        payload_dict=item.payload_json,
+                        sfc_response=resultado
+                    )
+
+                    # 3. 🟢 MARCAR EXITOSO EN REDIS ÚNICAMENTE CUANDO SFC + CRM CONCLUYERON OK
+                    await queue_service.marcar_exitoso(item.id)
+                    casos_despachados_exito += 1
+                    logger.info(
+                        f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC "
+                        f"y confirmado al CRM desde Redis."
+                    )
             else:
                 error_msg = resultado.get("message") or "Error en el despacho a la SFC"
                 await queue_service.registrar_fallo(item.id, error_msg=error_msg)
