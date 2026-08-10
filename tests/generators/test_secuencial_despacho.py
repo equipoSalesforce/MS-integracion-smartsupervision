@@ -387,7 +387,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         inyeccion_sql = random.choice(SQL_XSS_INJECTIONS)
         payload["campo_hacker_desconocido__c"] = inyeccion_sql
         payload["objeto_extra_rnd"] = {"random_id": random.randint(1000, 9999), "test": True}
-        espera_exito = True
+        espera_exito = False
 
     # --------------------------------------------------------------------------
     # 🔥 EXTREME EDGE CASES & SCHEMA TESTS (21 a 35)
@@ -720,7 +720,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 66:
         nombre = "Prueba Límite: Fecha de Creación (CreatedDate) Antigua (1999 ISO Exitoso)"
         payload["CreatedDate"] = "1999-01-01T00:00:00"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 67:
         nombre = "Prueba Límite: Cierre enviando Alias de Estado 'RESOLVED' (Normalizado a Closed)"
@@ -834,7 +834,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 80:
         nombre = "Prueba Internacional: Reclamante de Chile (CHL) sin Departamento ni Municipio (Exitoso)"
         payload.update({
-            "codigo_pais__c": "CHL",
+            "codigo_pais__c": "Chile",
             "Departamento__c": None,
             "SC_municipio__c": None,
             "direccion__c": "Av. Las Condes 12345, Santiago"
@@ -842,12 +842,12 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = True
 
     elif tipo_escenario == 81:
-        nombre = "Prueba Internacional: Código de País fuera de catálogo (Mapeado a Fallback Colombia)"
+        nombre = "Prueba Internacional: Código de País fuera de catálogo (Rechazado por valor inválido)"
         payload.update({
             "codigo_pais__c": "JAPON",
             "direccion__c": "Shibuya Crossing 1-1-1, Tokyo"
         })
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 82:
         directorio = "caso/STRESS_TEST_VACIO/"

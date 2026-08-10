@@ -172,7 +172,10 @@ class SfcSalesforceMapper:
                                             if len(row) >= 2 and row[0] and row[1]:
                                                 code = str(row[0]).strip()
                                                 val = str(row[1]).strip()
+                                                if cat_key == "producto":
+                                                    logger.info(f"El codigo de producto es: {code} y el valor en el crm es: {val}")
                                                 cat_dict[code] = val
+                                                
                                         
                                         if cat_dict:
                                             nuevos_catalogos[cat_key] = cat_dict
@@ -393,6 +396,10 @@ class SfcSalesforceMapper:
             v_clean = str(sf_value).lower().strip()
             return v_clean in ("si", "sí", "true", "1")
 
+        # 🎯 PRODUCTO SFC: Retorno directo ANTES de evaluar la matriz genérica
+        if sf_key == "Product__c":
+            return 207
+
         normalized = cls._normalize_text(str(sf_value))
 
         sf_to_cat = {
@@ -413,7 +420,6 @@ class SfcSalesforceMapper:
             "Modalidad_Fraude__c": ("modalidad_fraude", 90),
             "punto_recepcion": ("punto_recepcion", 1),
             "Categorias_COL__c": ("macro_motivo", 940),
-            "Product__c": ("producto", 207),
             "Aceptacion__c": ("aceptacion", None),
             "Rectificacion__c": ("rectificacion", 2),
         }

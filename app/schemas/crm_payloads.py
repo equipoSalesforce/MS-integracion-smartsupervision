@@ -79,6 +79,7 @@ class Momento2QuejaCrmInput(BaseModel):
     tipo_de_persona__c: str = Field(..., description="Tipo de persona (B2C, B2B)")
     sc_LGBTIQ__c: Optional[str] = Field(None, description="Comunidad LGBTIQ (Si/No)")
     sc_Condicion_especial__c: Optional[str] = Field(None, description="Condición de vulnerabilidad")
+    codigo_pais__c: Optional[str] = Field("Colombia", description="País del usuario")
 
     SuppliedPhone: Optional[str] = Field(None, description="Teléfono de contacto", max_length=15)
     SuppliedEmail: Optional[str] = Field(None, description="Correo electrónico del cliente", max_length=100)
@@ -103,6 +104,7 @@ class Momento2QuejaCrmInput(BaseModel):
     Categorias_COL__c: str = Field(..., description="Motivo de reclamación", max_length=150)
 
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
+    Quejas_express__c: Optional[str] = Field("No", description="Indica si es una queja expres")
 
     # 🛡️ SANITIZADOR PREVENTIVO CONTRA STORED XSS
     @field_validator("SuppliedName", "direccion__c", "Description", mode="before")
