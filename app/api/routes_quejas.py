@@ -31,7 +31,7 @@ from app.services.idempotency_service import IdempotencyService
 from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 
-router = APIRouter(dependencies=[Depends(verificar_api_key_crm)])
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
 RESPUESTAS_DESPACHO_OPENAPI = {
