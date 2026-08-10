@@ -25,6 +25,7 @@ from app.schemas.crm_payloads import (
     QuejaUnificadaCrmInput,
     ConfirmacionAckInput
 )
+from app.services.idempotency_service import IdempotencyService
 
 from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
@@ -151,6 +152,8 @@ async def despachar_queja_crm(
     s3_client = Depends(get_s3_client)
 ):
     cid = get_correlation_id()
+    redis_client = get_redis_client()
+    idempotency_service = IdempotencyService(redis_client=redis_client, ttl_days=30)
 
     # 🛠️ AUDITORÍA HTTP: Petición Entrante recibida desde Salesforce/CRM
     headers_clean = sanitizar_headers(dict(request.headers))
@@ -168,11 +171,34 @@ async def despachar_queja_crm(
         f"Body           :\n{body_str}\n"
         "=========================================================================="
     )
+    
+    # 1. 🛡️ VERIFICACIÓN EN IDEMPOTENCY STORE
+    es_hit, respuesta_idempotente = await idempotency_service.verificar_o_iniciar_operacion(
+        smart_code=payload.Smart_Code__c,
+        payload_dict=raw_payload
+    )
+    
+    if es_hit:
+        status_hit = respuesta_idempotente.get("status")
+        
+        # 🎯 CASE A: Happy Path duplicado (Respuesta 200 OK previa)
+        if status_hit == "success":
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                headers={"X-Idempotent-Hit": "true"},
+                content=respuesta_idempotente.get("sfc_response") or respuesta_idempotente
+            )
+        
+        # 🎯 CASE B: Operación ya en proceso o encolada (202 Accepted)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            headers={"X-Idempotent-Hit": "true"},
+            content=respuesta_idempotente
+        )
 
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
-    orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
 
-    # 🛠️ Helper Interno DRY para Manejo de Contingencia y Protección de Doble Falla (SFC + Redis)
+    # 🛠️ Helper Interno para Manejo de Contingencia y Protección de Doble Falla (SFC + Redis)
     async def _intentar_encolar_y_responder(error_origen_titulo: str, error_detalle: str):
         logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
         
@@ -183,6 +209,13 @@ async def despachar_queja_crm(
                 tipo_operacion="AUTO",
                 payload_json=payload.model_dump(mode="json"),
                 error_inicial=error_detalle
+            )
+            
+            # 📌 REGISTRAR EN IDEMPOTENCY STORE COMO QUEUED
+            await idempotency_service.registrar_encolado(
+                smart_code=payload.Smart_Code__c,
+                payload_dict=raw_payload,
+                error_msg=error_detalle
             )
             
             if getattr(item_encolado, "es_duplicado", False):
@@ -206,7 +239,6 @@ async def despachar_queja_crm(
                 }
             )
         except Exception as redis_err:
-            # 🚨 PROTECCIÓN DE DOBLE FALLA: SFC + REDIS CAÍDOS SIMULTÁNEAMENTE
             logger.critical(
                 f"🔥 [CRÍTICO] Fallo doble de infraestructura para caso {payload.Smart_Code__c}: "
                 f"SFC Unreachable ({error_detalle}) | Redis Unreachable ({redis_err})"
@@ -227,6 +259,7 @@ async def despachar_queja_crm(
             )
     
     try:
+        orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
         resultado = await orquestador.procesar_despacho(payload=payload)
         
         if isinstance(resultado, dict) and resultado.get("status") == "error":
@@ -241,10 +274,16 @@ async def despachar_queja_crm(
                 }
             )
             
+        # 📌 REGISTRAR ÉXITO EN IDEMPOTENCY STORE (Camino Exitoso Síncrono)
+        await idempotency_service.registrar_exito(
+            smart_code=payload.Smart_Code__c,
+            payload_dict=raw_payload,
+            sfc_response=resultado
+        )
+
         return resultado
 
     except SfcIntegrationException as exc:
-        # 🛡️ EVALUACIÓN DE CONTINGENCIA: Servidor (>=500), Throttled/Saturado (429, 503) o tipos de infraestructura
         es_error_contingencia = (
             exc.status_code >= 500 or
             exc.status_code in (429, 503) or

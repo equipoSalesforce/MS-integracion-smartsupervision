@@ -7,6 +7,7 @@ from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
+from app.services.idempotency_service import IdempotencyService
 from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
@@ -101,6 +102,13 @@ async def reintentar_despachos_pendientes_job():
                 if resultado.get("status") != "error":
                     await queue_service.marcar_exitoso(item.id)
                     casos_despachados_exito += 1
+                    
+                    idempotency_service = IdempotencyService(redis)
+                    await idempotency_service.registrar_exito(
+                        smart_code=item.smart_code,
+                        payload_dict=item.payload_json,
+                        sfc_response=resultado
+                    )
                     
                     # Envío asíncrono al CRM para notificar creación exitosa en la SFC
                     case_id_crm = item.payload_json.get("Case_id") or item.smart_code
