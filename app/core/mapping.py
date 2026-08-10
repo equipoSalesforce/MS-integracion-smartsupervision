@@ -413,7 +413,7 @@ class SfcSalesforceMapper:
             "Modalidad_Fraude__c": ("modalidad_fraude", 90),
             "punto_recepcion": ("punto_recepcion", 1),
             "Categorias_COL__c": ("macro_motivo", 940),
-            "Product__c": ("producto_cod", 207),
+            "Product__c": ("producto", 207),
             "Aceptacion__c": ("aceptacion", None),
             "Rectificacion__c": ("rectificacion", 2),
         }

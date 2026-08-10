@@ -200,76 +200,79 @@ class Momento2QuejaCrmInput(BaseModel):
         "SC_id_type__c", "sc_genero__c", "tipo_de_persona__c", "sc_LGBTIQ__c",
         "sc_Condicion_especial__c", "canal__c", "punto_recepcion",
         "Instancia_de_recepcion__c", "Ente_de_control__c", "Categorias_COL__c",
-        "Product__c", "Tutela__c", "smart_escalamiento_DCF__c",
+        "Product__c", "Tutela__c", "smart_escalamiento_DCF__c", "admision_col__c",
+        "codigo_pais__c", "producto_digital__c", "Quejas_express__c",
         mode="after"
     )
     @classmethod
     def validar_picklist_contra_mapper(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
+        # 1. Si el CRM no envió el campo o viene None/vacío, se respeta el valor predeterminado
         if value is None:
             return value
-
-        # 🎯 CAMPOS CRÍTICOS DE NEGOCIO (RECHAZO ESTRICTO HTTP 400)
-        campos_estrictos = {
-            "SC_id_type__c": "tipo_id",
-            "tipo_de_persona__c": "persona",
-            "Categorias_COL__c": "macro_motivo",
-            "Product__c": "producto"
-        }
-
-        # 🛡️ CAMPOS SECUNDARIOS / OPCIONALES (RESILIENTES CON FALLBACK A VALOR CANÓNICO)
-        campos_resilientes_default = {
-            "sc_genero__c": "No Aplica",
-            "sc_LGBTIQ__c": "No",
-            "sc_Condicion_especial__c": "No aplica",
-            "canal__c": "Internet",
-            "punto_recepcion": "Manual",
-            "Instancia_de_recepcion__c": "Entidad vigilada",
-            "Ente_de_control__c": "Otros",
-            "Tutela__c": "No",
-            "smart_escalamiento_DCF__c": "No"
-        }
+        val_str = str(value).strip()
+        if not val_str:
+            return value
 
         field_name = info.field_name
 
-        if field_name == "SC_id_type__c" and value.upper() in ("NIT", "N.I.T."):
+        # Mapeo de campos a sus claves correspondientes en catalogos_sfc_crm.json
+        field_to_catalog = {
+            "SC_id_type__c": "tipo_id",
+            "tipo_de_persona__c": "persona",
+            "Categorias_COL__c": "macro_motivo",
+            "Product__c": "producto",
+            "sc_genero__c": "genero",
+            "sc_LGBTIQ__c": "lgbtiq",
+            "sc_Condicion_especial__c": "condicion_especial",
+            "canal__c": "canal",
+            "punto_recepcion": "punto_recepcion",
+            "Instancia_de_recepcion__c": "instancia_recepcion",
+            "Ente_de_control__c": "ente_control",
+            "admision_col__c": "admision",
+            "codigo_pais__c": "codigo_pais",
+        }
+
+        boolean_si_no_fields = {
+            "Tutela__c", "smart_escalamiento_DCF__c", "producto_digital__c", "Quejas_express__c"
+        }
+
+        # Equivalencia especial NIT -> RUT
+        if field_name == "SC_id_type__c" and val_str.upper() in ("NIT", "N.I.T."):
             return "RUT"
 
-        # 1. Tratamiento para campos estrictos
-        if field_name in campos_estrictos:
-            cat_key = campos_estrictos[field_name]
-            allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
-            if value not in allowed:
-                normalized_val = SfcSalesforceMapper._normalize_text(value)
-                norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
-                if normalized_val in norm_to_canonical:
-                    return norm_to_canonical[normalized_val]
-                
+        # 2. Validación estricta para campos binarios (Si / No)
+        if field_name in boolean_si_no_fields:
+            v_lower = val_str.lower()
+            if v_lower in ("si", "sí", "true", "1"):
+                return "Si"
+            elif v_lower in ("no", "false", "0", "2"):
+                return "No"
+            else:
                 raise ValueError(
-                    f"El valor '{value}' no es válido para {field_name}. "
-                    f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
+                    f"El valor '{val_str}' no es válido para el campo '{field_name}'. "
+                    f"Valores permitidos: ['Si', 'No']."
                 )
-            return value
 
-        # 2. Tratamiento para campos resilientes (Si no coincide, se normaliza o autocompleta con fallback)
-        if field_name in campos_resilientes_default:
-            cat_key_res = {
-                "sc_genero__c": "genero", "sc_LGBTIQ__c": "lgbtiq",
-                "sc_Condicion_especial__c": "condicion_especial", "canal__c": "canal",
-                "punto_recepcion": "punto_recepcion", "Instancia_de_recepcion__c": "instancia_recepcion",
-                "Ente_de_control__c": "ente_control"
-            }.get(field_name)
+        # 3. Validación estricta para catálogos oficiales
+        if field_name in field_to_catalog:
+            cat_key = field_to_catalog[field_name]
+            allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
 
-            if cat_key_res:
-                allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key_res)
-                if value in allowed:
-                    return value
-                normalized_val = SfcSalesforceMapper._normalize_text(value)
-                norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
-                if normalized_val in norm_to_canonical:
-                    return norm_to_canonical[normalized_val]
+            # Aceptación directa si coincide exactamente
+            if val_str in allowed:
+                return val_str
 
-            # Fallback seguro para que la petición continúe sin fallar
-            return campos_resilientes_default[field_name]
+            # Aceptación con normalización de mayúsculas/minúsculas y tildes
+            normalized_val = SfcSalesforceMapper._normalize_text(val_str)
+            norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
+            if normalized_val in norm_to_canonical:
+                return norm_to_canonical[normalized_val]
+
+            # 🚫 SI EL DATO ENVIADO NO EXISTE EN EL CATÁLOGO -> SE RECHAZA (HTTP 400)
+            raise ValueError(
+                f"El valor '{val_str}' no es válido para {field_name}. "
+                f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
+            )
 
         return value
     
@@ -406,15 +409,18 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
             # 🚫 VALIDACIÓN: ClosedDate no puede ser anterior a CreatedDate
             if self.CreatedDate and self.ClosedDate:
+                dt_created = None
                 try:
                     dt_created = datetime.fromisoformat(self.CreatedDate.replace("Z", "+00:00")).date()
-                    if self.ClosedDate < dt_created:
-                        raise ValueError(
-                            f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
-                            f"no puede ser anterior a la fecha de creación 'CreatedDate' ({dt_created})."
-                        )
                 except (ValueError, TypeError):
                     pass
+
+                # La validación se evalúa fuera del bloque try/except
+                if dt_created and self.ClosedDate < dt_created:
+                    raise ValueError(
+                        f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
+                        f"no puede ser anterior a la fecha de creación 'CreatedDate' ({dt_created})."
+                    )
 
             if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
                 self.cuerpo_respuesta_final = (

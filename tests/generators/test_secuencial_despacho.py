@@ -472,7 +472,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 31:
         nombre = "Prueba Límite: Punto de Recepción Fuera de Catálogo (Mapeado a Fallback 'Manual')"
         payload["punto_recepcion"] = "TikTok Direct Message"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 32:
         nombre = "Error Extremo: Tipo de Persona Inexistente"
@@ -596,17 +596,17 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 48:
         nombre = "Prueba Límite: Canal Fuera de Catálogo (Mapeado a Fallback 'Internet')"
         payload["canal__c"] = "Telepatía Cuántica 5G"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 49:
         nombre = "Prueba Límite: Ente de Control Fuera de Catálogo (Mapeado a Fallback 'Otros')"
         payload["Ente_de_control__c"] = "Comisión Intergaláctica de Vigilancia"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 50:
         nombre = "Prueba Límite: Condición Especial Fuera de Catálogo (Mapeado a Fallback 'No aplica')"
         payload["sc_Condicion_especial__c"] = "Superhéroe de Cómics"
-        espera_exito = True
+        espera_exito = False
 
     # --------------------------------------------------------------------------
     # 💥 ESCENARIOS ULTRA EXTREMOS BORDES Y DE SANITIZACIÓN (51 a 65)
@@ -654,22 +654,22 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 57:
         nombre = "Prueba Límite: Género Fuera de Catálogo (Mapeado a Fallback 'No Aplica')"
         payload["sc_genero__c"] = "Alienígena"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 58:
         nombre = "Prueba Límite: LGBTIQ Fuera de Catálogo (Mapeado a Fallback 'No')"
         payload["sc_LGBTIQ__c"] = "Tal vez"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 59:
         nombre = "Prueba Límite: Tutela Fuera de Catálogo (Mapeado a Fallback 'No')"
         payload["Tutela__c"] = "En tramite judicial"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 60:
         nombre = "Prueba Límite: Escalamiento DCF Fuera de Catálogo (Mapeado a Fallback 'No')"
         payload["smart_escalamiento_DCF__c"] = "Quizás"
-        espera_exito = True
+        espera_exito = False
 
     elif tipo_escenario == 61:
         nombre = "Prueba Límite: SuppliedEmail con Espacios en Extremos (Trim y Validación Exitosa)"
@@ -826,7 +826,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 79:
         nombre = "Prueba Límite: Instancia de Recepción Fuera de Catálogo (Mapeado a Fallback 'Entidad vigilada')"
         payload["Instancia_de_recepcion__c"] = "Tribunal de Justicia Especial"
-        espera_exito = True
+        espera_exito = False
 
     # --------------------------------------------------------------------------
     # 🌍 ESCENARIOS INTERNACIONALES, S3 INTEGRITY & ALIASES (80 a 89) [NUEVO]
