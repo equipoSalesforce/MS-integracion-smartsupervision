@@ -1,5 +1,6 @@
 # app/services/s3_service.py
 import asyncio
+from urllib.parse import urlparse
 import httpx
 import logging
 from typing import Dict, List, Optional, Any
@@ -91,6 +92,43 @@ class S3StorageService:
                     crm_action="Verifique la integridad y formato real del archivo antes de subirlo a S3."
                 )
 
+    def _es_host_permitido_sfc(self, url: str) -> bool:
+        """
+        🛡️ Protección Anti-SSRF: Valida que la URL provista por la SFC pertenezca
+        únicamente a dominios oficiales autorizados o al host configurado en settings.
+        """
+        if not url:
+            return False
+        try:
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").lower()
+            if not hostname:
+                return False
+
+            # Host base configurado en settings
+            sfc_base_host = (urlparse(settings.SFC_URL_BASE).hostname or "").lower()
+            if sfc_base_host and (hostname == sfc_base_host or hostname.endswith("." + sfc_base_host)):
+                return True
+
+            # Dominios autorizados de almacenamiento/SFC
+            allowed_domains = (
+                "superfinanciera.gov.co",
+                "storage.googleapis.com",
+                "amazonaws.com",
+                "cloud.goog"
+            )
+            if any(hostname == domain or hostname.endswith("." + domain) for domain in allowed_domains):
+                return True
+
+            # Permitir servicios locales en entorno de desarrollo/QA
+            if self.is_local or settings.ENVIRONMENT in ("local", "development", "qa"):
+                if hostname in ("localhost", "127.0.0.1", "minio", "mock-sfc", "unscanned"):
+                    return True
+
+            return False
+        except Exception:
+            return False
+    
     async def obtener_bytes_archivo(
         self, 
         s3_key: str, 
@@ -280,10 +318,54 @@ class S3StorageService:
                 s3_key = f"quejas/{codigo_queja}/{filename}"
 
                 try:
-                    logger.info(f"[S3 Orquestador] Descargando de SFC: {filename}")
-                    response = await client.get(url_sfc)
-                    response.raise_for_status()
-                    file_bytes = response.content
+                    # 🛡️ 1. VALIDACIÓN ANTI-SSRF
+                    if not self._es_host_permitido_sfc(url_sfc):
+                        logger.error(f"🚨 [SSRF Protection] Bloqueada descarga de URL no autorizada: '{url_sfc}'")
+                        raise SfcIntegrationException(
+                            status_code=400,
+                            error_type="SSRF_PROTECTION_ERROR",
+                            sfc_field="archivos_s3",
+                            raw_message=f"La URL de descarga de adjunto '{url_sfc}' no pertenece a un dominio permitido por la SFC.",
+                            crm_action="Verifique la URL del archivo adjunto provista por la SFC."
+                        )
+
+                    logger.info(f"[S3 Orquestador] Descargando de SFC con Streaming (Límite 30MB): {filename}")
+
+                    # 🛡️ 2. DESCARGA EN STREAMING CON LÍMITE DE 30MB
+                    max_bytes = 30 * 1024 * 1024  # 30 MB
+                    file_bytes_buffer = bytearray()
+
+                    async with client.stream("GET", url_sfc) as response:
+                        response.raise_for_status()
+
+                        # Validación previa opcional por encabezado Content-Length
+                        content_length = response.headers.get("Content-Length")
+                        if content_length and content_length.isdigit():
+                            if int(content_length) > max_bytes:
+                                raise SfcIntegrationException(
+                                    status_code=400,
+                                    error_type="FILE_SIZE_EXCEEDED",
+                                    sfc_field="archivos_s3",
+                                    raw_message=f"El archivo '{filename}' ({int(content_length)/(1024*1024):.2f}MB) supera el límite máximo de 30MB.",
+                                    crm_action="Verifique el tamaño del archivo en la SFC."
+                                )
+
+                        # Lectura por bloques dinámicos
+                        async for chunk in response.aiter_bytes(chunk_size=65536):
+                            file_bytes_buffer.extend(chunk)
+                            if len(file_bytes_buffer) > max_bytes:
+                                raise SfcIntegrationException(
+                                    status_code=400,
+                                    error_type="FILE_SIZE_EXCEEDED",
+                                    sfc_field="archivos_s3",
+                                    raw_message=f"El archivo '{filename}' superó el límite máximo de 30MB durante la descarga en streaming.",
+                                    crm_action="Verifique el tamaño del archivo en la SFC."
+                                )
+
+                    file_bytes = bytes(file_bytes_buffer)
+
+                    # 🛡️ 3. VALIDACIÓN DE INTEGRIDAD DE MAGIC BYTES
+                    self.validar_integridad_archivo(file_bytes=file_bytes, file_name=filename)
 
                     await self.subir_bytes_archivo(
                         s3_key=s3_key,
@@ -296,6 +378,8 @@ class S3StorageService:
                         "s3_key": s3_key,
                         "bucket": self.default_bucket
                     }
+                except SfcIntegrationException:
+                    raise
                 except Exception as e:
                     logger.error(f"❌ Error transfiriendo adjunto '{filename}' a S3: {e}")
                     if self.is_local:
