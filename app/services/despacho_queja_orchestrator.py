@@ -15,17 +15,21 @@ logger = logging.getLogger(__name__)
 
 def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     """
-    Evalúa si la SFC rechazó la petición porque el registro de la queja
+    Evalúa si la SFC rechazó la petición porque la queja
     ya cuenta con un documento de respuesta final o se encuentra en estado (4) Cerrado.
     """
     raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
     keywords = [
         "ya cuenta con un documento de respuesta final",
         "diferente de (4) cerrado",
-        "respuesta final"
+        "respuesta final",
+        "se encuentra con estado cerrado",
+        "se encuentra cerrada",
+        "queja se encuentra cerrada",
+        "queja ya esta cerrada",
+        "already closed"
     ]
     return any(kw in raw_msg for kw in keywords)
-
 
 class DespachoQuejaOrquestador:
     """

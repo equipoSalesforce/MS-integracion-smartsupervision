@@ -1,5 +1,6 @@
+# app/services/momento_2_sync.py
 import logging
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Optional
 import httpx
 
 from app.integrations.sfc_client import SfcClient
@@ -11,6 +12,15 @@ from app.core.exceptions import SfcIntegrationException
 from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
+
+
+def _es_error_queja_ya_existe_m2(exc_raw_msg: str, error_type: Optional[str] = None) -> bool:
+    """Evalúa si la SFC rechazó la creación porque la queja ya existía previamente."""
+    if error_type == "ALREADY_EXISTS":
+        return True
+    msg = (exc_raw_msg or "").lower()
+    keywords = ["ya existe", "already exists", "registrado en la sfc"]
+    return any(kw in msg for kw in keywords)
 
 
 class Momento2SincronizacionService:
@@ -49,10 +59,20 @@ class Momento2SincronizacionService:
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
-            # 1. Crear la queja en la SFC
-            await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
-            
-            # 2. 🎯 DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS
+            # 1. Intentar crear la queja en la SFC
+            try:
+                await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
+            except SfcIntegrationException as exc:
+                # 🛡️ CAPTURA DE TIMEOUT PREVIO: Si la queja ya fue creada en un intento anterior
+                if _es_error_queja_ya_existe_m2(exc.raw_message, exc.error_type):
+                    logger.info(
+                        f"ℹ️ [Momento 2] La queja {smart_code} ya se encontraba radicada en la SFC "
+                        f"(Creación completada en intento previo/timeout). Procediendo con la verificación de adjuntos."
+                    )
+                else:
+                    raise
+
+            # 2. Transmisión de adjuntos
             if archivos_s3_raw:
                 await self.s3_service.transferir_lote_s3_a_sfc(
                     sfc_client=self.sfc_client,
@@ -62,7 +82,7 @@ class Momento2SincronizacionService:
 
             return {
                 "status": "success",
-                "message": "Queja y documentos transmitidos correctamente a la SFC de forma síncrona",
+                "message": "Queja procesada correctamente en la SFC (Radicación confirmada)",
                 "Smart_Code__c": smart_code
             }
 
@@ -76,7 +96,6 @@ class Momento2SincronizacionService:
                 )
             raise
 
-        # 🚨 Relanzar errores de red/conexión para que sean capturados por routes_quejas.py y encolados en Redis
         except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
             logger.error(f"❌ [Momento 2] Fallo de red/conexión para {smart_code}: {net_err}")
             raise net_err

@@ -377,8 +377,21 @@ class S3StorageService:
 
                 except SfcIntegrationException as exc:
                     raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
-                    if getattr(exc, "error_type", None) == "DUPLICATE_FILE" or "ya existe" in raw_msg or "556240" in raw_msg:
-                        logger.warning(f"⚠️ Archivo '{original_name}' duplicado en SFC. Se omite de forma segura.")
+                    
+                    # 🛡️ TOLERANCIA A ARCHIVOS Y DOCUMENTOS PREVIAMENTE SUBIDOS
+                    es_duplicado_o_cerrado = (
+                        getattr(exc, "error_type", None) == "DUPLICATE_FILE" 
+                        or "ya existe" in raw_msg 
+                        or "556240" in raw_msg
+                        or "ya cuenta con un documento" in raw_msg
+                        or "se encuentra cerrada" in raw_msg
+                    )
+
+                    if es_duplicado_o_cerrado:
+                        logger.warning(
+                            f"⚠️ [S3 Storage] Archivo '{original_name}' omitido en SFC para {sfc_codigo_queja}: "
+                            f"Ya se encontraba registrado o el caso ya fue cerrado."
+                        )
                         return {"file_name": original_name, "status": "DUPLICATE_OMITTED"}
                     else:
                         raise
