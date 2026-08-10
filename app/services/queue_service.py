@@ -1,3 +1,4 @@
+# app/services/queue_service.py
 import json
 import logging
 from datetime import datetime, timedelta
@@ -29,11 +30,9 @@ local now_ts = tonumber(ARGV[8])
 local proximo_reintento_ts = tonumber(ARGV[9])
 local correlation_id = ARGV[10]
 
--- Obtener estado actual
 local existing_id = redis.call("GET", index_key)
 local pendientes_count = redis.call("SCARD", pending_set_key)
 
--- 1. EVALUACIÓN DE DESDUPLICACIÓN
 if existing_id then
     local is_pending = redis.call("SISMEMBER", pending_set_key, existing_id)
     if is_pending == 1 then
@@ -48,7 +47,6 @@ if existing_id then
             data["correlation_id"] = correlation_id
             data["es_duplicado"] = true
 
-            -- Actualizar registro y score del ZSET atómicamente
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
 
@@ -61,7 +59,6 @@ if existing_id then
     end
 end
 
--- 2. CREACIÓN DE NUEVO REGISTRO (Si no existía o no estaba PENDIENTE)
 local item_id = tostring(redis.call("INCR", counter_key))
 local item_key = "sfc:queue:item:" .. item_id
 
@@ -94,12 +91,30 @@ return cjson.encode({
 })
 """
 
+# 📜 Script Lua para Reclamo Atómico de Ítem Individual (Lease Lock)
+CLAIM_ITEM_LUA_SCRIPT = """
+local item_id = KEYS[1]
+local pending_set_key = KEYS[2]
+local claim_key = KEYS[3]
+
+local worker_id = ARGV[1]
+local lease_px = tonumber(ARGV[2])
+
+local is_pending = redis.call("SISMEMBER", pending_set_key, item_id)
+if is_pending == 0 then
+    return cjson.encode({claimed = false, reason = "not_pending"})
+end
+
+local set_res = redis.call("SET", claim_key, worker_id, "NX", "PX", lease_px)
+if not set_res then
+    return cjson.encode({claimed = false, reason = "already_claimed"})
+end
+
+return cjson.encode({claimed = true})
+"""
+
 
 class ColaItemRedis:
-    """
-    Representación del objeto de registro en la cola Redis,
-    manteniendo atributos idénticos al modelo de BD previo.
-    """
     def __init__(self, data: dict):
         self.id = int(data.get("id")) if data.get("id") else None
         self.smart_code = str(data.get("smart_code", ""))
@@ -132,17 +147,10 @@ class ColaItemRedis:
 
 
 class QueueService:
-    """
-    Servicio de Cola Centralizada sobre Redis.
-    Garantiza concurrencia segura, transaccionalidad, idempotencia/desduplicación por smart_code
-    y alto rendimiento entre múltiples contenedores mediante scripts Lua.
-    """
-
     def __init__(self, redis_client=None):
         self.redis = redis_client
 
     async def contar_pendientes(self) -> int:
-        """Obtiene el número total de casos en estado PENDIENTE desde Redis."""
         if not self.redis:
             return 0
         try:
@@ -158,10 +166,6 @@ class QueueService:
         payload_json: Dict[str, Any], 
         error_inicial: str
     ) -> ColaItemRedis:
-        """
-        Encola un caso en Redis evaluando desduplicación mediante un script Lua atómico.
-        Si el caso ya está PENDIENTE, actualiza su payload y proximo_reintento_at sin crear duplicados.
-        """
         if not self.redis:
             logger.error("❌ [Cola Redis] Cliente de Redis no inicializado.")
             raise RuntimeError("Cliente de Redis no disponible.")
@@ -191,7 +195,6 @@ class QueueService:
         ]
 
         try:
-            # Ejecución atómica del script Lua
             raw_result = await self.redis.eval(ENQUEUE_LUA_SCRIPT, len(keys), *keys, *args)
             result = json.loads(raw_result)
 
@@ -209,7 +212,6 @@ class QueueService:
 
             logger.warning(f"📦 [Cola Redis] Caso {smart_code} encolado para reintento automático. Registro ID: {item_obj.id}")
 
-            # --- GESTIÓN DE ALERTAS / NOTIFICACIONES ---
             if pendientes_previos == 0:
                 logger.info(f"🚨 [QueueService Redis] Primer caso encolado ({smart_code}). Notificando caída de infraestructura.")
                 await EmailAlertService.notificar_falla_infraestructura(
@@ -228,8 +230,38 @@ class QueueService:
             logger.error(f"❌ [Cola Redis] Error ejecutando Lua Script de encolado para {smart_code}: {e}")
             raise
 
+    async def reclamar_item_para_procesamiento(
+        self, 
+        registro_id: int, 
+        worker_id: str, 
+        lease_segundos: int = 60
+    ) -> bool:
+        """
+        Reclama atómicamente un ítem individual para procesamiento exclusivo por un worker ECS.
+        Retorna True si el reclamo fue exitoso, False si ya fue reclamado por otro worker.
+        """
+        if not self.redis:
+            return False
+
+        keys = [
+            str(registro_id),
+            "sfc:queue:status:PENDIENTE",
+            f"sfc:queue:claim:{registro_id}"
+        ]
+        args = [
+            worker_id,
+            str(lease_segundos * 1000)
+        ]
+
+        try:
+            raw_res = await self.redis.eval(CLAIM_ITEM_LUA_SCRIPT, len(keys), *keys, *args)
+            res = json.loads(raw_res)
+            return res.get("claimed", False)
+        except Exception as e:
+            logger.error(f"Error al reclamar ítem {registro_id} en Redis: {e}")
+            return False
+
     async def obtener_casos_vencidos_sla(self, horas_limite: int = 12) -> List[Dict[str, Any]]:
-        """Obtiene datos formateados de los casos que llevan más de N horas retenidos en PENDIENTE."""
         if not self.redis:
             return []
 
@@ -268,7 +300,6 @@ class QueueService:
             return []
 
     async def obtener_pendientes_para_reintento(self) -> List[ColaItemRedis]:
-        """Obtiene los casos pendientes cuyo tiempo de reintento ya venció."""
         if not self.redis:
             return []
 
@@ -296,11 +327,12 @@ class QueueService:
             return []
 
     async def marcar_exitoso(self, registro_id: int):
-        """Marca de forma atómica un registro como entregado con éxito a la SFC y remueve su índice de desduplicación."""
+        """Marca de forma atómica un registro como entregado y remueve reclamos e índices."""
         if not self.redis:
             return
 
         item_key = f"sfc:queue:item:{registro_id}"
+        claim_key = f"sfc:queue:claim:{registro_id}"
         try:
             raw_item = await self.redis.get(item_key)
             if not raw_item:
@@ -316,6 +348,7 @@ class QueueService:
                 pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
                 pipe.sadd("sfc:queue:status:EXITOSO", str(registro_id))
                 pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                pipe.delete(claim_key)
                 if smart_code:
                     pipe.delete(f"sfc:queue:index:{smart_code}")
                 await pipe.execute()
@@ -324,14 +357,12 @@ class QueueService:
             logger.error(f"Error marcando exitoso registro {registro_id} en Redis: {e}")
 
     async def registrar_fallo(self, registro_id: int, error_msg: str):
-        """
-        Suma un intento y recalcula el tiempo del próximo reintento (Backoff).
-        Aplica las modificaciones a los estados e índices de forma atómica.
-        """
+        """Suma intento, recalcula backoff y elimina el reclamo temporal."""
         if not self.redis:
             return
 
         item_key = f"sfc:queue:item:{registro_id}"
+        claim_key = f"sfc:queue:claim:{registro_id}"
         try:
             raw_item = await self.redis.get(item_key)
             if not raw_item:
@@ -363,6 +394,7 @@ class QueueService:
 
             async with self.redis.pipeline(transaction=True) as pipe:
                 pipe.set(item_key, json.dumps(data, ensure_ascii=False))
+                pipe.delete(claim_key)
                 
                 if es_definitivo:
                     pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
@@ -379,7 +411,6 @@ class QueueService:
             logger.error(f"Error registrando fallo para registro {registro_id} en Redis: {e}")
 
     async def obtener_todos_los_encolados(self, estado: Optional[str] = None) -> List[ColaItemRedis]:
-        """Obtiene los registros de la cola, opcionalmente filtrados por estado."""
         if not self.redis:
             return []
 
@@ -405,7 +436,6 @@ class QueueService:
             return []
 
     async def purgar_registros_antiguos(self, dias_retencion: int = 7) -> int:
-        """Elimina de manera atómica registros en estado 'EXITOSO' con más de N días de antigüedad."""
         if not self.redis:
             return 0
 
@@ -454,11 +484,6 @@ class QueueService:
             return 0
 
     async def diferir_pendientes_por_caida_sfc(self, registro_ids: List[int], minutos_delay: Optional[int] = None) -> int:
-        """
-        Pospone el próximo intento de una lista de registros en Redis
-        SIN incrementar su contador de 'intentos'. Utilizado cuando se detecta
-        que la infraestructura externa (SFC) está caída.
-        """
         if not self.redis or not registro_ids:
             return 0
 
@@ -470,6 +495,7 @@ class QueueService:
         modificados = 0
         for registro_id in registro_ids:
             item_key = f"sfc:queue:item:{registro_id}"
+            claim_key = f"sfc:queue:claim:{registro_id}"
             try:
                 raw_item = await self.redis.get(item_key)
                 if not raw_item:
@@ -483,6 +509,7 @@ class QueueService:
                 async with self.redis.pipeline(transaction=True) as pipe:
                     pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                     pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_ts})
+                    pipe.delete(claim_key)
                     await pipe.execute()
 
                 modificados += 1

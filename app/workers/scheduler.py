@@ -1,3 +1,4 @@
+# app/workers/scheduler.py
 import uuid
 import logging
 from typing import Optional
@@ -18,10 +19,7 @@ scheduler = AsyncIOScheduler()
 
 
 def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
-    """
-    Evalúa si un mensaje o excepción corresponde a una caída, saturación 
-    o indisponibilidad de la plataforma de la SFC/Red.
-    """
+    """Evalúa si un mensaje corresponde a una indisponibilidad/caída de la SFC o red."""
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
@@ -36,139 +34,123 @@ def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
 
 async def reintentar_despachos_pendientes_job():
     """
-    Job que consume los pendientes de Redis, reintenta la comunicación con la SFC,
-    audita el tiempo de retención (SLA) y notifica la autorrecuperación cuando la cola se vacía.
-    Utiliza un Lock Distribuido para ejecuciones multicontenedor seguras y aplica
-    Corte de Circuito (Circuit Breaker) para diferir casos si la SFC está caída.
+    Job distribuido que procesa casos pendientes en Redis mediante Reclamos Atómicos por ítem (Leases).
+    Permite escalado horizontal seguro entre múltiples instancias ECS sin condiciones de carrera.
     """
     redis = get_redis_client()
     if not redis:
         logger.warning("⚠️ [Scheduler Job] Cliente Redis no disponible. Omitiendo ciclo de reintentos.")
         return
 
-    # 🔒 1. CERROJO DISTRIBUIDO (Lock con expiración automática de 120s)
-    LOCK_KEY = "sfc:queue:lock:retry_job"
-    lock_value = str(uuid.uuid4())
-    acquired = await redis.set(LOCK_KEY, lock_value, nx=True, px=120000)
+    worker_id = f"worker_node:{uuid.uuid4()}"
+    queue_service = QueueService(redis)
 
-    if not acquired:
-        logger.info("🔒 [Scheduler Job] Cerrojo activo en otra réplica/contenedor. Omitiendo ejecución en este nodo.")
+    # 1. Control de SLA: Evaluar e informar casos con > 12 horas retenidos
+    try:
+        casos_vencidos = await queue_service.obtener_casos_vencidos_sla(horas_limite=12)
+        if casos_vencidos:
+            logger.warning(f"⏳ [Scheduler Job] {len(casos_vencidos)} caso(s) superan las 12h en la cola.")
+            await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos_vencidos)
+    except Exception as e:
+        logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
+
+    # 2. Obtener registros pendientes vencidos
+    pendientes = await queue_service.obtener_pendientes_para_reintento()
+
+    if not pendientes:
         return
 
-    try:
-        queue_service = QueueService(redis)
+    logger.info(f"🔄 [Scheduler Job] [{worker_id}] Evaluando {len(pendientes)} despachos pendientes en Redis...")
 
-        # ⏳ 2. Control de SLA: Evaluar e informar casos con > 12 horas retenidos
+    sfc_client = get_sfc_client()
+    s3_client = get_s3_client()
+    orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
+
+    casos_despachados_exito = 0
+
+    for index, item in enumerate(pendientes):
+        # 🔒 RECLAMO ATÓMICO POR ÍTEM (Lease de 60 segundos)
+        reclamado = await queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id,
+            worker_id=worker_id,
+            lease_segundos=60
+        )
+
+        if not reclamado:
+            logger.info(f"⏭️ [Scheduler Job] Ítem {item.id} ({item.smart_code}) ya reclamado por otro worker. Omitiendo.")
+            continue
+
+        item_data = item.to_dict() if hasattr(item, "to_dict") else {}
+        cid_guardado = (
+            item_data.get("correlation_id")
+            or item.payload_json.get("correlation_id")
+            or str(uuid.uuid4())
+        )
+
+        token = correlation_id_ctx.set(cid_guardado)
+        es_falla_infraestructura = False
+        error_msg = None
+
         try:
-            casos_vencidos = await queue_service.obtener_casos_vencidos_sla(horas_limite=12)
-            if casos_vencidos:
-                logger.warning(f"⏳ [Scheduler Job] {len(casos_vencidos)} caso(s) superan las 12h en la cola.")
-                await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos_vencidos)
-        except Exception as e:
-            logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
+            resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
 
-        # 🔄 3. Obtener los registros pendientes cuya fecha de reintento ya venció
-        pendientes = await queue_service.obtener_pendientes_para_reintento()
-
-        if not pendientes:
-            return
-
-        logger.info(f"🔄 [Scheduler Job] Se encontraron {len(pendientes)} despachos pendientes en Redis. Iniciando reintentos...")
-
-        sfc_client = get_sfc_client()
-        s3_client = get_s3_client()
-        orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
-
-        casos_despachados_exito = 0
-
-        for index, item in enumerate(pendientes):
-            # 🔑 Extraer el CID guardado en Redis o generar uno de respaldo
-            item_data = item.to_dict() if hasattr(item, "to_dict") else {}
-            cid_guardado = (
-                item_data.get("correlation_id")
-                or item.payload_json.get("correlation_id")
-                or str(uuid.uuid4())
-            )
-
-            # 📌 Rehidratar el ContextVar para el hilo asíncrono actual
-            token = correlation_id_ctx.set(cid_guardado)
-            
-            es_falla_infraestructura = False
-            error_msg = None
-
-            try:
-                resultado = await orquestador.procesar_despacho_raw_json(item.payload_json)
-
-                if resultado.get("status") != "error":
-                    await queue_service.marcar_exitoso(item.id)
-                    casos_despachados_exito += 1
-                    
-                    idempotency_service = IdempotencyService(redis)
-                    await idempotency_service.registrar_exito(
-                        smart_code=item.smart_code,
-                        payload_dict=item.payload_json,
-                        sfc_response=resultado
-                    )
-                    
-                    # Envío asíncrono al CRM para notificar creación exitosa en la SFC
-                    case_id_crm = item.payload_json.get("Case_id") or item.smart_code
-                    await CrmWebhookService.notificar_creacion_exitosa(
-                        case_id_crm=case_id_crm,
-                        smart_code=item.smart_code
-                    )
-                    
-                    logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde Redis.")
-                else:
-                    error_msg = resultado.get("message") or "Error en el despacho a la SFC"
-                    await queue_service.registrar_fallo(item.id, error_msg=error_msg)
-                    es_falla_infraestructura = _es_falla_infraestructura(error_msg)
-
-            except Exception as exc:
-                error_msg = str(exc)
-                logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
+            if resultado.get("status") != "error":
+                await queue_service.marcar_exitoso(item.id)
+                casos_despachados_exito += 1
+                
+                idempotency_service = IdempotencyService(redis)
+                await idempotency_service.registrar_exito(
+                    smart_code=item.smart_code,
+                    payload_dict=item.payload_json,
+                    sfc_response=resultado
+                )
+                
+                case_id_crm = item.payload_json.get("Case_id") or item.smart_code
+                await CrmWebhookService.notificar_creacion_exitosa(
+                    case_id_crm=case_id_crm,
+                    smart_code=item.smart_code
+                )
+                
+                logger.info(f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC desde Redis.")
+            else:
+                error_msg = resultado.get("message") or "Error en el despacho a la SFC"
                 await queue_service.registrar_fallo(item.id, error_msg=error_msg)
                 es_falla_infraestructura = _es_falla_infraestructura(error_msg)
-            finally:
-                # 🧹 Limpiar la variable de contexto al finalizar el procesamiento del ítem
-                correlation_id_ctx.reset(token)
 
-            # 🛑 CIRCUITO CORTADO: Si la SFC está caída/saturada, diferir el resto de la tanda y abortar
-            if es_falla_infraestructura:
-                casos_restantes = pendientes[index + 1:]
-                if casos_restantes:
-                    ids_restantes = [r.id for r in casos_restantes]
-                    await queue_service.diferir_pendientes_por_caida_sfc(
-                        registro_ids=ids_restantes,
-                        minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
-                    )
-                    logger.warning(
-                        f"⛔ [Scheduler Job] Se abortó el ciclo de reintentos por indisponibilidad de la SFC. "
-                        f"{len(ids_restantes)} caso(s) diferido(s) sin consumir intentos."
-                    )
-                break
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
+            await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+            es_falla_infraestructura = _es_falla_infraestructura(error_msg)
+        finally:
+            correlation_id_ctx.reset(token)
 
-        # ✅ 4. Notificación de Autorrecuperación
-        try:
-            totales_restantes = await queue_service.contar_pendientes()
-            if casos_despachados_exito > 0 and totales_restantes == 0:
-                logger.info(
-                    f"✅ [Scheduler Job] Cola de Redis completamente vaciada ({casos_despachados_exito} entregados). "
-                    f"Enviando notificación de autorrecuperación..."
+        # 🛑 CIRCUITO CORTADO: Si la SFC está caída/saturada, diferir el resto de la tanda y abortar
+        if es_falla_infraestructura:
+            casos_restantes = pendientes[index + 1:]
+            if casos_restantes:
+                ids_restantes = [r.id for r in casos_restantes]
+                await queue_service.diferir_pendientes_por_caida_sfc(
+                    registro_ids=ids_restantes,
+                    minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
                 )
-                await EmailAlertService.notificar_recuperacion_sfc(total_despachados=casos_despachados_exito)
-        except Exception as e:
-            logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
+                logger.warning(
+                    f"⛔ [Scheduler Job] Abortando ciclo por indisponibilidad de la SFC. "
+                    f"{len(ids_restantes)} caso(s) diferido(s) sin consumir intentos."
+                )
+            break
 
-    finally:
-        # Liberación limpia del lock
-        lua_release_script = """
-        if redis.call("get", KEYS[1]) == ARGV[1] then
-            return redis.call("del", KEYS[1])
-        else
-            return 0
-        end
-        """
-        await redis.eval(lua_release_script, 1, LOCK_KEY, lock_value)
+    # 3. Notificación de Autorrecuperación
+    try:
+        totales_restantes = await queue_service.contar_pendientes()
+        if casos_despachados_exito > 0 and totales_restantes == 0:
+            logger.info(
+                f"✅ [Scheduler Job] Cola de Redis completamente vaciada ({casos_despachados_exito} entregados). "
+                f"Enviando notificación de autorrecuperación..."
+            )
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=casos_despachados_exito)
+    except Exception as e:
+        logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
 
 
 async def purgar_cola_job():
