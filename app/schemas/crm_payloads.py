@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 from zoneinfo import ZoneInfo
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -15,6 +16,8 @@ from app.core.config import settings
 
 
 class ArchivoS3Schema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     nombre_archivo: str = Field(..., description="Nombre final del archivo guardado")
     s3_key: str = Field(..., description="Ruta/Clave única de acceso en el bucket S3")
     bucket: str = Field(..., description="Bucket de S3 donde se alojó")
@@ -58,6 +61,8 @@ class QuejaMapeadaCrmResponse(BaseModel):
 # ======================================================================
 
 class Momento2QuejaCrmInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=26)
     Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision", max_length=30)
 
@@ -206,7 +211,6 @@ class Momento2QuejaCrmInput(BaseModel):
     )
     @classmethod
     def validar_picklist_contra_mapper(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
-        # 1. Si el CRM no envió el campo o viene None/vacío, se respeta el valor predeterminado
         if value is None:
             return value
         val_str = str(value).strip()
@@ -215,7 +219,6 @@ class Momento2QuejaCrmInput(BaseModel):
 
         field_name = info.field_name
 
-        # Mapeo de campos a sus claves correspondientes en catalogos_sfc_crm.json
         field_to_catalog = {
             "SC_id_type__c": "tipo_id",
             "tipo_de_persona__c": "persona",
@@ -236,11 +239,9 @@ class Momento2QuejaCrmInput(BaseModel):
             "Tutela__c", "smart_escalamiento_DCF__c", "producto_digital__c", "Quejas_express__c"
         }
 
-        # Equivalencia especial NIT -> RUT
         if field_name == "SC_id_type__c" and val_str.upper() in ("NIT", "N.I.T."):
             return "RUT"
 
-        # 2. Validación estricta para campos binarios (Si / No)
         if field_name in boolean_si_no_fields:
             v_lower = val_str.lower()
             if v_lower in ("si", "sí", "true", "1"):
@@ -253,22 +254,18 @@ class Momento2QuejaCrmInput(BaseModel):
                     f"Valores permitidos: ['Si', 'No']."
                 )
 
-        # 3. Validación estricta para catálogos oficiales
         if field_name in field_to_catalog:
             cat_key = field_to_catalog[field_name]
             allowed = SfcSalesforceMapper.get_crm_allowed_values(cat_key)
 
-            # Aceptación directa si coincide exactamente
             if val_str in allowed:
                 return val_str
 
-            # Aceptación con normalización de mayúsculas/minúsculas y tildes
             normalized_val = SfcSalesforceMapper._normalize_text(val_str)
             norm_to_canonical = {SfcSalesforceMapper._normalize_text(a): a for a in allowed}
             if normalized_val in norm_to_canonical:
                 return norm_to_canonical[normalized_val]
 
-            # 🚫 SI EL DATO ENVIADO NO EXISTE EN EL CATÁLOGO -> SE RECHAZA (HTTP 400)
             raise ValueError(
                 f"El valor '{val_str}' no es válido para {field_name}. "
                 f"Valores soportados: {sorted(list(allowed))[:5]}... (Total {len(allowed)})"
@@ -295,6 +292,55 @@ class Momento2QuejaCrmInput(BaseModel):
 # ======================================================================
 
 class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "Case_id": "SC-EJEMPLO-0001",
+                "Status": "Closed",
+                "SuppliedName": "María Alejandra Bermúdez",
+                "SC_id_type__c": "CC",
+                "id_number__c": "1020304054",
+                "sc_genero__c": "Femenino",
+                "tipo_de_persona__c": "B2C",
+                "sc_LGBTIQ__c": "No",
+                "sc_Condicion_especial__c": "No aplica",
+                "SuppliedPhone": "3109876543",
+                "SuppliedEmail": "maria.bermudez@test.com",
+                "direccion__c": "Calle 53 # 70-12 Apto 402",
+                "Departamento__c": "Bogotá D.C.",
+                "SC_municipio__c": "Bogotá D.C.",
+                "canal__c": "Internet",
+                "punto_recepcion": "Web",
+                "Instancia_de_recepcion__c": "Entidad vigilada",
+                "admision_col__c": "No Aplica",
+                "Description": "Prueba completa con todos los campos del formulario cargados simultáneamente para verificación de esquema.",
+                "smart_anexo_queja__c": True,
+                "Tutela__c": "No",
+                "Ente_de_control__c": "Otros",
+                "smart_escalamiento_DCF__c": "No",
+                "marcacion__c": "Revisión técnica",
+                "Product__c": "Tarjeta Digital",
+                "smart_Producto_nombre__c": "Global Card Digital",
+                "Categorias_COL__c": "Transacción no reconocida",
+                "archivos_s3": [],
+                "producto_digital__c": "Si",
+                "tipo_fraude__c": "Externo",
+                "modalidad_fraude__c": "Suplantación de identidad",
+                "card_amount__c": 1500000.0,
+                "Total_Devuelto_por_Desconocimiento__c": 1500000.0,
+                "nombre_archivo_fraude": "informe_fraude.pdf",
+                "Favorabilidad__c": "Favorable",
+                "a_favor_de__c": "1",
+                "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+                "Rectificacion__c": "Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF",
+                "Prorroga__c": 1,
+                "cuerpo_respuesta_final": "<html><body><p>Estimada María,</p><p>Le informamos que tras la investigación realizada por el equipo de seguridad, confirmamos que su solicitud ha sido resuelta de forma <strong>FAVORABLE</strong> con el reembolso total de los fondos.</p><p>Atentamente,<br>Global66 Colombia</p></body></html>",
+                "directorio_s3": "caso/TEST-ALL-FIELDS-SSV-999/"
+            }
+        }
+    )
+
     producto_digital__c: Optional[str] = Field("Si", description="Producto digital (Si/No)")
 
     tipo_fraude__c: Optional[str] = Field(None, description="Tipo de fraude")
@@ -325,14 +371,12 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             if not v_clean:
                 return None
             
-            # Si viene en formato ISO completo con hora (ej. "2026-08-05T14:20:00" o "2026-08-05T14:20:00Z")
             if "T" in v_clean:
                 try:
                     return datetime.fromisoformat(v_clean.replace("Z", "+00:00")).date()
                 except ValueError:
                     pass
 
-            # Si viene en formato fecha estándar YYYY-MM-DD
             try:
                 return date.fromisoformat(v_clean)
             except ValueError:
@@ -390,7 +434,6 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             if not self.Status or status_clean not in ("closed", "cerrado"):
                 self.Status = "Closed"
 
-            # 🚫 CO-DEPENDENCIA DE CAMPOS DE CIERRE
             if not self.Favorabilidad__c and not self.Aceptacion__c:
                 raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
             elif not self.Favorabilidad__c:
@@ -403,11 +446,9 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             if not self.ClosedDate:
                 self.ClosedDate = hoy_bogota
 
-            # 🚫 VALIDACIÓN DE FECHA DE CIERRE VS FECHA ACTUAL
             if self.ClosedDate > hoy_bogota:
                 raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
 
-            # 🚫 VALIDACIÓN: ClosedDate no puede ser anterior a CreatedDate
             if self.CreatedDate and self.ClosedDate:
                 dt_created = None
                 try:
@@ -415,7 +456,6 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                 except (ValueError, TypeError):
                     pass
 
-                # La validación se evalúa fuera del bloque try/except
                 if dt_created and self.ClosedDate < dt_created:
                     raise ValueError(
                         f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
@@ -449,57 +489,11 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                         raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
 
         return self
-    
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "Case_id": "SC-EJEMPLO-0001",
-                "Status": "Closed",
-                "SuppliedName": "María Alejandra Bermúdez",
-                "SC_id_type__c": "CC",
-                "id_number__c": "1020304054",
-                "sc_genero__c": "Femenino",
-                "tipo_de_persona__c": "B2C",
-                "sc_LGBTIQ__c": "No",
-                "sc_Condicion_especial__c": "No aplica",
-                "SuppliedPhone": "3109876543",
-                "SuppliedEmail": "maria.bermudez@test.com",
-                "direccion__c": "Calle 53 # 70-12 Apto 402",
-                "Departamento__c": "Bogotá D.C.",
-                "SC_municipio__c": "Bogotá D.C.",
-                "canal__c": "Internet",
-                "punto_recepcion": "Web",
-                "Instancia_de_recepcion__c": "Entidad vigilada",
-                "admision_col__c": "No Aplica",
-                "Description": "Prueba completa con todos los campos del formulario cargados simultáneamente para verificación de esquema.",
-                "smart_anexo_queja__c": True,
-                "Tutela__c": "No",
-                "Ente_de_control__c": "Otros",
-                "smart_escalamiento_DCF__c": "No",
-                "marcacion__c": "Revisión técnica",
-                "Product__c": "Tarjeta Digital",
-                "smart_Producto_nombre__c": "Global Card Digital",
-                "Categorias_COL__c": "Transacción no reconocida",
-                "archivos_s3": [],
-                "producto_digital__c": "Si",
-                "tipo_fraude__c": "Externo",
-                "modalidad_fraude__c": "Suplantación de identidad",
-                "card_amount__c": 1500000.0,
-                "Total_Devuelto_por_Desconocimiento__c": 1500000.0,
-                "nombre_archivo_fraude": "informe_fraude.pdf",
-                "Favorabilidad__c": "Favorable",
-                "a_favor_de__c": "1",
-                "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
-                "Rectificacion__c": "Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF",
-                "Prorroga__c": 1,
-                "cuerpo_respuesta_final": "<html><body><p>Estimada María,</p><p>Le informamos que tras la investigación realizada por el equipo de seguridad, confirmamos que su solicitud ha sido resuelta de forma <strong>FAVORABLE</strong> con el reembolso total de los fondos.</p><p>Atentamente,<br>Global66 Colombia</p></body></html>",
-                "directorio_s3": "caso/TEST-ALL-FIELDS-SSV-999/"
-                }
-        }
-    }
 
 
 class ConfirmacionAckInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     ids_quejas: List[str] = Field(
         ...,
         min_length=1,
@@ -516,6 +510,8 @@ class ConfirmacionAckInput(BaseModel):
 
 
 class ConfirmacionAckUsuariosInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     numeros_id_cf: List[str] = Field(
         ..., 
         description="Lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM."
