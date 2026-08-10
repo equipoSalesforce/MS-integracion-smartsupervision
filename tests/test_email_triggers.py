@@ -1,5 +1,6 @@
 # tests/test_email_triggers.py
 import asyncio
+import json
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -26,6 +27,25 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         redis_mock.get = AsyncMock(return_value=None)
         redis_mock.sismember = AsyncMock(return_value=False)
         redis_mock.pipeline = MagicMock(return_value=pipe_mock)
+        redis_mock.eval = AsyncMock(return_value=json.dumps({
+            "is_new": True,
+            "data": {
+                "id": incr_val,
+                "smart_code": "142316551509974606",
+                "tipo_operacion": "CREACION",
+                "payload_json": {"Smart_Code__c": "142316551509974606"},
+                "estado": "PENDIENTE",
+                "intentos": 1,
+                "max_intentos": 5,
+                "ultimo_error": "HTTP 502 Bad Gateway",
+                "proximo_reintento_at": "2026-08-10T12:00:00",
+                "created_at": "2026-08-10T12:00:00",
+                "updated_at": "2026-08-10T12:00:00",
+                "correlation_id": "test-cid",
+                "es_duplicado": False
+            },
+            "pendientes_previos": scard_val
+        }))
         return redis_mock
 
     async def test_encolar_despacho_dispara_alerta_infraestructura_cuando_cola_vacia(self):
@@ -109,7 +129,6 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
                 "Case_id": smart_code,
                 "CreatedDate": "2026-07-21T10:00:00",
                 "Status": "New",
-                "status": "New",
                 "SuppliedName": "Juan Perez",
                 "SC_id_type__c": "CC",
                 "id_number__c": "123456789",
@@ -174,6 +193,7 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
              patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
              patch("app.workers.scheduler.get_sfc_client"), \
              patch("app.workers.scheduler.get_s3_client"), \
+             patch("app.workers.scheduler.CrmWebhookService.notificar_creacion_exitosa", new_callable=AsyncMock, return_value=True), \
              patch("app.workers.scheduler.QueueService") as MockQueueService, \
              patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
 
@@ -182,6 +202,8 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
             instance_qs.contar_pendientes = AsyncMock(return_value=0)
             instance_qs.marcar_exitoso = AsyncMock()
+            instance_qs.registrar_fallo = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=True)
 
             instance_orq = MockOrquestador.return_value
             instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})

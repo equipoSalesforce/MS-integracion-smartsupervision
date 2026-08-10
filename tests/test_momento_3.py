@@ -104,7 +104,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         sfc_mock["estado_cod"] = 2                        
         mock_mapper.return_value = sfc_mock
         
-        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "updated"})
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "updated"})
 
         payload_tramite = self.base_crm_payload.copy()
         payload_tramite.update({
@@ -134,7 +134,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         mock_mapper.return_value = sfc_mock
         
         self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 99})
-        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"status": "closed"})
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "closed"})
 
         servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
         
@@ -144,7 +144,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "ClosedDate": "2026-07-16",
             "Favorabilidad__c": "Favorable",
             "a_favor_de__c": "1",
-            "Aceptacion__c": "Si",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
             "Rectificacion__c": "No",
             "Prorroga__c": 1,
             "cuerpo_respuesta_final": "<p>Estimado cliente, su reclamación ha sido resuelta a favor.</p>",

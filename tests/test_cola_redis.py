@@ -75,6 +75,110 @@ class MockAsyncRedis:
     async def ping(self):
         return True
     
+    async def eval(self, script: str, numkeys: int, *keys_and_args):
+        """Emula la ejecución de scripts Lua de Redis para pruebas unitarias."""
+        import json
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        keys = keys_and_args[:numkeys]
+        args = keys_and_args[numkeys:]
+
+        # Emulación de ENQUEUE_LUA_SCRIPT
+        if "INCR" in script and "sfc:queue:counter" in str(keys):
+            smart_code = args[0]
+            tipo_operacion = args[1]
+            payload_json_raw = args[2]
+            error_inicial = args[3]
+            max_intentos = int(args[4])
+            now_iso = args[5]
+            proximo_reintento_iso = args[6]
+            now_ts = float(args[7])
+            proximo_reintento_ts = float(args[8])
+            correlation_id = args[9]
+
+            index_key = keys[0]
+            pending_set_key = keys[1]
+            pending_zset_key = keys[2]
+            created_zset_key = keys[3]
+            counter_key = keys[4]
+
+            existing_id = await self.get(index_key)
+            pendientes_count = await self.scard(pending_set_key)
+
+            if existing_id and await self.sismember(pending_set_key, existing_id):
+                item_key = f"sfc:queue:item:{existing_id}"
+                raw_item = await self.get(item_key)
+                if raw_item:
+                    data = json.loads(raw_item)
+                    data["payload_json"] = json.loads(payload_json_raw)
+                    data["ultimo_error"] = error_inicial
+                    data["updated_at"] = now_iso
+                    data["proximo_reintento_at"] = proximo_reintento_iso
+                    data["correlation_id"] = correlation_id
+                    data["es_duplicado"] = True
+
+                    await self.set(item_key, json.dumps(data, ensure_ascii=False))
+                    await self.zadd(pending_zset_key, {str(existing_id): proximo_reintento_ts})
+
+                    return json.dumps({
+                        "is_new": False,
+                        "data": data,
+                        "pendientes_previos": pendientes_count
+                    })
+
+            item_id = await self.incr(counter_key)
+            item_key = f"sfc:queue:item:{item_id}"
+
+            item_data = {
+                "id": int(item_id),
+                "smart_code": smart_code,
+                "tipo_operacion": tipo_operacion,
+                "payload_json": json.loads(payload_json_raw),
+                "estado": "PENDIENTE",
+                "intentos": 1,
+                "max_intentos": max_intentos,
+                "ultimo_error": error_inicial,
+                "proximo_reintento_at": proximo_reintento_iso,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+                "correlation_id": correlation_id,
+                "es_duplicado": False
+            }
+
+            await self.set(item_key, json.dumps(item_data, ensure_ascii=False))
+            await self.sadd(pending_set_key, str(item_id))
+            await self.zadd(pending_zset_key, {str(item_id): proximo_reintento_ts})
+            await self.zadd(created_zset_key, {str(item_id): now_ts})
+            await self.set(index_key, str(item_id))
+
+            return json.dumps({
+                "is_new": True,
+                "data": item_data,
+                "pendientes_previos": pendientes_count
+            })
+
+        # Emulación de CLAIM_ITEM_LUA_SCRIPT
+        if "CLAIM" in script or "claim_key" in script or "NX" in script:
+            item_id = keys[0]
+            pending_set_key = keys[1]
+            claim_key = keys[2]
+
+            worker_id = args[0]
+            lease_px = float(args[1])
+
+            is_pending = await self.sismember(pending_set_key, item_id)
+            if not is_pending:
+                return json.dumps({"claimed": False, "reason": "not_pending"})
+
+            res_set = await self.set(claim_key, worker_id, nx=True, px=lease_px)
+            if not res_set:
+                return json.dumps({"claimed": False, "reason": "already_claimed"})
+
+            return json.dumps({"claimed": True})
+
+        return json.dumps({})
+    
     async def scan_iter(self, match=None, count=100):
         import re
         regex_pat = match.replace("*", ".*") if match else ".*"

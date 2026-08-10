@@ -21,7 +21,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
 
         # Mocks asíncronos con return_value por defecto
         self.orquestador.m2_service.ejecutar_envio_momento_2 = AsyncMock(
-            return_value={"status": "success", "codigo_queja_sfc": "1423999000111222"}
+        return_value={"status": "success", "codigo_queja_sfc": "1423999000111222"}  # 👈 "status" en minúscula
         )
         self.orquestador.m3_service.ejecutar_gestion_fraude = AsyncMock(
             return_value={"status": "success", "message": "Fraude actualizado"}
@@ -38,7 +38,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "Smart_Code__c": "999000111222",
             "CreatedDate": "2026-07-21T10:00:00",
             "Status": "New",
-            "status": "New",
+            "Status": "New",
             "SuppliedName": "Juan Perez",
             "SC_id_type__c": "CC",
             "id_number__c": "123456789",
@@ -88,7 +88,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         tramite_dict = self.base_payload_dict.copy()
         tramite_dict.update({
             "Status": "In Progress",
-            "status": "In Progress",
+            "Status": "In Progress",
             "sc_genero__c": "Masculino"  # Inyecta campo M3
         })
         payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
@@ -107,7 +107,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         fraude_dict = self.base_payload_dict.copy()
         fraude_dict.update({
             "Status": "In Progress",
-            "status": "In Progress",
             "sc_genero__c": "Masculino",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
@@ -130,7 +129,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
             "Status": "Closed",
-            "status": "Closed",
+            "Status": "Closed",
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
@@ -153,7 +152,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         completo_dict = self.base_payload_dict.copy()
         completo_dict.update({
             "Status": "Closed",
-            "status": "Closed",
+            "Status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
@@ -184,7 +183,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         completo_dict = self.base_payload_dict.copy()
         completo_dict.update({
             "Status": "Closed",
-            "status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
@@ -226,7 +224,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
             "Status": "Closed",
-            "status": "Closed",
+            "Status": "Closed",
             "ClosedDate": "2026-07-22",
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
@@ -245,12 +243,12 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
 
         self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = mock_404_error
         self.orquestador.m2_service.ejecutar_envio_momento_2.return_value = {
-            "status": "error", "message": "Pipeline interrumpido: Timeout"
+            "Status": "error", "message": "Pipeline interrumpido: Timeout"
         }
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
-        self.assertEqual(resultado["status"], "error")
+        self.assertEqual(resultado["Status"], "error")
         self.assertIn("Pipeline interrumpido", resultado["message"])
         self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once()
         self.assertEqual(self.orquestador.m3_service.ejecutar_cierre_definitivo.call_count, 1)

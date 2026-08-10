@@ -25,7 +25,7 @@ class TestMomento2Integration(unittest.TestCase):
             "Smart_Code__c": self.smart_code_test,
             "CreatedDate": "2026-07-14T12:00:00",
             "Status": "New",
-            "status": "New",
+            "Status": "New",
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",
             "id_number__c": "1040011014",
@@ -59,7 +59,7 @@ class TestMomento2Integration(unittest.TestCase):
 
     def test_endpoint_despacho_momento_2_exito(self):
         """Verifica que el despacho unificado enrute exitosamente una queja nueva al Momento 2."""
-        self.sfc_client_mock.post_nueva_queja = AsyncMock(return_value={"status": "created"})
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(return_value={"Status": "created"})
         self.sfc_client_mock.put_actualizar_queja = AsyncMock()
 
         response = self.client.post("/api/v1/quejas/sync/despacho", json=self.mock_crm_payload)

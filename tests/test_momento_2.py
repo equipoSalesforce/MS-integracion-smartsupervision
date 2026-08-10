@@ -94,7 +94,7 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         # Mocking S3 de AWS
         self.s3_client_mock.head_object = MagicMock(return_value={"ContentLength": 1024})
         mock_body = MagicMock()
-        mock_body.read = MagicMock(return_value=b"bytes_pdf_simulados")
+        mock_body.read = MagicMock(return_value=b"%PDF-1.4 Mock PDF content bytes_pdf_simulados")
         self.s3_client_mock.get_object = MagicMock(return_value={"Body": mock_body})
         
         service = Momento2SincronizacionService(
