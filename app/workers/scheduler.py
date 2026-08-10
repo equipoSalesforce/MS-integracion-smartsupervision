@@ -173,7 +173,10 @@ async def purgar_cola_job():
     redis = get_redis_client()
     if redis:
         queue_service = QueueService(redis)
-        await queue_service.purgar_registros_antiguos(dias_retencion=settings.QUEUE_RETENTION_DAYS)
+        await queue_service.purgar_registros_antiguos(
+            dias_retencion=settings.QUEUE_RETENTION_DAYS,
+            dias_retencion_dlq=settings.QUEUE_RETENTION_DAYS_DLQ
+        )
 
 
 def iniciar_scheduler():

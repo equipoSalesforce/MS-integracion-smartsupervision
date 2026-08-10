@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     QUEUE_MAX_RETRIES: int = Field(default=10)
     QUEUE_ENABLED: bool = Field(default=True)
     QUEUE_RETENTION_DAYS: int = Field(default=7)
+    QUEUE_RETENTION_DAYS_DLQ: int = Field(default=30, description="Días de retención para casos FALLIDO_DEFINITIVO (DLQ)")
     
     # -- Configuración de SMTP alertas -- #
     

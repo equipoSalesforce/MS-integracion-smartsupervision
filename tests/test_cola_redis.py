@@ -74,6 +74,17 @@ class MockAsyncRedis:
 
     async def ping(self):
         return True
+    
+    async def scan_iter(self, match=None, count=100):
+        import re
+        regex_pat = match.replace("*", ".*") if match else ".*"
+        for k in list(self.keys_store.keys()):
+            if re.match(f"^{regex_pat}$", k):
+                yield k
+
+    async def sscan_iter(self, name, match=None, count=100):
+        for m in list(self.sets.get(name, set())):
+            yield m
 
     async def incr(self, name):
         self.counters[name] = self.counters.get(name, 0) + 1

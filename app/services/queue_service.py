@@ -433,9 +433,26 @@ class QueueService:
         try:
             if estado:
                 set_key = f"sfc:queue:status:{estado.upper()}"
-                item_ids = await self.redis.smembers(set_key)
+                # 🔄 Iteración por lotes sobre Sets (reemplaza SMEMBERS bloqueante)
+                if hasattr(self.redis, "sscan_iter"):
+                    item_ids = [
+                        m if isinstance(m, str) else m.decode("utf-8")
+                        async for m in self.redis.sscan_iter(set_key, count=100)
+                    ]
+                else:
+                    raw_members = await self.redis.smembers(set_key)
+                    item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
             else:
-                item_keys = await self.redis.keys("sfc:queue:item:*")
+                # 🚀 SCAN no bloqueante por lotes (reemplaza KEYS sfc:queue:item:*)
+                if hasattr(self.redis, "scan_iter"):
+                    item_keys = [
+                        k if isinstance(k, str) else k.decode("utf-8")
+                        async for k in self.redis.scan_iter(match="sfc:queue:item:*", count=100)
+                    ]
+                else:
+                    raw_keys = await self.redis.keys("sfc:queue:item:*")
+                    item_keys = [k if isinstance(k, str) else k.decode("utf-8") for k in raw_keys]
+
                 item_ids = [k.split(":")[-1] for k in item_keys]
 
             registros = []
@@ -451,50 +468,74 @@ class QueueService:
             logger.error(f"Error consultando registros encolados en Redis: {e}")
             return []
 
-    async def purgar_registros_antiguos(self, dias_retencion: int = 7) -> int:
+    async def purgar_registros_antiguos(
+        self, 
+        dias_retencion: int = settings.QUEUE_RETENTION_DAYS, 
+        dias_retencion_dlq: int = getattr(settings, "QUEUE_RETENTION_DAYS_DLQ", 30)
+    ) -> int:
+        """
+        Elimina registros antiguos tanto de casos 'EXITOSO' como de la 
+        Dead Letter Queue 'FALLIDO_DEFINITIVO', evitando la fuga de memoria en Redis.
+        """
         if not self.redis:
             return 0
 
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
-        limite_dt = now_bogota - timedelta(days=dias_retencion)
+        limite_exitoso = now_bogota - timedelta(days=dias_retencion)
+        limite_dlq = now_bogota - timedelta(days=dias_retencion_dlq)
+
+        total_purgados = 0
+
+        # Lotes de estados a evaluar con sus respectivos límites de tiempo
+        estados_a_evaluar = [
+            ("sfc:queue:status:EXITOSO", limite_exitoso),
+            ("sfc:queue:status:FALLIDO_DEFINITIVO", limite_dlq)
+        ]
 
         try:
-            item_ids = await self.redis.smembers("sfc:queue:status:EXITOSO")
-            purgados = 0
+            for set_key, limite_dt in estados_a_evaluar:
+                if hasattr(self.redis, "sscan_iter"):
+                    item_ids = [
+                        m if isinstance(m, str) else m.decode("utf-8")
+                        async for m in self.redis.sscan_iter(set_key, count=100)
+                    ]
+                else:
+                    raw_members = await self.redis.smembers(set_key)
+                    item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
 
-            a_eliminar = []
-            inconsistentes = []
+                a_eliminar = []
+                inconsistentes = []
 
-            for item_id in item_ids:
-                item_key = f"sfc:queue:item:{item_id}"
-                raw_item = await self.redis.get(item_key)
-                if not raw_item:
-                    inconsistentes.append(str(item_id))
-                    continue
+                for item_id in item_ids:
+                    item_key = f"sfc:queue:item:{item_id}"
+                    raw_item = await self.redis.get(item_key)
+                    if not raw_item:
+                        inconsistentes.append(str(item_id))
+                        continue
 
-                data = json.loads(raw_item, strict=False)
-                updated_dt = datetime.fromisoformat(data["updated_at"])
+                    data = json.loads(raw_item, strict=False)
+                    updated_dt = datetime.fromisoformat(data["updated_at"])
 
-                if updated_dt <= limite_dt:
-                    a_eliminar.append(str(item_id))
+                    if updated_dt <= limite_dt:
+                        a_eliminar.append(str(item_id))
 
-            if a_eliminar or inconsistentes:
-                async with self.redis.pipeline(transaction=True) as pipe:
-                    for item_id in inconsistentes:
-                        pipe.srem("sfc:queue:status:EXITOSO", item_id)
+                if a_eliminar or inconsistentes:
+                    async with self.redis.pipeline(transaction=True) as pipe:
+                        for item_id in inconsistentes:
+                            pipe.srem(set_key, item_id)
 
-                    for item_id in a_eliminar:
-                        pipe.delete(f"sfc:queue:item:{item_id}")
-                        pipe.srem("sfc:queue:status:EXITOSO", item_id)
-                        pipe.zrem("sfc:queue:created_zset", item_id)
-                        purgados += 1
+                        for item_id in a_eliminar:
+                            pipe.delete(f"sfc:queue:item:{item_id}")
+                            pipe.srem(set_key, item_id)
+                            pipe.zrem("sfc:queue:created_zset", item_id)
+                            total_purgados += 1
 
-                    await pipe.execute()
+                        await pipe.execute()
 
-            if purgados > 0:
-                logger.info(f"🧹 [Cola Redis] Purga completada: {purgados} registros antiguos eliminados.")
+            if total_purgados > 0:
+                logger.info(f"🧹 [Cola Redis] Purga completada: {total_purgados} registros antiguos (Exitosos/DLQ) eliminados.")
 
-            return purgados
+            return total_purgados
         except Exception as e:
             logger.error(f"Error realizando purga en Redis: {e}")
             return 0
