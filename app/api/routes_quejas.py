@@ -316,7 +316,7 @@ async def despachar_queja_crm(
     "/queue",
     status_code=status.HTTP_200_OK,
     summary="Consultar el estado de la cola de reintentos centralizada (Redis)",
-    dependencies=[Depends(verificar_api_key_admin)]
+    dependencies=[Depends(verificar_api_key_crm)]
 )
 async def consultar_cola_local(
     estado: Optional[str] = None
