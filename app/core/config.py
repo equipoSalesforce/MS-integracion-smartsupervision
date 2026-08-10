@@ -63,7 +63,11 @@ class Settings(BaseSettings):
     
     CRM_API_KEY: str = Field(
         default="g66_sk_test_super_secreto_12345", 
-        description="API Key requerida para que el CRM consuma este MS"
+        description="API Key requerida para que el CRM consuma los endpoints de despacho e integración"
+    )
+    ADMIN_API_KEY: str = Field(
+        default="g66_sk_test_admin_secreto_99999",
+        description="API Key administrativa requerida para endpoints de monitoreo e infraestructura (ej. /queue)"
     )
     CRM_CORS_ORIGINS: List[str] = Field(
         default=["*"], 

@@ -130,6 +130,7 @@ class ColaItemRedis:
         self.es_duplicado = bool(data.get("es_duplicado", False))
 
     def to_dict(self) -> dict:
+        """Uso interno de workers/scheduler para procesar el reintento completo."""
         return {
             "id": self.id,
             "smart_code": self.smart_code,
@@ -143,6 +144,21 @@ class ColaItemRedis:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "es_duplicado": self.es_duplicado
+        }
+
+    def to_summary_dict(self) -> dict:
+        """
+        🛡️ Salida administrativa sin PII ni datos confidenciales del cliente.
+        """
+        return {
+            "smart_code": self.smart_code,
+            "status": self.estado,
+            "attempts": self.intentos,
+            "max_attempts": self.max_intentos,
+            "last_error_code": self.ultimo_error or "N/A",
+            "proximo_reintento_at": self.proximo_reintento_at,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
         }
 
 

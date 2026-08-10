@@ -9,7 +9,8 @@ from typing import List, Optional
 from app.api.dependencies import (
     get_sfc_client, 
     get_s3_client, 
-    verificar_api_key_crm 
+    verificar_api_key_crm,
+    verificar_api_key_admin
 )
 from app.integrations.sfc_client import SfcClient
 from app.services.email_service import EmailAlertService
@@ -96,7 +97,8 @@ RESPUESTAS_DESPACHO_OPENAPI = {
     "/sync/momento-1", 
     status_code=status.HTTP_200_OK, 
     summary="Obtener Quejas Nuevas de la SFC y procesar adjuntos a S3",
-    response_model=List[QuejaMapeadaCrmResponse]
+    response_model=List[QuejaMapeadaCrmResponse],
+    dependencies=[Depends(verificar_api_key_crm)]
 )
 async def ejecutar_sync_momento_1(
     sfc_client: SfcClient = Depends(get_sfc_client),
@@ -109,7 +111,8 @@ async def ejecutar_sync_momento_1(
 @router.post(
     "/sync/momento-1/ack",
     status_code=status.HTTP_200_OK,
-    summary="Confirmar recepción exitosa de quejas (ACK) a la SFC"
+    summary="Confirmar recepción exitosa de quejas (ACK) a la SFC",
+    dependencies=[Depends(verificar_api_key_crm)]
 )
 async def confirmar_ack_momento_1(
     payload: ConfirmacionAckInput,
@@ -127,6 +130,7 @@ async def confirmar_ack_momento_1(
     status_code=status.HTTP_200_OK,
     responses=RESPUESTAS_DESPACHO_OPENAPI,
     summary="Trigger Unificado de Despacho con Cola Centralizada Redis",
+    dependencies=[Depends(verificar_api_key_crm)],
     description="""
         ### 🚀 Orquestador de Despacho Unificado Stateless
 
@@ -311,7 +315,8 @@ async def despachar_queja_crm(
 @router.get(
     "/queue",
     status_code=status.HTTP_200_OK,
-    summary="Consultar el estado de la cola de reintentos centralizada (Redis)"
+    summary="Consultar el estado de la cola de reintentos centralizada (Redis)",
+    dependencies=[Depends(verificar_api_key_admin)]
 )
 async def consultar_cola_local(
     estado: Optional[str] = None
@@ -319,7 +324,7 @@ async def consultar_cola_local(
     queue_service = QueueService(get_redis_client())
     registros = await queue_service.obtener_todos_los_encolados(estado=estado)
     
-    return [r.to_dict() for r in registros]
+    return [r.to_summary_dict() for r in registros]
 
 
 # ======================================================================

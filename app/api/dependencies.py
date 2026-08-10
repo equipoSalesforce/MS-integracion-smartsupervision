@@ -24,6 +24,30 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 _signature_context_instance = SfcSignatureContext(settings.SFC_SECRET_KEY)
 _auth_manager_instance = SfcAuthManager(_signature_context_instance)
 
+async def verificar_api_key_admin(
+    x_api_key: str = Header(..., alias="X-API-Key")
+) -> str:
+    """
+    Verifica que la cabecera X-API-Key coincida con la API Key administrativa (ADMIN_API_KEY).
+    Protege endpoints administrativos que muestran telemetría o estado de colas.
+    """
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cabecera X-API-Key faltante."
+        )
+
+    # 🔒 Comparación segura en tiempo constante para evitar Timing Attacks
+    es_valida = secrets.compare_digest(x_api_key, settings.ADMIN_API_KEY)
+
+    if not es_valida:
+        logger.warning("🔐 [Seguridad] Intento de acceso administrativo no autorizado con X-API-Key inválida.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API Key administrativa inválida o no autorizada."
+        )
+
+    return x_api_key
 
 def get_s3_client():
     """Inicializa el cliente de AWS S3 dinámicamente."""
