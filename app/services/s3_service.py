@@ -159,7 +159,7 @@ class S3StorageService:
         """
         Valida existencia, tamaño, integridad y descarga el archivo desde S3 utilizando
         streaming (`download_fileobj`) hacia un archivo temporal en memoria/disco,
-        previniendo la saturación de memoria RAM.
+        previniendo la saturación de memoria RAM y garantizando el cierre de descriptores ante fallos.
         """
         target_bucket = bucket or self.default_bucket
         file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
@@ -167,87 +167,85 @@ class S3StorageService:
         # Archivo temporal: Máx 5 MB en RAM, si es mayor se vuelca a disco automáticamente
         tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
 
-        if not self.s3_client:
-            if self.is_local:
-                logger.info(f"[LOCAL S3 MOCK] Generando stream simulado para key: {s3_key}")
-                ext = file_name.split(".")[-1].lower() if "." in file_name else "pdf"
-                mock_headers = {
-                    "pdf": b"%PDF-1.4 Mock PDF content for local testing",
-                    "png": b"\x89PNG\r\n\x1a\nMock PNG content",
-                    "jpg": b"\xff\xd8\xffMock JPG content",
-                    "jpeg": b"\xff\xd8\xffMock JPEG content",
-                    "zip": b"PK\x03\x04Mock ZIP content"
-                }
-                tmp_file.write(mock_headers.get(ext, b"%PDF-1.4 Mock content default"))
-                tmp_file.seek(0)
-                return tmp_file
-            else:
-                tmp_file.close()
-                raise SfcIntegrationException(
-                    status_code=500,
-                    error_type="INFRASTRUCTURE_ERROR",
-                    sfc_field="s3_client",
-                    raw_message="El cliente de almacenamiento S3 no está inicializado en producción.",
-                    crm_action="Contactar al equipo de infraestructura para validar la configuración de AWS S3."
-                )
-
         try:
-            metadata = await asyncio.to_thread(
-                self.s3_client.head_object, 
-                Bucket=target_bucket, 
-                Key=s3_key
-            )
-        except ClientError as e:
-            tmp_file.close()
-            error_code = e.response.get("Error", {}).get("Code", "")
-            if error_code in ("404", "403", "NoSuchKey", "NotFound"):
-                logger.error(f"❌ [S3 Error] Archivo '{file_name}' no encontrado (Key: '{s3_key}').")
+            if not self.s3_client:
+                if self.is_local:
+                    logger.info(f"[LOCAL S3 MOCK] Generando stream simulado para key: {s3_key}")
+                    ext = file_name.split(".")[-1].lower() if "." in file_name else "pdf"
+                    mock_headers = {
+                        "pdf": b"%PDF-1.4 Mock PDF content for local testing",
+                        "png": b"\x89PNG\r\n\x1a\nMock PNG content",
+                        "jpg": b"\xff\xd8\xffMock JPG content",
+                        "jpeg": b"\xff\xd8\xffMock JPEG content",
+                        "zip": b"PK\x03\x04Mock ZIP content"
+                    }
+                    tmp_file.write(mock_headers.get(ext, b"%PDF-1.4 Mock content default"))
+                    tmp_file.seek(0)
+                    return tmp_file
+                else:
+                    raise SfcIntegrationException(
+                        status_code=500,
+                        error_type="INFRASTRUCTURE_ERROR",
+                        sfc_field="s3_client",
+                        raw_message="El cliente de almacenamiento S3 no está inicializado en producción.",
+                        crm_action="Contactar al equipo de infraestructura para validar la configuración de AWS S3."
+                    )
+
+            try:
+                metadata = await asyncio.to_thread(
+                    self.s3_client.head_object, 
+                    Bucket=target_bucket, 
+                    Key=s3_key
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code in ("404", "403", "NoSuchKey", "NotFound"):
+                    logger.error(f"❌ [S3 Error] Archivo '{file_name}' no encontrado (Key: '{s3_key}').")
+                    raise SfcIntegrationException(
+                        status_code=404,
+                        error_type="S3_FILE_NOT_FOUND",
+                        sfc_field="archivos_s3",
+                        raw_message=f"El archivo '{file_name}' (Key: '{s3_key}') no existe en S3.",
+                        crm_action="Verifique que el archivo haya sido cargado correctamente en S3."
+                    )
+                raise
+
+            file_size = metadata.get("ContentLength", 0)
+            
+            if file_size == 0:
                 raise SfcIntegrationException(
-                    status_code=404,
-                    error_type="S3_FILE_NOT_FOUND",
+                    status_code=400,
+                    error_type="FILE_EMPTY_ERROR",
                     sfc_field="archivos_s3",
-                    raw_message=f"El archivo '{file_name}' (Key: '{s3_key}') no existe en S3.",
-                    crm_action="Verifique que el archivo haya sido cargado correctamente en S3."
+                    raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
+                    crm_action="Cargue un archivo válido con contenido en S3 antes de reintentar."
                 )
-            raise
 
-        file_size = metadata.get("ContentLength", 0)
-        
-        if file_size == 0:
-            tmp_file.close()
-            raise SfcIntegrationException(
-                status_code=400,
-                error_type="FILE_EMPTY_ERROR",
-                sfc_field="archivos_s3",
-                raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
-                crm_action="Cargue un archivo válido con contenido en S3 antes de reintentar."
-            )
+            limit_bytes = max_size_mb * 1024 * 1024
+            if file_size > limit_bytes:
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="FILE_SIZE_EXCEEDED",
+                    sfc_field="archivos_s3",
+                    raw_message=f"El archivo '{file_name}' ({file_size / (1024*1024):.2f}MB) supera el límite máximo de {max_size_mb}MB.",
+                    crm_action="Comprima el documento antes de reintentar."
+                )
 
-        limit_bytes = max_size_mb * 1024 * 1024
-        if file_size > limit_bytes:
-            tmp_file.close()
-            raise SfcIntegrationException(
-                status_code=400,
-                error_type="FILE_SIZE_EXCEEDED",
-                sfc_field="archivos_s3",
-                raw_message=f"El archivo '{file_name}' ({file_size / (1024*1024):.2f}MB) supera el límite máximo de {max_size_mb}MB.",
-                crm_action="Comprima el documento antes de reintentar."
-            )
+            # 🟢 DESCARGA PROTEGIDA POR EL BLOQUE TRY GENERAL
+            def _descargar():
+                self.s3_client.download_fileobj(Bucket=target_bucket, Key=s3_key, Fileobj=tmp_file)
 
-        # Descarga mediante streaming directo al SpooledTemporaryFile
-        def _descargar():
-            self.s3_client.download_fileobj(Bucket=target_bucket, Key=s3_key, Fileobj=tmp_file)
+            await asyncio.to_thread(_descargar)
+            tmp_file.seek(0)
 
-        await asyncio.to_thread(_descargar)
-        tmp_file.seek(0)
-
-        try:
             self.validar_integridad_archivo(file_data=tmp_file, file_name=file_name)
+            return tmp_file
+
         except Exception as e:
+            # 🟢 CIERRE GARANTIZADO: Ante cualquier falla de red, Boto3, tamaño o validación,
+            # cerramos tmp_file para liberar descriptores y espacio en disco efímero.
             tmp_file.close()
             raise e
-
-        return tmp_file
 
     async def obtener_bytes_archivo(
         self, 

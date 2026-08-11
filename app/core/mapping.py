@@ -108,6 +108,8 @@ class SfcSalesforceMapper:
     async def obtener_catalogos_y_mapeos(cls) -> None:
         """
         Sincroniza Catálogos y Mapeos consultando las pestañas individuales de Google Sheets en un solo lote (batchGet).
+        Si la API de Google falla o responde con 429, utiliza los catálogos en RAM / local y actualiza
+        ULTIMA_ACTUALIZACION para evitar tormentas de peticiones externas durante el outage.
         """
         ahora = time.time()
         if cls.CATALOGOS and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
@@ -122,8 +124,6 @@ class SfcSalesforceMapper:
 
                 if access_token:
                     headers = {"Authorization": f"Bearer {access_token}"}
-                    
-                    # 1. Obtener lista de títulos de todas las pestañas existentes en el libro
                     url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
                     
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -136,7 +136,6 @@ class SfcSalesforceMapper:
                                 if "properties" in s and "title" in s["properties"]
                             ]
 
-                            # 2. Consultar todas las pestañas en una única llamada batchGet
                             params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
                             url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
                             
@@ -150,9 +149,8 @@ class SfcSalesforceMapper:
                                 for vr in value_ranges:
                                     range_str = vr.get("range", "")
                                     tab_title = range_str.split("!")[0].replace("'", "").strip()
-                                    rows = vr.get("values", [])[1:] # Omitir fila de encabezados
+                                    rows = vr.get("values", [])[1:]
 
-                                    # Caso Pestaña de Mapeo de Nombres de Campos
                                     if tab_title.lower() == "mapeo_campos":
                                         for row in rows:
                                             if len(row) >= 3 and row[0] and row[1] and row[2]:
@@ -165,7 +163,6 @@ class SfcSalesforceMapper:
                                                 elif "MOMENTO_4" in momento or "M4" in momento:
                                                     m4_map[campo_sfc] = campo_crm
                                     else:
-                                        # Caso Pestaña de Catálogo por Valor (ej: genero, tipo_id, canal, etc.)
                                         cat_key = tab_title.lower()
                                         cat_dict = {}
                                         for row in rows:
@@ -174,7 +171,6 @@ class SfcSalesforceMapper:
                                                 val = str(row[1]).strip()
                                                 cat_dict[code] = val
                                                 
-                                        
                                         if cat_dict:
                                             nuevos_catalogos[cat_key] = cat_dict
 
@@ -190,10 +186,14 @@ class SfcSalesforceMapper:
                                     )
                                     return
             except Exception as e:
-                logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Cargando respaldo local.")
+                logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Usando datos vigentes/local.")
 
+        # 🟢 FALLBACK SEGURO: Si Google Sheets falló, usar respaldo local o datos existentes
         if not cls.CATALOGOS:
             cls.cargar_catalogos_local()
+
+        # 🟢 ACTUALIZAR TTL: Refrescar marca de tiempo para no reintentar Google Sheets en cada petición
+        cls.ULTIMA_ACTUALIZACION = ahora
 
     @classmethod
     def _construir_indices_inversos(cls):
@@ -237,7 +237,9 @@ class SfcSalesforceMapper:
             cls.MAPPING_MOMENTO_1_SFC_TO_CRM = cls.DEFAULT_MAPPING_M1
             cls.MAPPING_MOMENTO_4_SFC_TO_CRM = cls.DEFAULT_MAPPING_M4
             cls.cargar_divipola(force=force)
-            cls.ULTIMA_ACTUALIZACION = 0
+            # 🟢 Mover a tiempo actual cuando se carga en frío
+            if cls.ULTIMA_ACTUALIZACION == 0:
+                cls.ULTIMA_ACTUALIZACION = time.time()
 
             logger.info("📂 [SfcSalesforceMapper] Respaldo local de catálogos cargado en RAM.")
         except Exception as e:

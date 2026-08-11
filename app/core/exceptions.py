@@ -84,7 +84,7 @@ class SfcErrorTranslator:
         ahora = time.time()
 
         # 1. Si ya está cargada en RAM y no ha vencido el TTL (10 min), usar RAM
-        if cls.MATRIZ_ERRORES_TEXTO and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
+        if cls.MATRIZ_ERRORES_TEXTO and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
             return cls.MATRIZ_ERRORES_TEXTO
 
         spreadsheet_id = getattr(settings, "GOOGLE_SPREADSHEET_ID", None)
@@ -109,7 +109,6 @@ class SfcErrorTranslator:
                         data = response.json()
                         rows = data.get("values", [])
 
-                        # Omitimos la primera fila (encabezados: subcadena, tipo, accion)
                         reglas = []
                         for row in rows[1:]:
                             if not row or not row[0]:
@@ -134,12 +133,15 @@ class SfcErrorTranslator:
                         )
             except Exception as e:
                 logger.warning(
-                    f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. Usando respaldo local."
+                    f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. Usando datos vigentes/local."
                 )
 
-        # 3. Fallback: Cargar JSON local
+        # 3. Fallback: Cargar JSON local si la RAM está totalmente vacía
         if not cls.MATRIZ_ERRORES_TEXTO:
             cls.cargar_matriz_local()
+
+        # 🟢 ACTUALIZAR TTL: Refrescar marca de tiempo tras fallback para no reintentar Google Sheets en cada petición
+        cls.ULTIMA_ACTUALIZACION = ahora
 
         return cls.MATRIZ_ERRORES_TEXTO
 
