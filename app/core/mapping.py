@@ -197,30 +197,40 @@ class SfcSalesforceMapper:
 
     @classmethod
     def _construir_indices_inversos(cls):
-        """Genera diccionarios inversos optimizados para búsquedas CRM -> SFC."""
+        """
+        Genera diccionarios inversos optimizados para búsquedas CRM -> SFC.
+        Garantiza aislamiento atómico durante la construcción en RAM para prevenir
+        condiciones de carrera con peticiones HTTP concurrentes.
+        """
         if "producto" not in cls.CATALOGOS or not cls.CATALOGOS["producto"]:
             cls.CATALOGOS["producto"] = {
                 f"207_{idx}": nombre
                 for idx, nombre in enumerate(cls.PRODUCTO_SFC_TEXTO_TO_SF.values(), 1)
             }
 
-        cls.INVERSE_CATALOGS = {}
+        # 🟢 CONSTRUCCIÓN EN VARIABLE LOCAL: No vacía la referencia global cls.INVERSE_CATALOGS
+        nuevos_indices_inversos: Dict[str, Dict[str, Any]] = {}
+
         for cat_key, cat_dict in cls.CATALOGOS.items():
             cat_inverse = {}
             for k, v in cat_dict.items():
                 val_to_store = int(k) if str(k).isdigit() else str(k)
                 cat_inverse[cls._normalize_text(v)] = val_to_store
                 cat_inverse[str(k)] = val_to_store 
-            cls.INVERSE_CATALOGS[cat_key] = cat_inverse
+            nuevos_indices_inversos[cat_key] = cat_inverse
         
-        if "tipo_id" in cls.INVERSE_CATALOGS:
-            cls.INVERSE_CATALOGS["tipo_id"].update({
+        # Inyección de alias previa a la publicación
+        if "tipo_id" in nuevos_indices_inversos:
+            nuevos_indices_inversos["tipo_id"].update({
                 "cc": 1, "ce": 2, "rut": 3, "nit": 3, "dni": 4, "pass": 5, "passport": 5, "pasaporte": 5
             })
-        if "punto_recepcion" in cls.INVERSE_CATALOGS:
-            cls.INVERSE_CATALOGS["punto_recepcion"].update({
+        if "punto_recepcion" in nuevos_indices_inversos:
+            nuevos_indices_inversos["punto_recepcion"].update({
                 "activate b2c": 99, "form: change data": 99, "updatecom": 99, "manual": 1, "internet": 2
             })
+
+        # 🟢 REASIGNACIÓN ATÓMICA: Las corrutinas lectoras conmutan a los nuevos índices instantáneamente
+        cls.INVERSE_CATALOGS = nuevos_indices_inversos
 
     @classmethod
     def cargar_catalogos_local(cls, force: bool = False):
