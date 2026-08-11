@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   # ======================================================================
-  # 🚀 MICROSERVICIO PRINCIPAL DE INTEGRACIÓN SMART SUPERVISIÓN
+  # 🌐 1. SERVICIO API WEB (FastAPI - Stateless)
   # ======================================================================
   app:
     build:
@@ -10,6 +10,7 @@ services:
       dockerfile: infrastructure/Dockerfile
       target: final
     image: ms-integracion-smartsupervision:latest
+    container_name: sfc-api-app
     ports:
       - "8000:8000"
     env_file:
@@ -18,6 +19,7 @@ services:
       - ENVIRONMENT=dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - RUN_SCHEDULER=false   # 👈 Desactivado en la API para permitir Auto Scaling libre
     restart: unless-stopped
     depends_on:
       redis:
@@ -30,8 +32,29 @@ services:
       start_period: 10s
 
   # ======================================================================
-  # 📦 COLA CENTRALIZADA REDIS (Para entornos DEV en EC2)
-  # Nota: En AWS Producción/Staging, se reemplaza por AWS ElastiCache
+  # ⚙️ 2. SERVICIO WORKER DEDICADO (APScheduler + Cola Redis)
+  # ======================================================================
+  worker:
+    image: ms-integracion-smartsupervision:latest
+    container_name: sfc-worker-app
+    command: ["python", "-m", "app.worker"] # 👈 Punto de entrada independiente
+    env_file:
+      - ../.env
+    environment:
+      - ENVIRONMENT=dev
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RUN_SCHEDULER=true    # 👈 Única instancia encargada del scheduler y reintentos
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+
+  # ======================================================================
+  # 📦 3. COLA CENTRALIZADA REDIS (Para entornos DEV / EC2)
+  # Nota: En AWS Producción/Staging se conecta a AWS ElastiCache
   # ======================================================================
   redis:
     image: redis:7-alpine

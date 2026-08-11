@@ -6,21 +6,19 @@ services:
     image: nginx:alpine
     container_name: nginx-lb-local
     ports:
-      - "8000:80" # Expone el puerto 8000 hacia tu script de pruebas
+      - "8000:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - app
 
-  # --- MICROSERVICIO REAL DE INTEGRACIÓN (REPLICABLE) ---
+  # --- API HTTP (REPLICABLE) ---
   app:
     build:
       context: ../                          
       dockerfile: infrastructure/Dockerfile  
       target: final
-    # 🚨 NOTA: Se remueve "ports: 8000:8000" para permitir múltiples instancias en paralelo
-    volumes:
-      - ../:/code                           
+    image: ms-integracion-smartsupervision:latest
     env_file:
       - .env.test
     environment:
@@ -30,8 +28,31 @@ services:
       - REDIS_PORT=6379
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
-      - minio
-      - redis
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # --- WORKER DE PROCESAMIENTO (REPLICABLE) ---
+  worker:
+    build:
+      context: ../                          
+      dockerfile: infrastructure/Dockerfile  
+      target: final
+    image: ms-integracion-smartsupervision:latest
+    env_file:
+      - .env.test
+    environment:
+      - ENVIRONMENT=qa
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    command: python -m app.worker  # Ajusta al comando de tu worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   # --- EMULADOR DE AWS S3 (MINIO) ---
   minio:
@@ -46,6 +67,11 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # --- COLA CENTRALIZADA (REDIS) ---
   redis:
@@ -56,6 +82,11 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
 volumes:
   minio_data:

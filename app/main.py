@@ -65,12 +65,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error crítico al inicializar Redis: {str(e)}")
 
-    # 4. Encender el scheduler de reintentos
-    try:
-        iniciar_scheduler()
-        logger.info("Scheduler de reintentos para la SFC iniciado exitosamente.")
-    except Exception as e:
-        logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
+    # 4. Encender el scheduler de reintentos ÚNICAMENTE si está habilitado explícitamente
+    if settings.RUN_SCHEDULER:
+        try:
+            iniciar_scheduler()
+            logger.info("🚀 Scheduler de reintentos para la SFC iniciado exitosamente en este nodo.")
+        except Exception as e:
+            logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
+    else:
+        logger.info("ℹ️ Scheduler desactivado para esta instancia Web (Modo Stateless API).")
     
     # 5. Cargar matriz de errores y catálogos en RAM
     try:

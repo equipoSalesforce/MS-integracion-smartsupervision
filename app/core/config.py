@@ -148,4 +148,9 @@ class Settings(BaseSettings):
         description="API Key enviada en la cabecera X-API-Key hacia el CRM"
     )
     
+    RUN_SCHEDULER: bool = Field(
+        default=False, 
+        description="Indica si esta instancia del microservicio debe activar el Scheduler en background"
+    )
+    
 settings = Settings()

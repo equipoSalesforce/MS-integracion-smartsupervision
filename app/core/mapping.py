@@ -172,8 +172,6 @@ class SfcSalesforceMapper:
                                             if len(row) >= 2 and row[0] and row[1]:
                                                 code = str(row[0]).strip()
                                                 val = str(row[1]).strip()
-                                                if cat_key == "producto":
-                                                    logger.info(f"El codigo de producto es: {code} y el valor en el crm es: {val}")
                                                 cat_dict[code] = val
                                                 
                                         

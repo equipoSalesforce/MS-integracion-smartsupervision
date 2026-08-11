@@ -232,10 +232,16 @@ class SfcClient:
             await SfcErrorTranslator.procesar_y_lanzar(503, "upstream request timeout")
     
     @handle_sfc_throttling
-    async def post_adjunto_queja(self, sfc_codigo_queja: str, file_bytes: bytes, file_type: str, file_name: Optional[str] = None) -> Dict[str, Any]:
+    async def post_adjunto_queja(
+        self, 
+        sfc_codigo_queja: str, 
+        file_data: Any, 
+        file_type: str, 
+        file_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Envía un archivo binario asociado a una queja hacia la SFC utilizando multipart/form-data.
-        Bypassea el interceptor automático usando auth=None para mitigar errores de streaming.
+        Envía un archivo asociado a una queja hacia la SFC utilizando multipart/form-data.
+        Soporta transmisión vía bytes o por objetos file-like / streams.
         """
         endpoint = SfcEndpoints.STORAGE.value
         url = f"{self.base_url}{endpoint}"
@@ -270,8 +276,11 @@ class SfcClient:
             "type": file_type
         }
         
+        # Leemos el contenido si es un stream o pasamos los bytes directos
+        content_to_send = file_data.read() if hasattr(file_data, "read") else file_data
+
         files = {
-            "file": (file_name, file_bytes, f"application/{file_type}")
+            "file": (file_name, content_to_send, f"application/{file_type}")
         }
 
         logger.info(f"Transmitiendo archivo adjunto ({file_type}) para la queja SFC: {sfc_codigo_queja}")

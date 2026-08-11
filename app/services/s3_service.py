@@ -1,10 +1,12 @@
 # app/services/s3_service.py
 import asyncio
-from urllib.parse import urlparse
-import httpx
 import logging
-from typing import Dict, List, Optional, Any
+import tempfile
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
 from botocore.exceptions import ClientError
+import httpx
 
 from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
@@ -16,7 +18,8 @@ class S3StorageService:
     """
     Servicio unificado para abstraer operaciones sobre AWS S3 / MinIO.
     Centraliza el manejo asíncrono, validaciones de tamaño e integridad,
-    orquestación en lote y excepciones estandarizadas.
+    orquestación en lote y excepciones estandarizadas utilizando Streaming
+    para prevenir errores de falta de memoria (OOM).
     """
 
     def __init__(self, s3_client=None, http_client: Optional[httpx.AsyncClient] = None):
@@ -26,7 +29,7 @@ class S3StorageService:
         self.http_client = http_client
 
     @staticmethod
-    def normalizar_tipo_archivo(raw_type: str, file_url: str = "") -> tuple[str, str]:
+    def normalizar_tipo_archivo(raw_type: str, file_url: str = "") -> Tuple[str, str]:
         """
         Normaliza extensiones y tipos MIME para almacenamiento en S3 y envío a SFC.
         """
@@ -55,21 +58,42 @@ class S3StorageService:
         return (val if val else "pdf"), f"application/{val if val else 'pdf'}"
 
     @staticmethod
-    def validar_integridad_archivo(file_bytes: bytes, file_name: str):
+    def validar_integridad_archivo(file_data: Any, file_name: str):
         """
         🔍 Valida que el archivo no esté vacío (0 bytes) y que sus Magic Bytes
         coincidan con la firma de formato esperada según su extensión.
+        Acepta tanto 'bytes' crudos como objetos 'file-like' (ej. SpooledTemporaryFile).
         """
-        if not file_bytes or len(file_bytes) == 0:
-            raise SfcIntegrationException(
-                status_code=400,
-                error_type="FILE_EMPTY_ERROR",
-                sfc_field="archivos_s3",
-                raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
-                crm_action="Verifique y cargue un archivo válido con contenido en S3 antes de reintentar."
-            )
-
         ext = file_name.split(".")[-1].lower().strip() if "." in file_name else ""
+
+        # Manejo de datos en memoria (bytes)
+        if isinstance(file_data, bytes):
+            if not file_data or len(file_data) == 0:
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="FILE_EMPTY_ERROR",
+                    sfc_field="archivos_s3",
+                    raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
+                    crm_action="Verifique y cargue un archivo válido con contenido en S3 antes de reintentar."
+                )
+            header = file_data[:1024]
+        
+        # Manejo de objetos tipo archivo (Streams / TempFiles)
+        else:
+            file_data.seek(0, 2)  # Ir al final del archivo
+            size = file_data.tell()
+            file_data.seek(0)     # Volver al inicio
+            
+            if size == 0:
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="FILE_EMPTY_ERROR",
+                    sfc_field="archivos_s3",
+                    raw_message=f"El archivo '{file_name}' está completamente vacío (0 bytes).",
+                    crm_action="Verifique y cargue un archivo válido con contenido en S3 antes de reintentar."
+                )
+            header = file_data.read(1024)
+            file_data.seek(0)  # Rebobinar el stream para futuras lecturas
 
         # Firmas de cabecera estándar (Magic Bytes)
         magic_headers = {
@@ -82,7 +106,7 @@ class S3StorageService:
 
         if ext in magic_headers:
             signatures = magic_headers[ext]
-            if not any(file_bytes.startswith(sig) for sig in signatures):
+            if not any(header.startswith(sig) for sig in signatures):
                 logger.error(f"❌ [S3 Integrity] Archivo '{file_name}' no coincide con los Magic Bytes de tipo {ext.upper()}.")
                 raise SfcIntegrationException(
                     status_code=400,
@@ -105,12 +129,10 @@ class S3StorageService:
             if not hostname:
                 return False
 
-            # Host base configurado en settings
             sfc_base_host = (urlparse(settings.SFC_URL_BASE).hostname or "").lower()
             if sfc_base_host and (hostname == sfc_base_host or hostname.endswith("." + sfc_base_host)):
                 return True
 
-            # Dominios autorizados de almacenamiento/SFC
             allowed_domains = (
                 "superfinanciera.gov.co",
                 "storage.googleapis.com",
@@ -120,7 +142,6 @@ class S3StorageService:
             if any(hostname == domain or hostname.endswith("." + domain) for domain in allowed_domains):
                 return True
 
-            # Permitir servicios locales en entorno de desarrollo/QA
             if self.is_local or settings.ENVIRONMENT in ("local", "development", "qa"):
                 if hostname in ("localhost", "127.0.0.1", "minio", "mock-sfc", "unscanned"):
                     return True
@@ -129,19 +150,26 @@ class S3StorageService:
         except Exception:
             return False
     
-    async def obtener_bytes_archivo(
+    async def obtener_stream_archivo(
         self, 
         s3_key: str, 
         bucket: Optional[str] = None, 
         max_size_mb: int = 30
-    ) -> bytes:
-        """Valida existencia, tamaño, integridad y retorna bytes desde S3 de forma asíncrona."""
+    ) -> tempfile.SpooledTemporaryFile:
+        """
+        Valida existencia, tamaño, integridad y descarga el archivo desde S3 utilizando
+        streaming (`download_fileobj`) hacia un archivo temporal en memoria/disco,
+        previniendo la saturación de memoria RAM.
+        """
         target_bucket = bucket or self.default_bucket
         file_name = s3_key.split("/")[-1] if "/" in s3_key else s3_key
 
+        # Archivo temporal: Máx 5 MB en RAM, si es mayor se vuelca a disco automáticamente
+        tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
+
         if not self.s3_client:
             if self.is_local:
-                logger.info(f"[LOCAL S3 MOCK] Generando bytes simulados válidos para key: {s3_key}")
+                logger.info(f"[LOCAL S3 MOCK] Generando stream simulado para key: {s3_key}")
                 ext = file_name.split(".")[-1].lower() if "." in file_name else "pdf"
                 mock_headers = {
                     "pdf": b"%PDF-1.4 Mock PDF content for local testing",
@@ -150,8 +178,11 @@ class S3StorageService:
                     "jpeg": b"\xff\xd8\xffMock JPEG content",
                     "zip": b"PK\x03\x04Mock ZIP content"
                 }
-                return mock_headers.get(ext, b"%PDF-1.4 Mock content default")
+                tmp_file.write(mock_headers.get(ext, b"%PDF-1.4 Mock content default"))
+                tmp_file.seek(0)
+                return tmp_file
             else:
+                tmp_file.close()
                 raise SfcIntegrationException(
                     status_code=500,
                     error_type="INFRASTRUCTURE_ERROR",
@@ -167,6 +198,7 @@ class S3StorageService:
                 Key=s3_key
             )
         except ClientError as e:
+            tmp_file.close()
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code in ("404", "403", "NoSuchKey", "NotFound"):
                 logger.error(f"❌ [S3 Error] Archivo '{file_name}' no encontrado (Key: '{s3_key}').")
@@ -181,8 +213,8 @@ class S3StorageService:
 
         file_size = metadata.get("ContentLength", 0)
         
-        # 1. Validación preventiva de tamaño 0 bytes
         if file_size == 0:
+            tmp_file.close()
             raise SfcIntegrationException(
                 status_code=400,
                 error_type="FILE_EMPTY_ERROR",
@@ -191,9 +223,9 @@ class S3StorageService:
                 crm_action="Cargue un archivo válido con contenido en S3 antes de reintentar."
             )
 
-        # 2. Validación de tamaño máximo
         limit_bytes = max_size_mb * 1024 * 1024
         if file_size > limit_bytes:
+            tmp_file.close()
             raise SfcIntegrationException(
                 status_code=400,
                 error_type="FILE_SIZE_EXCEEDED",
@@ -202,16 +234,80 @@ class S3StorageService:
                 crm_action="Comprima el documento antes de reintentar."
             )
 
+        # Descarga mediante streaming directo al SpooledTemporaryFile
         def _descargar():
-            s3_file = self.s3_client.get_object(Bucket=target_bucket, Key=s3_key)
-            return s3_file["Body"].read()
+            self.s3_client.download_fileobj(Bucket=target_bucket, Key=s3_key, Fileobj=tmp_file)
 
-        file_bytes = await asyncio.to_thread(_descargar)
+        await asyncio.to_thread(_descargar)
+        tmp_file.seek(0)
 
-        # 3. Validación de integridad de Magic Bytes
-        self.validar_integridad_archivo(file_bytes=file_bytes, file_name=file_name)
+        try:
+            self.validar_integridad_archivo(file_data=tmp_file, file_name=file_name)
+        except Exception as e:
+            tmp_file.close()
+            raise e
 
-        return file_bytes
+        return tmp_file
+
+    async def obtener_bytes_archivo(
+        self, 
+        s3_key: str, 
+        bucket: Optional[str] = None, 
+        max_size_mb: int = 30
+    ) -> bytes:
+        """
+        Mantiene compatibilidad hacia atrás devolviendo bytes en memoria RAM.
+        """
+        tmp_file = await self.obtener_stream_archivo(s3_key, bucket, max_size_mb)
+        try:
+            return tmp_file.read()
+        finally:
+            tmp_file.close()
+
+    async def subir_stream_archivo(
+        self, 
+        s3_key: str, 
+        file_obj: Any, 
+        content_type: str = "application/pdf", 
+        bucket: Optional[str] = None
+    ) -> str:
+        """Sube un archivo a S3 de forma asíncrona mediante streaming."""
+        target_bucket = bucket or self.default_bucket
+
+        if not self.s3_client:
+            if self.is_local:
+                logger.info(f"[LOCAL S3 MOCK] Subida simulada (Stream) para key: {s3_key}")
+                return s3_key
+            else:
+                raise SfcIntegrationException(
+                    status_code=500,
+                    error_type="INFRASTRUCTURE_ERROR",
+                    sfc_field="s3_client",
+                    raw_message="El cliente S3 no está inicializado en producción.",
+                    crm_action="Contactar al equipo de infraestructura para validar AWS S3."
+                )
+
+        try:
+            logger.info(f"[S3 Storage] Subiendo stream a Bucket: {target_bucket} | Key: {s3_key}")
+            file_obj.seek(0)
+            
+            await asyncio.to_thread(
+                self.s3_client.upload_fileobj,
+                Fileobj=file_obj,
+                Bucket=target_bucket,
+                Key=s3_key,
+                ExtraArgs={'ContentType': content_type}
+            )
+            return s3_key
+        except Exception as e:
+            logger.error(f"❌ [S3 Storage] Error al subir stream {s3_key}: {str(e)}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="S3_UPLOAD_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"No se pudo guardar la copia en S3: {str(e)}",
+                crm_action="Revisar permisos del bucket y conectividad con S3."
+            )
 
     async def subir_bytes_archivo(
         self, 
@@ -220,7 +316,7 @@ class S3StorageService:
         content_type: str = "application/pdf", 
         bucket: Optional[str] = None
     ) -> str:
-        """Sube bytes a S3 de forma asíncrona e inyecta ContentType."""
+        """Sube bytes directos a S3 (Compatibilidad para PDFs generados dinámicamente)."""
         target_bucket = bucket or self.default_bucket
 
         if not self.s3_client:
@@ -261,7 +357,7 @@ class S3StorageService:
         prefix: str, 
         bucket: Optional[str] = None
     ) -> List[Dict[str, str]]:
-        """Escanea un directorio/prefix en S3/MinIO y retorna archivos encontrados."""
+        """Escanea un directorio/prefix en S3/MinIO y retorna los archivos encontrados."""
         target_bucket = bucket or self.default_bucket
         prefix_clean = prefix.strip()
         if not prefix_clean.endswith("/"):
@@ -300,7 +396,7 @@ class S3StorageService:
         adjuntos_sfc: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Descarga adjuntos desde la SFC (HTTP) y los respalda en S3 de forma concurrente. [Momento 1]
+        Descarga adjuntos desde la SFC (HTTP) y los respalda en S3 de forma concurrente con Streaming. [Momento 1]
         """
         if not adjuntos_sfc:
             return []
@@ -317,8 +413,9 @@ class S3StorageService:
                 filename = f"{file_id}.{ext}" if file_id else f"adjunto_{codigo_queja}.{ext}"
                 s3_key = f"quejas/{codigo_queja}/{filename}"
 
+                tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
+
                 try:
-                    # 🛡️ 1. VALIDACIÓN ANTI-SSRF
                     if not self._es_host_permitido_sfc(url_sfc):
                         logger.error(f"🚨 [SSRF Protection] Bloqueada descarga de URL no autorizada: '{url_sfc}'")
                         raise SfcIntegrationException(
@@ -331,14 +428,12 @@ class S3StorageService:
 
                     logger.info(f"[S3 Orquestador] Descargando de SFC con Streaming (Límite 30MB): {filename}")
 
-                    # 🛡️ 2. DESCARGA EN STREAMING CON LÍMITE DE 30MB
                     max_bytes = 30 * 1024 * 1024  # 30 MB
-                    file_bytes_buffer = bytearray()
+                    downloaded_bytes = 0
 
                     async with client.stream("GET", url_sfc) as response:
                         response.raise_for_status()
 
-                        # Validación previa opcional por encabezado Content-Length
                         content_length = response.headers.get("Content-Length")
                         if content_length and content_length.isdigit():
                             if int(content_length) > max_bytes:
@@ -350,10 +445,11 @@ class S3StorageService:
                                     crm_action="Verifique el tamaño del archivo en la SFC."
                                 )
 
-                        # Lectura por bloques dinámicos
                         async for chunk in response.aiter_bytes(chunk_size=65536):
-                            file_bytes_buffer.extend(chunk)
-                            if len(file_bytes_buffer) > max_bytes:
+                            tmp_file.write(chunk)
+                            downloaded_bytes += len(chunk)
+                            
+                            if downloaded_bytes > max_bytes:
                                 raise SfcIntegrationException(
                                     status_code=400,
                                     error_type="FILE_SIZE_EXCEEDED",
@@ -362,14 +458,12 @@ class S3StorageService:
                                     crm_action="Verifique el tamaño del archivo en la SFC."
                                 )
 
-                    file_bytes = bytes(file_bytes_buffer)
-
-                    # 🛡️ 3. VALIDACIÓN DE INTEGRIDAD DE MAGIC BYTES
-                    self.validar_integridad_archivo(file_bytes=file_bytes, file_name=filename)
-
-                    await self.subir_bytes_archivo(
+                    tmp_file.seek(0)
+                    self.validar_integridad_archivo(file_data=tmp_file, file_name=filename)
+                    
+                    await self.subir_stream_archivo(
                         s3_key=s3_key,
-                        file_bytes=file_bytes,
+                        file_obj=tmp_file,
                         content_type=content_type
                     )
 
@@ -389,6 +483,8 @@ class S3StorageService:
                             "bucket": self.default_bucket
                         }
                     return None
+                finally:
+                    tmp_file.close()
 
         if self.http_client:
             tasks = [_procesar_adjunto(self.http_client, adj) for adj in adjuntos_sfc]
@@ -410,8 +506,7 @@ class S3StorageService:
         afijo_masivo: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Obtiene archivos desde S3 y los transmite a la SFC mediante multipart/form-data de forma concurrente.
-        Maneja afijos regulatorios y la supresión de duplicados. [Momento 2 y 3]
+        Obtiene archivos desde S3 y los transmite a la SFC mediante multipart/form-data. [Momento 2 y 3]
         """
         if not adjuntos_crm:
             return []
@@ -431,16 +526,16 @@ class S3StorageService:
 
                 file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
 
+                file_obj_or_bytes = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
+                tmp_stream = None
+                
                 try:
-                    # 1. Obtener bytes desde S3
-                    file_bytes = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
-                    if not file_bytes:
-                        file_bytes = await self.obtener_bytes_archivo(s3_key=s3_key, bucket=bucket)
+                    if not file_obj_or_bytes:
+                        tmp_stream = await self.obtener_stream_archivo(s3_key=s3_key, bucket=bucket)
+                        file_obj_or_bytes = tmp_stream
                     else:
-                        # Validar bytes pasados directamente en memoria RAM
-                        self.validar_integridad_archivo(file_bytes=file_bytes, file_name=original_name)
+                        self.validar_integridad_archivo(file_data=file_obj_or_bytes, file_name=original_name)
                         
-                    # 2. Aplicar lógica de afijos regulatorios si aplica
                     debe_aplicar_afijo = afijo_masivo or (target_file_name and original_name == target_file_name)
                     if debe_aplicar_afijo and afijo_regulatorio and afijo_regulatorio not in original_name:
                         nombre_puro = original_name.rsplit(".", 1)[0]
@@ -449,10 +544,9 @@ class S3StorageService:
                     else:
                         final_send_name = original_name
 
-                    # 3. Transmitir adjunto a la SFC
                     res_sfc = await sfc_client.post_adjunto_queja(
                         sfc_codigo_queja=sfc_codigo_queja,
-                        file_bytes=file_bytes,
+                        file_data=file_obj_or_bytes,
                         file_type=file_type,
                         file_name=final_send_name
                     )
@@ -462,7 +556,6 @@ class S3StorageService:
                 except SfcIntegrationException as exc:
                     raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
                     
-                    # 🛡️ TOLERANCIA A ARCHIVOS Y DOCUMENTOS PREVIAMENTE SUBIDOS
                     es_duplicado_o_cerrado = (
                         getattr(exc, "error_type", None) == "DUPLICATE_FILE" 
                         or "ya existe" in raw_msg 
@@ -482,6 +575,9 @@ class S3StorageService:
                 except Exception as e:
                     logger.error(f"❌ Error al transferir '{original_name}' a la SFC: {e}")
                     raise
+                finally:
+                    if tmp_stream:
+                        tmp_stream.close()
 
         tasks = [_procesar_envio(item) for item in adjuntos_crm]
         results = await asyncio.gather(*tasks)
