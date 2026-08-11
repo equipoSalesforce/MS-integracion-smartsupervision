@@ -11,7 +11,7 @@ from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager 
 from app.core.constants import SfcEndpoints, SmartStatus
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
-from app.core.middleware import get_correlation_id
+from app.core.middleware import get_aws_trace_id, get_correlation_id
 from app.core.security.signatures import ssl_context
 
 logger = logging.getLogger(__name__)
@@ -24,88 +24,80 @@ ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
 # 🛠️ Hook Sanitizado para Registrar Peticiones Salientes (Request)
 async def log_request(request: httpx.Request):
-    # 1. 🔑 INYECCIÓN DE CORRELATION ID
+    """Hook para registrar peticiones HTTP salientes hacia la SFC en formato JSON estructurado."""
     cid = get_correlation_id()
+    aws_trace = get_aws_trace_id()
+
     if cid and cid != "N/A":
         request.headers["X-Correlation-ID"] = cid
+    if aws_trace and aws_trace != "N/A":
+        request.headers["X-Amzn-Trace-Id"] = aws_trace
 
-    # --- FILTRO DE LOGS DE ARCHIVOS ---
     is_file_request = (
         SfcEndpoints.STORAGE.value in str(request.url) 
         or "multipart/form-data" in request.headers.get("content-type", "")
     )
-    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
+    if is_file_request and not getattr(settings, "ENABLE_FILE_LOGS", False):
+        return
 
-    if is_file_request and not enable_file_logs:
-        return  # Omitir el log de archivos pesados
-    # -----------------------------------
-
-    headers_clean = sanitizar_headers(request.headers)
-    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
+    headers_clean = sanitizar_headers(dict(request.headers))
 
     content_type = request.headers.get("content-type", "")
     if "multipart/form-data" in content_type or "octet-stream" in content_type:
-        body_str = "<[Contenido Binario / Multipart - Omitido por tamaño]>"
+        body_clean = "<Contenido Binario / Multipart - Omitido>"
     else:
         try:
             if request.content:
                 raw_json = json.loads(request.content.decode("utf-8"))
-                clean_json = sanitizar_payload(raw_json)
-                body_str = json.dumps(clean_json, ensure_ascii=False)
+                body_clean = sanitizar_payload(raw_json)
             else:
-                body_str = "<Vacio>"
+                body_clean = None
         except Exception:
-            body_str = f"<[Contenido No-JSON / Raw: {len(request.content)} bytes]>" if request.content else "<Vacio>"
+            body_clean = "<Contenido No-JSON / Raw>"
 
-    logger.info(
-        "\n==================== [AUDIT HTTP OUTGOING REQUEST] ====================\n"
-        f"Correlation-ID : {cid}\n"
-        f"Method         : {request.method}\n"
-        f"URL            : {request.url}\n"
-        f"Headers :\n{headers_formatted}\n"
-        f"Body           :\n{body_str}\n"
-        "=========================================================================="
-    )
+    logger.info("AUDIT_HTTP_OUTGOING_REQUEST", extra={
+        "extra_data": {
+            "direction": "OUTGOING_REQUEST",
+            "method": request.method,
+            "url": str(request.url),
+            "headers": headers_clean,
+            "body": body_clean
+        }
+    })
 
 
 # 🛠️ Hook Sanitizado para Registrar Respuestas Entrantes (Response)
 async def log_response(response: httpx.Response):
-    # --- FILTRO DE LOGS DE ARCHIVOS ---
+    """Hook para registrar respuestas HTTP entrantes desde la SFC en formato JSON estructurado."""
     is_file_response = (
         SfcEndpoints.STORAGE.value in str(response.url)
         or (response.request and "multipart/form-data" in response.request.headers.get("content-type", ""))
     )
-    enable_file_logs = getattr(settings, "ENABLE_FILE_LOGS", False)
-
-    if is_file_response and not enable_file_logs:
-        return  # Omitir el log de archivos pesados
-    # -----------------------------------
+    if is_file_response and not getattr(settings, "ENABLE_FILE_LOGS", False):
+        return
 
     await response.aread()
-
-    cid = get_correlation_id()
-    headers_clean = sanitizar_headers(response.headers)
-    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
+    headers_clean = sanitizar_headers(dict(response.headers))
 
     try:
         if response.text:
             raw_json = response.json()
-            clean_json = sanitizar_payload(raw_json)
-            body_str = json.dumps(clean_json, ensure_ascii=False)
+            body_clean = sanitizar_payload(raw_json)
         else:
-            body_str = "<Vacio>"
+            body_clean = None
     except Exception:
-        body_str = response.text or "<Vacio>"
+        body_clean = response.text or None
 
-    logger.info(
-        "\n==================== [AUDIT HTTP INCOMING RESPONSE] ====================\n"
-        f"Correlation-ID : {cid}\n"
-        f"Status         : {response.status_code} {response.reason_phrase}\n"
-        f"URL            : {response.url}\n"
-        f"Headers :\n{headers_formatted}\n"
-        f"Body           :\n{body_str}\n"
-        "=========================================================================="
-    )
+    logger.info("AUDIT_HTTP_INCOMING_RESPONSE", extra={
+        "extra_data": {
+            "direction": "INCOMING_RESPONSE",
+            "status_code": response.status_code,
+            "reason_phrase": response.reason_phrase,
+            "url": str(response.url),
+            "headers": headers_clean,
+            "body": body_clean
+        }
+    })
 
 
 def handle_sfc_throttling(func):
@@ -158,7 +150,9 @@ class SfcClient:
         if http_client is not None:
             self.client = http_client
         else:
+            timeout_sfc = httpx.Timeout(connect=3.0, read=15.0, write=10.0, pool=10.0)
             self.client = httpx.AsyncClient(
+                timeout=timeout_sfc,
                 auth=interceptor,
                 verify=ssl_context,
                 event_hooks={

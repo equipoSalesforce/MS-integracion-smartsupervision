@@ -38,7 +38,8 @@ class EmailAlertService:
 
             msg.attach(MIMEText(cuerpo_html, "html"))
 
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            # 🟢 FIX: Se añade timeout=10 para evitar bloqueos indefinidos de hilos en caso de problemas de red/VPC
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
                 server.starttls()
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_USER, destinatarios, msg.as_string())

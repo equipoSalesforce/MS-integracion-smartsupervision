@@ -1,4 +1,3 @@
-# app/services/idempotency_service.py
 import json
 import hashlib
 import logging
@@ -120,7 +119,7 @@ class IdempotencyService:
                         "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
                     }
 
-            # 🎯 CASO NUEVO: Registrar estado "PROCESSING" con bloqueo atómico de 60 segundos
+            # 🎯 CASO NUEVO: Registrar estado "PROCESSING" con bloqueo atómico de 60 segundos usando nx=True
             initial_record = {
                 "source": source,
                 "smart_code": smart_code,
@@ -132,7 +131,24 @@ class IdempotencyService:
                 "sfc_response": None
             }
 
-            await self.redis.set(key, json.dumps(initial_record, ensure_ascii=False), px=60000)
+            set_success = await self.redis.set(
+                key, 
+                json.dumps(initial_record, ensure_ascii=False), 
+                px=60000, 
+                nx=True
+            )
+
+            # Si set_success es None/False, otra petición concurrente creó el estado PROCESSING entre el GET y el SET
+            if not set_success:
+                logger.warning(f"⏳ [Idempotency Store] Petición concurrente detectada para {smart_code} ({operation}). Operación en proceso.")
+                return True, {
+                    "status": "processing",
+                    "is_idempotent_hit": True,
+                    "smart_code": smart_code,
+                    "operation": operation,
+                    "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
+                }
+
             return False, None
 
         except Exception as e:

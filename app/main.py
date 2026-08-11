@@ -42,8 +42,9 @@ async def lifespan(app: FastAPI):
         f"con Centralizada Redis + APScheduler activos."
     )
 
-    # 1. Pool Global HTTP para la SFC (TLS 1.2 + Hooks de Auditoría)
-    timeout_sfc = httpx.Timeout(connect=2.0, read=3.0, write=5.0, pool=5.0)
+    # 🟢 FIX: Se amplía el timeout de lectura (read=15.0) y escritura (write=10.0)
+    # para permitir la subida/descarga fluida de anexos pesados (hasta 30MB) hacia la SFC.
+    timeout_sfc = httpx.Timeout(connect=3.0, read=15.0, write=10.0, pool=10.0)
     limits_sfc = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     
     app.state.http_client = httpx.AsyncClient(
@@ -55,7 +56,7 @@ async def lifespan(app: FastAPI):
             'response': [log_response]
         }
     )
-    logger.info("📡 Pool global HTTP Client (SFC) inicializado con TLS 1.2.")
+    logger.info("📡 Pool global HTTP Client (SFC) inicializado con TLS 1.2 y Timeout extendido (read=15s).")
 
     # 2. Pool HTTP para el CRM Webhook
     get_crm_webhook_client()
@@ -127,7 +128,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 🌐 Registramos Middleware de Correlation ID
+# 🌐 Registramos Middleware de Correlation ID y AWS Trace ID
 app.add_middleware(CorrelationIdMiddleware)
 
 # 🌐 Configuración de CORS
