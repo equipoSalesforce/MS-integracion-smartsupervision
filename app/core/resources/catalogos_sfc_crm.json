@@ -240,13 +240,12 @@
   },
   "codigo_pais": {
     "170": "Colombia",
-    "COL": "Colombia",
+
     "152": "Chile",
-    "CHL": "Chile",
+
     "604": "Perú",
-    "PER": "Perú",
-    "840": "Estados Unidos",
-    "USA": "Estados Unidos"
+
+    "840": "Estados Unidos"
   },
   "producto": {
     "207_1": "Cuenta perfil",

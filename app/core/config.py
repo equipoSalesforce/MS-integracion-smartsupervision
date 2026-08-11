@@ -1,5 +1,6 @@
+# app/core/config.py
 from typing import List, Any, Optional
-from pydantic import BeforeValidator, Field, SecretStr, field_validator
+from pydantic import BeforeValidator, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
 
@@ -29,13 +30,12 @@ class Settings(BaseSettings):
 
     # --- Configuración AWS S3 ---
     AWS_S3_BUCKET: str = "mi-bucket-smartsupervision"
-    AWS_ACCESS_KEY_ID: str = "test_key"
-    AWS_SECRET_ACCESS_KEY: str = "test_secret"
+    AWS_ACCESS_KEY_ID: Optional[str] = Field(default="test_key")
+    AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default="test_secret")
     AWS_REGION: str = "us-east-1"
-    AWS_ENDPOINT_URL: str = None
+    AWS_ENDPOINT_URL: Optional[str] = None
 
     # --- Constantes de Entidad para la SFC ---
-    #TODO: consultar cuales son los valores reales
     SFC_TIPO_ENTIDAD: int = 1
     SFC_ENTIDAD_COD: str = "423"
 
@@ -74,52 +74,32 @@ class Settings(BaseSettings):
         description="Orígenes permitidos para CORS"
     )
 
-    # --- 🛠️ Configuración de Cola Centralizada con Redis --- #
-    REDIS_HOST: str = Field(
-        default="localhost",
-        description="Host del servidor Redis para la cola centralizada"
-    )
-    REDIS_PORT: int = Field(
-        default=6379,
-        description="Puerto del servidor Redis"
-    )
-    REDIS_PASSWORD: Optional[str] = Field(
-        default=None,
-        description="Contraseña de autenticación de Redis (si aplica)"
-    )
-    REDIS_DB: int = Field(
-        default=0,
-        description="Número de base de datos de Redis"
-    )
-    REDIS_SSL: bool = Field(
-        default=False,
-        description="Activa el cifrado TLS/SSL para la conexión a Redis (ej. AWS ElastiCache)"
-    )
-    REDIS_URL: Optional[str] = Field(
-        default=None,
-        description="URL de conexión completa a Redis (opcional, sobrescribe host/port/db)"
-    )
+    # --- Configuración de Cola Centralizada con Redis ---
+    REDIS_HOST: str = Field(default="localhost")
+    REDIS_PORT: int = Field(default=6379)
+    REDIS_PASSWORD: Optional[str] = Field(default=None)
+    REDIS_DB: int = Field(default=0)
+    REDIS_SSL: bool = Field(default=False)
+    REDIS_URL: Optional[str] = Field(default=None)
 
     QUEUE_RETRY_INTERVAL_MINUTES: int = Field(default=5)
     QUEUE_MAX_RETRIES: int = Field(default=10)
     QUEUE_ENABLED: bool = Field(default=True)
     QUEUE_RETENTION_DAYS: int = Field(default=7)
-    QUEUE_RETENTION_DAYS_DLQ: int = Field(default=30, description="Días de retención para casos FALLIDO_DEFINITIVO (DLQ)")
+    QUEUE_RETENTION_DAYS_DLQ: int = Field(default=30)
     
-    # -- Configuración de SMTP alertas -- #
-    
-    SMTP_HOST: str = Field(default="smtp.gmail.com", description="Servidor SMTP (ej. smtp.gmail.com o smtp.office365.com)")
-    SMTP_PORT: int = Field(default=587, description="Puerto TLS estándar (587) o SSL (465)")
-    SMTP_USER: str = Field(default="juan.camargo@global66.com", description="Correo remitente del bot")
-    SMTP_PASSWORD: str = Field(default="xxxx xxxx xxxx xxxx", description="Contraseña de aplicación de 16 caracteres")
+    # --- Configuración SMTP Alertas ---
+    SMTP_HOST: str = Field(default="smtp.gmail.com")
+    SMTP_PORT: int = Field(default=587)
+    SMTP_USER: str = Field(default="juan.camargo@global66.com")
+    SMTP_PASSWORD: str = Field(default="xxxx xxxx xxxx xxxx")
     
     ALERT_NOTIFY_EMAILS: List[str] = Field(
-        default=["juan.camargo@global66.com", "tl.correo@global66.com"],
-        description="Lista de correos de ingeniería a notificar en fallas de infraestructura"
+        default=["juan.camargo@global66.com", "tl.correo@global66.com"]
     )
-    ALERT_EMAILS_ENABLED: bool = Field(default=True, description="Switch para activar/desactivar alertas por e-mail")
+    ALERT_EMAILS_ENABLED: bool = Field(default=True)
 
-    # -- Configuración de matriz de errores en sheets -- #
+    # --- Configuración de Matriz en Sheets ---
     GOOGLE_SHEETS_MATRIX_URL: Optional[str] = None
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
@@ -128,29 +108,48 @@ class Settings(BaseSettings):
     GOOGLE_SHEET_RANGE: Optional[str] = None
     GOOGLE_CATALOGS_SPREADSHEET_ID: Optional[str] = None
     
-    # --- Control de Throttling (Mini-retries) ---
-    SFC_MINI_RETRY_ATTEMPTS: int = Field(
-        default=2,
-        description="Número de mini-retries inmediatos cuando la SFC responde 429 Throttled/Quota Exceeded"
-    )
-    SFC_MINI_RETRY_DELAY_SECONDS: float = Field(
-        default=5.5,
-        description="Pausa en segundos (mini-delay) entre cada mini-retry por throttling"
-    )
+    # --- Control de Throttling ---
+    SFC_MINI_RETRY_ATTEMPTS: int = Field(default=2)
+    SFC_MINI_RETRY_DELAY_SECONDS: float = Field(default=5.5)
     
-    # --- 🔔 Webhook de Confirmación de Creación hacia el CRM ---
-    CRM_WEBHOOK_URL: Optional[str] = Field(
-        default=None,
-        description="URL del endpoint POST en el CRM para notificar la creación exitosa en la SFC"
-    )
-    CRM_WEBHOOK_API_KEY: Optional[str] = Field(
-        default=None,
-        description="API Key enviada en la cabecera X-API-Key hacia el CRM"
-    )
+    # --- Webhook CRM ---
+    CRM_WEBHOOK_URL: Optional[str] = Field(default=None)
+    CRM_WEBHOOK_API_KEY: Optional[str] = Field(default=None)
     
-    RUN_SCHEDULER: bool = Field(
-        default=False, 
-        description="Indica si esta instancia del microservicio debe activar el Scheduler en background"
-    )
-    
+    RUN_SCHEDULER: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def validar_secretos_produccion(self):
+        """
+        🛡️ VALIDACIÓN STRICT FAIL-FAST EN ARRANQUE
+        Impide la ejecución en ambientes productivos/no-locales si no se inyectaron
+        secretos reales desde AWS Secrets Manager / Environment.
+        """
+        env_lower = (self.ENVIRONMENT or "").strip().lower()
+        ambientes_estrictos = ("production", "prod", "staging", "qa")
+
+        if env_lower in ambientes_estrictos:
+            valores_inseguros_prohibidos = {
+                "CRM_API_KEY": ["g66_sk_test_super_secreto_12345", "test", "12345"],
+                "ADMIN_API_KEY": ["g66_sk_test_admin_secreto_99999", "admin", "12345"],
+                "SFC_SECRET_KEY": ["global66_sfc_secret_key_testing_2026", "secret", "test"],
+                "SFC_PASSWORD": ["123456789", "123456", "admin", "password"]
+            }
+
+            campos_comprometidos = []
+            for campo, valores_inseguros in valores_inseguros_prohibidos.items():
+                valor_actual = getattr(self, campo, None)
+                if not valor_actual or str(valor_actual).strip() in valores_inseguros:
+                    campos_comprometidos.append(campo)
+
+            if campos_comprometidos:
+                lista_campos_str = ", ".join(campos_comprometidos)
+                raise ValueError(
+                    f"🚨 [RIESGO CRÍTICO DE SEGURIDAD] El microservicio arrancó en ambiente '{self.ENVIRONMENT}' "
+                    f"pero detectó valores por defecto/inseguros en los campos: [{lista_campos_str}]. "
+                    f"Asegúrese de inyectar los secretos reales desde AWS Secrets Manager antes de desplegar en ECS."
+                )
+
+        return self
+
 settings = Settings()

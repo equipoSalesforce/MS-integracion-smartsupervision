@@ -108,18 +108,18 @@ class SfcSalesforceMapper:
     async def obtener_catalogos_y_mapeos(cls) -> None:
         """
         Sincroniza Catálogos y Mapeos consultando las pestañas individuales de Google Sheets en un solo lote (batchGet).
-        Si la API de Google falla o responde con 429, utiliza los catálogos en RAM / local y actualiza
-        ULTIMA_ACTUALIZACION para evitar tormentas de peticiones externas durante el outage.
         """
         ahora = time.time()
+        # 1. Validación de caché fresca en RAM
         if cls.CATALOGOS and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
             return
+
+        logger.info("🔄 [SfcSalesforceMapper] Intentando conectar con catalogo de mapeo en Google Sheets...")
 
         spreadsheet_id = getattr(settings, "GOOGLE_CATALOGS_SPREADSHEET_ID", None)
 
         if spreadsheet_id:
             try:
-                logger.info("🔄 [SfcSalesforceMapper] Sincronizando pestañas de Google Sheets...")
                 access_token = await cls._obtener_google_access_token()
 
                 if access_token:
@@ -187,12 +187,14 @@ class SfcSalesforceMapper:
                                     return
             except Exception as e:
                 logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Usando datos vigentes/local.")
+        else:
+            logger.info("ℹ️ [SfcSalesforceMapper] GOOGLE_CATALOGS_SPREADSHEET_ID no está configurado. Usando respaldo local.")
 
-        # 🟢 FALLBACK SEGURO: Si Google Sheets falló, usar respaldo local o datos existentes
+        # 2. Fallback local si no hay datos en RAM
         if not cls.CATALOGOS:
             cls.cargar_catalogos_local()
 
-        # 🟢 ACTUALIZAR TTL: Refrescar marca de tiempo para no reintentar Google Sheets en cada petición
+        # 3. Actualizar marca de tiempo únicamente cuando se procesó la sincronización
         cls.ULTIMA_ACTUALIZACION = ahora
 
     @classmethod
@@ -247,10 +249,8 @@ class SfcSalesforceMapper:
             cls.MAPPING_MOMENTO_1_SFC_TO_CRM = cls.DEFAULT_MAPPING_M1
             cls.MAPPING_MOMENTO_4_SFC_TO_CRM = cls.DEFAULT_MAPPING_M4
             cls.cargar_divipola(force=force)
-            # 🟢 Mover a tiempo actual cuando se carga en frío
-            if cls.ULTIMA_ACTUALIZACION == 0:
-                cls.ULTIMA_ACTUALIZACION = time.time()
 
+            # 🟢 REMOVIDO: No asignar ULTIMA_ACTUALIZACION al cargar el JSON en la importación del módulo
             logger.info("📂 [SfcSalesforceMapper] Respaldo local de catálogos cargado en RAM.")
         except Exception as e:
             logger.error(f"❌ Error al cargar catalogos_sfc_crm.json: {e}")
