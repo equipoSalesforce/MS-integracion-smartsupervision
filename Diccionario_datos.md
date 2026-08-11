@@ -72,6 +72,7 @@ A continuación se detallan todos los atributos soportados por el esquema DTO `Q
 | **`Rectificacion__c`** | Sí | `null` | String | Indica si hubo rectificación antes de la decisión del DCF. |
 | **`Prorroga__c`** | Sí | `null` | Integer | Número de días de prórroga solicitados/concedidos. |
 | **`cuerpo_respuesta_final`** | Sí | `null` | String | HTML/Texto para la generación del PDF dictamen de cierre. Si es nulo, usa plantilla base. |
+| **`Quejas_express__c`** | Sí | `No` | String | Indicador si es una queja exprés |
 
 ---
 

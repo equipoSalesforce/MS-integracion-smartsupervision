@@ -171,14 +171,14 @@ El microservicio cuenta con un módulo de monitoreo proactivo que envía alertas
 
 #### 📋 Matriz de Eventos y Despacho de Alertas
 
-| Evento de Alerta | Disparador / Gatillo | Frecuencia |
-| :--- | :--- | :--- |
-| **1. Caída de Infraestructura** | Primer caso que entra a la cola cuando estaba vacía (0 pendientes). | Inmediata |
-| **2. Umbral de Acumulación** | La cola de Redis alcanza múltiplos de **100 casos pendientes**. | Por cada 100 casos |
-| **3. Error No Mapeado SFC** | La SFC responde con un error no registrado en `errores_sfc.json`. | Inmediata |
-| **4. Digest SLA (>12h)** | Existen casos retenidos en cola por más de **12 horas**. | En cada ciclo del Scheduler |
-| **5. Dead Letter Queue (DLQ)** | Un caso alcanza el límite de **20 reintentos** (`FALLIDO_DEFINITIVO`). | Inmediata |
-| **6. Autorrecuperación SFC** | La SFC vuelve a estar online y la cola se vacía por completo (0 pendientes). | Eventual |
+| Evento de Alerta                       | Disparador / Gatillo                                                           | Frecuencia                  |
+| :------------------------------------- | :----------------------------------------------------------------------------- | :-------------------------- |
+| **1. Caída de Infraestructura** | Primer caso que entra a la cola cuando estaba vacía (0 pendientes).           | Inmediata                   |
+| **2. Umbral de Acumulación**    | La cola de Redis alcanza múltiplos de**100 casos pendientes**.          | Por cada 100 casos          |
+| **3. Error No Mapeado SFC**      | La SFC responde con un error no registrado en`errores_sfc.json`.             | Inmediata                   |
+| **4. Digest SLA (>12h)**         | Existen casos retenidos en cola por más de**12 horas**.                 | En cada ciclo del Scheduler |
+| **5. Dead Letter Queue (DLQ)**   | Un caso alcanza el límite de**20 reintentos** (`FALLIDO_DEFINITIVO`). | Inmediata                   |
+| **6. Autorrecuperación SFC**    | La SFC vuelve a estar online y la cola se vacía por completo (0 pendientes).  | Eventual                    |
 
 ---
 
