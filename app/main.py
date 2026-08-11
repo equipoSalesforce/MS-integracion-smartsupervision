@@ -15,8 +15,10 @@ from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.logging_config import setup_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.mapping import SfcSalesforceMapper
-from app.integrations.sfc_client import ssl_context, log_request, log_response
+from app.integrations.sfc_client import log_request, log_response
 from app.services.crm_webhook_service import get_crm_webhook_client, close_crm_webhook_client
+from app.api.dependencies import _auth_manager_instance
+from app.core.security.signatures import ssl_context
 
 from app.db.redis import init_redis, close_redis
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
@@ -89,13 +91,32 @@ async def lifespan(app: FastAPI):
     # ======================================================================
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
     
-    detener_scheduler()
-    await close_redis()
-    await close_crm_webhook_client()
+    try:
+        detener_scheduler()
+    except Exception as e:
+        logger.error(f"Error al detener scheduler: {e}")
+
+    try:
+        await close_redis()
+    except Exception as e:
+        logger.error(f"Error al cerrar Redis: {e}")
+
+    try:
+        await close_crm_webhook_client()
+    except Exception as e:
+        logger.error(f"Error al cerrar CRM Webhook Client: {e}")
+
+    try:
+        await _auth_manager_instance.close()
+    except Exception as e:
+        logger.error(f"Error al cerrar SfcAuthManager: {e}")
 
     if hasattr(app.state, "http_client"):
-        await app.state.http_client.aclose()
-        logger.info("📡 Pool global HTTP (SFC) liberado limpiamente.")
+        try:
+            await app.state.http_client.aclose()
+            logger.info("📡 Pool global HTTP (SFC) liberado limpiamente.")
+        except Exception as e:
+            logger.error(f"Error al cerrar http_client global: {e}")
 
     logger.info(f"Apagando {settings.PROJECT_NAME} de manera limpia y segura.")
 

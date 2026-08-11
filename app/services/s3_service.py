@@ -357,7 +357,10 @@ class S3StorageService:
         prefix: str, 
         bucket: Optional[str] = None
     ) -> List[Dict[str, str]]:
-        """Escanea un directorio/prefix en S3/MinIO y retorna los archivos encontrados."""
+        """
+        Escanea un directorio/prefix en S3/MinIO utilizando paginación nativa de Boto3,
+        garantizando recuperar la totalidad de archivos incluso si superan los 1,000 objetos.
+        """
         target_bucket = bucket or self.default_bucket
         prefix_clean = prefix.strip()
         if not prefix_clean.endswith("/"):
@@ -373,15 +376,23 @@ class S3StorageService:
             return []
 
         def _listar():
-            response = self.s3_client.list_objects_v2(Bucket=target_bucket, Prefix=prefix_clean)
-            objetos = response.get("Contents", [])
+            # 🟢 PAGINADOR BOTO3: Recupera automáticamente todas las páginas si > 1,000 objetos
+            paginator = self.s3_client.get_paginator("list_objects_v2")
+            page_iterator = paginator.paginate(Bucket=target_bucket, Prefix=prefix_clean)
+            
             archivos = []
-            for obj in objetos:
-                key = obj.get("Key", "")
-                if key.endswith("/"):
-                    continue
-                file_name = key.split("/")[-1]
-                archivos.append({"nombre_archivo": file_name, "s3_key": key, "bucket": target_bucket})
+            for page in page_iterator:
+                objetos = page.get("Contents", [])
+                for obj in objetos:
+                    key = obj.get("Key", "")
+                    if key.endswith("/"):
+                        continue
+                    file_name = key.split("/")[-1]
+                    archivos.append({
+                        "nombre_archivo": file_name, 
+                        "s3_key": key, 
+                        "bucket": target_bucket
+                    })
             return archivos
 
         try:
@@ -531,12 +542,19 @@ class S3StorageService:
                 
                 try:
                     if not file_obj_or_bytes:
+                        # obtener_stream_archivo descarga con streaming y valida la integridad internamente
                         tmp_stream = await self.obtener_stream_archivo(s3_key=s3_key, bucket=bucket)
                         file_obj_or_bytes = tmp_stream
                     else:
+                        # Si viene un objeto en memoria (ej. PDF generado como bytes), validar
                         self.validar_integridad_archivo(file_data=file_obj_or_bytes, file_name=original_name)
                         
+                        
+                    if hasattr(file_obj_or_bytes, "seek") and callable(file_obj_or_bytes.seek):
+                        file_obj_or_bytes.seek(0)
+                        
                     debe_aplicar_afijo = afijo_masivo or (target_file_name and original_name == target_file_name)
+                    
                     if debe_aplicar_afijo and afijo_regulatorio and afijo_regulatorio not in original_name:
                         nombre_puro = original_name.rsplit(".", 1)[0]
                         final_send_name = f"{nombre_puro}_{afijo_regulatorio}.{file_type}"

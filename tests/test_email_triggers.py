@@ -193,7 +193,7 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
              patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
              patch("app.workers.scheduler.get_sfc_client"), \
              patch("app.workers.scheduler.get_s3_client"), \
-             patch("app.workers.scheduler.CrmWebhookService.notificar_creacion_exitosa", new_callable=AsyncMock, return_value=True), \
+             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=True), \
              patch("app.workers.scheduler.QueueService") as MockQueueService, \
              patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
 

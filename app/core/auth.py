@@ -2,15 +2,16 @@ import httpx
 import jwt
 import json
 import logging
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, AsyncGenerator
 from app.core.config import settings
-from app.core.security.signatures import SfcSignatureContext
+from app.core.security.signatures import SfcSignatureContext, ssl_context
 
 logger = logging.getLogger(__name__)
 
 class SfcAuthManager(httpx.Auth):
-    def __init__(self, signature_context: SfcSignatureContext):
+    def __init__(self, signature_context: SfcSignatureContext, http_client: Optional[httpx.AsyncClient] = None):
         self.signature_context = signature_context
         self.base_url = settings.SFC_URL_BASE.rstrip('/')
         
@@ -19,24 +20,67 @@ class SfcAuthManager(httpx.Auth):
         self.access_exp: Optional[datetime] = None
         self.refresh_exp: Optional[datetime] = None
 
+        # 🔒 Candado de exclusión mutua para evitar Thundering Herd / Estampidas de Autenticación
+        self._lock: Optional[asyncio.Lock] = None
+
         # Cliente HTTP interno aislado para evitar recursión asíncrona al firmar login/refresh
-        self.client = httpx.AsyncClient(base_url=self.base_url, verify=True)
+        if http_client is not None:
+            self.client = http_client
+            self._owns_client = False
+        else:
+            self.client = httpx.AsyncClient(base_url=self.base_url, verify=ssl_context)
+            self._owns_client = True
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Inicialización perezosa (Lazy) del Lock para asegurar binding al Event Loop activo."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    def _is_access_token_valid(self) -> bool:
+        """Verifica si el access_token actual sigue siendo válido en memoria RAM."""
+        now = datetime.now(timezone.utc)
+        return bool(
+            self.access_token 
+            and self.access_exp 
+            and self.access_exp > (now + timedelta(minutes=1))
+        )
+
+    def _is_refresh_token_valid(self) -> bool:
+        """Verifica si el refresh_token actual sigue siendo válido en memoria RAM."""
+        now = datetime.now(timezone.utc)
+        return bool(
+            self.refresh_token 
+            and self.refresh_exp 
+            and self.refresh_exp > (now + timedelta(minutes=1))
+        )
 
     async def get_valid_token(self) -> str:
-        now = datetime.now(timezone.utc)
-        
-        if self.access_token and self.access_exp and self.access_exp > (now + timedelta(minutes=1)):
+        """
+        Obtiene un token de acceso válido aplicando Double-Checked Locking.
+        Sincroniza renovaciones concurrentes para prevenir estampidas de peticiones (Thundering Herd).
+        """
+        # 1. FAST PATH: Si el token actual es válido, retornarlo directamente sin adquirir bloqueo
+        if self._is_access_token_valid():
             return self.access_token
 
-        if self.refresh_token and self.refresh_exp and self.refresh_exp > (now + timedelta(minutes=1)):
-            try:
-                await self._refresh_access_token()
+        # 2. SLOW PATH: Adquirir candado asíncrono para sincronizar renovación
+        async with self._get_lock():
+            # 3. DOBLE VERIFICACIÓN: Re-evaluar tras obtener el candado por si otra corrutina ya renovó el token
+            if self._is_access_token_valid():
                 return self.access_token
-            except Exception as e:
-                logger.warning(f"Error al refrescar token: {str(e)}. Reintentando login completo.")
 
-        await self._login()
-        return self.access_token
+            # Intentar refresco si el refresh_token sigue vigente
+            if self._is_refresh_token_valid():
+                try:
+                    await self._refresh_access_token()
+                    return self.access_token
+                except Exception as e:
+                    logger.warning(f"Error al refrescar token: {str(e)}. Reintentando login completo.")
+
+            # Si no hay refresh_token válido o falló el refresco, hacer login completo
+            await self._login()
+            return self.access_token
 
     async def _login(self):
         endpoint = "/api/login/"
@@ -60,7 +104,6 @@ class SfcAuthManager(httpx.Auth):
         response.raise_for_status()
         
         data = response.json()
-        # Soporte para claves 'access'/'refresh' estándar de la SFC y Postman
         access = data.get("access") or data.get("access_token")
         refresh = data.get("refresh") or data.get("refresh_token")
         self._save_tokens(access, refresh)
@@ -105,34 +148,24 @@ class SfcAuthManager(httpx.Auth):
     # INTERCEPTOR DE FLUJO ASÍNCRONO PARA EL CLIENTE HTTPX
     # ======================================================================
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """
-        Intercepta y prepara asíncronamente cada petición saliente para cumplir con
-        los estándares de seguridad y headers de la Superintendencia Financiera.
-        """
         path = request.url.path
 
-        # 1. Evitamos interceptar las llamadas internas de login y refresh para no caer en bucle infinito
         if "/api/login" in path or "/api/token/refresh" in path:
             yield request
             return
 
-        # 2. Obtenemos de forma segura un token JWT asíncrono vigente
         token = await self.get_valid_token()
 
-        # 3. Inyectamos los encabezados canónicos requeridos por la SFC
         request.headers["Authorization"] = f"Bearer {token}"
         request.headers["Cache-Control"] = "no-cache"
         request.headers["Accept"] = "application/json"
         if "accept-language" not in request.headers:
             request.headers["accept-language"] = "es"
 
-        # Inyectamos Content-Type para peticiones con cuerpo (excepto cargas de archivos multipart)
         content_type = request.headers.get("content-type", "")
         if request.method in ("POST", "PUT", "PATCH") and "multipart/form-data" not in content_type:
             request.headers["content-type"] = "application/json"
 
-        # 4. Cálculo de firma criptográfica dinámica (HMAC-SHA256)
-        # Métodos GET: Se firma la URL completa con query params
         if request.method == "GET":
             endpoint_for_sig = str(request.url)
             payload = None
@@ -140,56 +173,42 @@ class SfcAuthManager(httpx.Auth):
             endpoint_for_sig = path
             payload = None
             
-            # REGLA DE EXCEPCIÓN SFC: Cargas de archivos (api/storage/) Momento 2/3
-            # La firma se calcula omitiendo el archivo pesado, usando solo "codigo_queja" y "type"
             if "api/storage" in path and "multipart/form-data" in content_type:
                 payload = self._parse_multipart_fields(request)
             else:
-                # JSON ordinario
                 if request.content:
                     try:
                         payload = json.loads(request.content.decode("utf-8"))
                     except Exception:
                         payload = None
 
-        # Generamos e inyectamos la firma HMAC en los encabezados finales
         signature = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
         request.headers["X-SFC-Signature"] = signature
 
         response = yield request
         
+        # Recuperación ante 401: Proteger con Lock para evitar borrado/refresh masivo concurrente
         if response.status_code == 401:
-            logger.warning("[SfcAuthManager] SFC rechazó la petición con 401. Iniciando flujo de recuperación...")
+            logger.warning("[SfcAuthManager] SFC rechazó la petición con 401. Iniciando flujo de recuperación sincronizado...")
             
-            # Borramos el token de acceso local inválido para obligar la renovación
-            self.access_token = None
-            
-            try:
-                # get_valid_token() intentará hacer refresh. Si el refresh falla con 401,
-                # levantará excepción y se irá directo a ejecutar _login().
-                nuevo_token = await self.get_valid_token()
+            async with self._get_lock():
+                # Forzar invalidez local del token si aún coincide con el rechazado
+                self.access_token = None
                 
-                # Actualizamos las cabeceras con las credenciales frescas
-                request.headers["Authorization"] = f"Bearer {nuevo_token}"
-                
-                # Re-calculamos la firma por seguridad
-                nueva_firma = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
-                request.headers["X-SFC-Signature"] = nueva_firma
-                
-                logger.info("[SfcAuthManager] Recuperación exitosa. Reintentando la petición con credenciales nuevas.")
-                
-                # Volvemos a despachar la petición
-                response = yield request
-                
-            except Exception as e:
-                logger.error(f"[SfcAuthManager] Falló la recuperación automática de credenciales: {str(e)}")
-                # Si de verdad todo falla, dejamos que el 401 original suba al cliente
+                try:
+                    nuevo_token = await self.get_valid_token()
+                    
+                    request.headers["Authorization"] = f"Bearer {nuevo_token}"
+                    nueva_firma = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
+                    request.headers["X-SFC-Signature"] = nueva_firma
+                    
+                    logger.info("[SfcAuthManager] Recuperación exitosa. Reintentando petición con credenciales nuevas.")
+                    response = yield request
+                    
+                except Exception as e:
+                    logger.error(f"[SfcAuthManager] Falló la recuperación automática de credenciales: {str(e)}")
 
     def _parse_multipart_fields(self, request: httpx.Request) -> Dict[str, Any]:
-        """
-        Parsea el stream multipart en memoria de manera segura y no bloqueante
-        para recuperar únicamente las llaves requeridas por la SFC para la firma de archivos.
-        """
         fields = {}
         content_type = request.headers.get("content-type", "")
         if "boundary=" in content_type:
@@ -210,4 +229,6 @@ class SfcAuthManager(httpx.Auth):
 
     async def close(self):
         """Cierra ordenadamente las conexiones TCP del cliente asíncrono interno."""
-        await self.client.aclose()
+        if self._owns_client and self.client and not self.client.is_closed:
+            await self.client.aclose()
+            logger.info("🛑 Cliente HTTP interno de SfcAuthManager cerrado limpiamente.")

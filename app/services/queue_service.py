@@ -11,6 +11,22 @@ from app.core.middleware import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
+
+# 📜 Script Lua para extender el arrendamiento atómicamente si el worker sigue siendo el dueño
+EXTEND_LEASE_LUA_SCRIPT = """
+local claim_key = KEYS[1]
+local worker_id = ARGV[1]
+local lease_px = tonumber(ARGV[2])
+
+local current_owner = redis.call("GET", claim_key)
+if current_owner == worker_id then
+    redis.call("PEXPIRE", claim_key, lease_px)
+    return cjson.encode({extended = true})
+else
+    return cjson.encode({extended = false, reason = "owner_mismatch_or_expired"})
+end
+"""
+
 # 📜 Script Lua atómico para Encolar / Desduplicar casos en Redis
 ENQUEUE_LUA_SCRIPT = """
 local index_key = KEYS[1]
@@ -575,3 +591,27 @@ class QueueService:
 
         logger.warning(f"🛑 [Cola Redis] Se diferió la ejecución de {modificados} casos por {delay_min} min sin consumir intentos.")
         return modificados
+    
+    async def extender_lease_item(
+        self, 
+        registro_id: int, 
+        worker_id: str, 
+        lease_segundos: int = 60
+    ) -> bool:
+        """
+        Extiende atómicamente el tiempo de vida (TTL) del bloqueo de un ítem
+        siempre que el worker_id siga siendo el propietario actual.
+        """
+        if not self.redis:
+            return False
+
+        keys = [f"sfc:queue:claim:{registro_id}"]
+        args = [worker_id, str(lease_segundos * 1000)]
+
+        try:
+            raw_res = await self.redis.eval(EXTEND_LEASE_LUA_SCRIPT, len(keys), *keys, *args)
+            res = json.loads(raw_res)
+            return res.get("extended", False)
+        except Exception as e:
+            logger.error(f"Error al extender lease del ítem {registro_id} en Redis: {e}")
+            return False

@@ -12,6 +12,7 @@ from app.core.auth import SfcAuthManager
 from app.core.constants import SfcEndpoints, SmartStatus
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
 from app.core.middleware import get_correlation_id
+from app.core.security.signatures import ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +242,8 @@ class SfcClient:
     ) -> Dict[str, Any]:
         """
         Envía un archivo asociado a una queja hacia la SFC utilizando multipart/form-data.
-        Soporta transmisión vía bytes o por objetos file-like / streams.
+        Soporta transmisión vía streaming directo desde objetos file-like (SpooledTemporaryFile)
+        o bytes en memoria, evitando lecturas globales que causen desbordamientos de RAM (OOM).
         """
         endpoint = SfcEndpoints.STORAGE.value
         url = f"{self.base_url}{endpoint}"
@@ -275,12 +277,16 @@ class SfcClient:
             "codigo_queja": sfc_codigo_queja,
             "type": file_type
         }
-        
-        # Leemos el contenido si es un stream o pasamos los bytes directos
-        content_to_send = file_data.read() if hasattr(file_data, "read") else file_data
 
+        # 🟢 1. REBOBINADO AUTOMÁTICO: Si file_data es un stream, posicionar el puntero al inicio
+        if hasattr(file_data, "seek") and callable(file_data.seek):
+            file_data.seek(0)
+
+        # 🟢 2. TRANSMISIÓN EN STREAMING SINO ES BYTES DIRECTOS:
+        # Se pasa file_data directamente a httpx sin llamar a .read(), permitiendo
+        # que httpx lea en fragmentos pequeños (chunked streaming) desde el SpooledTemporaryFile.
         files = {
-            "file": (file_name, content_to_send, f"application/{file_type}")
+            "file": (file_name, file_data, f"application/{file_type}")
         }
 
         logger.info(f"Transmitiendo archivo adjunto ({file_type}) para la queja SFC: {sfc_codigo_queja}")

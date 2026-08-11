@@ -46,11 +46,13 @@ class CrmWebhookService:
     """
 
     @staticmethod
-    async def notificar_creacion_exitosa(
+    async def notificar_resolucion_contingencia(
         case_id_crm: str, 
         smart_code: str,
         http_client: Optional[httpx.AsyncClient] = None
     ) -> bool:
+        """Función encargada de notificar al CRM mediante un webhook que una queja fue despachada desde la cola con éxito
+        """
         webhook_url = settings.CRM_WEBHOOK_URL
         api_key = settings.CRM_WEBHOOK_API_KEY
 

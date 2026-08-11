@@ -2,7 +2,12 @@ import hmac
 import hashlib
 import json
 from abc import ABC, abstractmethod
+import ssl
 from typing import Any, Dict
+
+ssl_context = ssl.create_default_context()
+ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
 class SignatureStrategy(ABC):
     """Interfaz base para las estrategias de firma de la SFC."""

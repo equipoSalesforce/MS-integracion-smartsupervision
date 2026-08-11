@@ -8,6 +8,7 @@ from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 from app.core.exceptions import SfcErrorTranslator
 from app.core.mapping import SfcSalesforceMapper
 from app.services.crm_webhook_service import close_crm_webhook_client
+from app.api.dependencies import _auth_manager_instance  # 🟢 Importar singleton
 
 setup_logging()
 logger = logging.getLogger("worker_process")
@@ -41,6 +42,7 @@ async def run_worker_process():
         detener_scheduler()
         await close_redis()
         await close_crm_webhook_client()
+        await _auth_manager_instance.close()  # 🟢 Cierre explícito de la sesión de autenticación
         logger.info("👋 Worker detenido completamente.")
 
 if __name__ == "__main__":
