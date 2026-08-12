@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, List, Optional
 from zoneinfo import ZoneInfo
 from pydantic import (
@@ -106,6 +106,30 @@ class Momento2QuejaCrmInput(BaseModel):
     archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
     Quejas_express__c: Optional[str] = Field("No", description="Indica si es una queja expres")
 
+    @field_validator("CreatedDate", mode="after")
+    @classmethod
+    def validar_rango_30_dias_created_date(cls, v: Optional[str]) -> Optional[str]:
+        if v and str(v).strip():
+            try:
+                dt_created = datetime.fromisoformat(v.replace("Z", "+00:00")).date()
+                hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
+                limite_30_dias = hoy_bogota - timedelta(days=30)
+
+                if dt_created < limite_30_dias:
+                    raise ValueError(
+                        f"La fecha de creación 'CreatedDate' ({dt_created}) "
+                        f"no puede ser anterior a 30 días respecto a la fecha actual ({hoy_bogota})."
+                    )
+                if dt_created > hoy_bogota:
+                    raise ValueError(
+                        f"La fecha de creación 'CreatedDate' ({dt_created}) "
+                        f"no puede ser posterior a la fecha actual ({hoy_bogota})."
+                    )
+            except ValueError as ve:
+                if "30 días" in str(ve) or "posterior" in str(ve):
+                    raise ve
+        return v
+    
     # 🛡️ SANITIZADOR PREVENTIVO CONTRA STORED XSS
     @field_validator("SuppliedName", "direccion__c", "Description", mode="before")
     @classmethod
@@ -462,14 +486,21 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                 raise ValueError("Falta el campo obligatorio 'Favorabilidad__c' para el cierre del caso.")
             elif not self.Aceptacion__c:
                 raise ValueError("Falta el campo obligatorio 'Aceptacion__c' para el cierre del caso.")
-
+            
             hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
+            limite_30_dias = hoy_bogota - timedelta(days=30)
             
             if not self.ClosedDate:
                 self.ClosedDate = hoy_bogota
 
             if self.ClosedDate > hoy_bogota:
                 raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
+
+            if self.ClosedDate < limite_30_dias:
+                raise ValueError(
+                    f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
+                    f"no puede ser anterior a 30 días respecto a la fecha actual ({hoy_bogota})."
+                )
 
             if self.CreatedDate and self.ClosedDate:
                 dt_created = None
