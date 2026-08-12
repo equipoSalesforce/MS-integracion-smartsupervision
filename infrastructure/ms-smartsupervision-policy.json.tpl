@@ -29,6 +29,7 @@
       "Sid": "CloudWatchLogsAccess",
       "Effect": "Allow",
       "Action": [
+        "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],

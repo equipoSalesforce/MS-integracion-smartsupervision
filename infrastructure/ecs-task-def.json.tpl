@@ -44,59 +44,59 @@
       "secrets": [
         {
           "name": "CRM_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:CRM_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_API_KEY::"
         },
         {
           "name": "ADMIN_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:ADMIN_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:ADMIN_API_KEY::"
         },
         {
           "name": "SFC_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:SFC_USERNAME::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_USERNAME::"
         },
         {
           "name": "SFC_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:SFC_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_PASSWORD::"
         },
         {
           "name": "SFC_SECRET_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:SFC_SECRET_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_SECRET_KEY::"
         },
         {
           "name": "REDIS_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:REDIS_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:REDIS_PASSWORD::"
         },
         {
           "name": "SMTP_USER",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:SMTP_USER::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SMTP_USER::"
         },
         {
           "name": "SMTP_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:SMTP_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SMTP_PASSWORD::"
         },
         {
           "name": "ALERT_NOTIFY_EMAILS",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:ALERT_NOTIFY_EMAILS::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:ALERT_NOTIFY_EMAILS::"
         },
         {
           "name": "CRM_WEBHOOK_URL",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:CRM_WEBHOOK_URL::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_WEBHOOK_URL::"
         },
         {
           "name": "CRM_WEBHOOK_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:CRM_WEBHOOK_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_WEBHOOK_API_KEY::"
         },
         {
           "name": "GOOGLE_CLIENT_ID",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:GOOGLE_CLIENT_ID::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_CLIENT_ID::"
         },
         {
           "name": "GOOGLE_CLIENT_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:GOOGLE_CLIENT_SECRET::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_CLIENT_SECRET::"
         },
         {
           "name": "GOOGLE_REFRESH_TOKEN",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets:GOOGLE_REFRESH_TOKEN::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_REFRESH_TOKEN::"
         }
       ],
       "healthCheck": {
@@ -114,7 +114,8 @@
         "options": {
           "awslogs-group": "/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}",
           "awslogs-region": "${AWS_REGION}",
-          "awslogs-stream-prefix": "${SERVICE_TYPE}"
+          "awslogs-stream-prefix": "${SERVICE_TYPE}",
+          "awslogs-create-group": "true"
         }
       }
     }

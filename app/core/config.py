@@ -11,6 +11,18 @@ def parse_cors(v: Any) -> List[str]:
         return v
     raise ValueError(v)
 
+def parse_email_list(v: Any) -> List[str]:
+    """
+    🟢 RESILIENCIA EN SECRETS MANAGER:
+    Permite parsear la lista de correos tanto si viene como cadena formateada en JSON
+    '["a@g66.com", "b@g66.com"]' como si viene en texto plano separado por comas 'a@g66.com, b@g66.com'.
+    """
+    if isinstance(v, str):
+        v_clean = v.strip()
+        if not v_clean.startswith("["):
+            return [i.strip() for i in v_clean.split(",") if i.strip()]
+    return v
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -88,7 +100,9 @@ class Settings(BaseSettings):
     SMTP_USER: str = Field(...)
     SMTP_PASSWORD: str = Field(...)
     
-    ALERT_NOTIFY_EMAILS: List[str] = Field(...)
+    ALERT_NOTIFY_EMAILS: Annotated[
+        List[str], BeforeValidator(parse_email_list)
+    ] = Field(..., description="Lista de destinatarios para alertas de infraestructura y DLQ")
     ALERT_EMAILS_ENABLED: bool = Field(default=True)
 
     # --- Configuración de Matriz en Sheets ---

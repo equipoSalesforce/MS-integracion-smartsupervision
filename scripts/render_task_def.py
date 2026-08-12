@@ -42,6 +42,8 @@ def render_task_definition(service_type: str, environment: str):
         content = f.read()
 
     # 4. Mapeo de valores a reemplazar
+    secret_suffix = os.getenv("SECRET_SUFFIX", "??????")
+
     replacements = {
         "${SERVICE_TYPE}": service_type.lower(),
         "${ENVIRONMENT}": environment.lower(),
@@ -66,6 +68,10 @@ def render_task_definition(service_type: str, environment: str):
 
     for key, value in replacements.items():
         content = content.replace(key, value)
+
+    # Si en CI/CD se pasa un SECRET_SUFFIX específico de 6 caracteres, reemplaza ??????? por dicho sufijo
+    if secret_suffix != "??????":
+        content = content.replace("??????", secret_suffix)
 
     # 5. Validar que el resultado sea un JSON válido antes de guardar
     output_json = json.loads(content)
