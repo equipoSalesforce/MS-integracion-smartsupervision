@@ -36,9 +36,13 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # --- Configuración CORS ---
-    BACKEND_CORS_ORIGINS: Annotated[
+    # 🟢 FIX: unificado en un solo campo obligatorio (sin default inseguro).
+    # Antes existían BACKEND_CORS_ORIGINS (con default "*", efectivamente en uso
+    # por el middleware) y CRM_CORS_ORIGINS (obligatorio, pero nunca conectado al
+    # middleware) — dos fuentes de verdad desincronizadas. Se deja una sola.
+    CRM_CORS_ORIGINS: Annotated[
         List[str], BeforeValidator(parse_cors)
-    ] = Field(default=["*"])
+    ] = Field(description="Orígenes permitidos para CORS (dominios reales del CRM, sin comodín)")
 
     # --- Configuración AWS S3 ---
     AWS_S3_BUCKET: str
@@ -78,10 +82,6 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: str = Field(
         description="API Key administrativa requerida para endpoints de monitoreo e infraestructura (ej. /queue)"
     )
-    CRM_CORS_ORIGINS: List[str] = Field(
-        description="Orígenes permitidos para CORS"
-    )
-
     # --- Configuración de Cola Centralizada con Redis ---
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)

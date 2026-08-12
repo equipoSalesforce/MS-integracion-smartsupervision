@@ -26,6 +26,7 @@
         { "name": "SFC_TIPO_ENTIDAD", "value": "128" },
         { "name": "SFC_ENTIDAD_COD", "value": "6" },
         { "name": "SFC_URL_BASE", "value": "${SFC_URL_BASE}" },
+        { "name": "CRM_CORS_ORIGINS", "value": "${CRM_CORS_ORIGINS}" },
         { "name": "SFC_VERIFY_SIGNATURES", "value": "True" },
         { "name": "REDIS_HOST", "value": "${REDIS_HOST}" },
         { "name": "REDIS_PORT", "value": "6379" },

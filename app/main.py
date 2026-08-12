@@ -132,7 +132,10 @@ app = FastAPI(
 app.add_middleware(CorrelationIdMiddleware)
 
 # 🌐 Configuración de CORS
-origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS] if settings.BACKEND_CORS_ORIGINS else ["*"]
+# 🟢 FIX: se usa CRM_CORS_ORIGINS (obligatorio, sin comodín permitido) como
+# única fuente de verdad. BACKEND_CORS_ORIGINS quedó como código muerto que
+# permitía "*" por default mientras este middleware seguía usándolo.
+origins = [str(origin) for origin in settings.CRM_CORS_ORIGINS]
 
 app.add_middleware(
     CORSMiddleware,
