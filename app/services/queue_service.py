@@ -51,7 +51,8 @@ local pendientes_count = redis.call("SCARD", pending_set_key)
 if existing_id then
     local is_pending = redis.call("SISMEMBER", pending_set_key, existing_id)
     if is_pending == 1 then
-        local item_key = "{sfc_queue}:item:" .. existing_id
+        -- 🟢 FIX: Se corrige {sfc_queue} -> {sfc:queue}
+        local item_key = "{sfc:queue}:item:" .. existing_id
         local raw_item = redis.call("GET", item_key)
         if raw_item then
             local data = cjson.decode(raw_item)
@@ -75,7 +76,8 @@ if existing_id then
 end
 
 local item_id = tostring(redis.call("INCR", counter_key))
-local item_key = "{sfc_queue}:item:" .. item_id
+-- 🟢 FIX: Se corrige {sfc_queue} -> {sfc:queue}
+local item_key = "{sfc:queue}:item:" .. item_id
 
 local item_data = {
     id = tonumber(item_id),
