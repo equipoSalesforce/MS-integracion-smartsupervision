@@ -17,6 +17,7 @@ load_dotenv()
 # ==============================================================================
 TARGET_URL = os.getenv("TEST_TARGET_URL", "http://localhost:8000/api/v1/quejas/sync/despacho")
 API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
+
 OUTPUT_LOG_FILE = "test_secuencial_results.json"
 
 # 🎯 PARÁMETROS CONFIGURABLES
@@ -27,7 +28,7 @@ COOLDOWN_SECONDS = 0.0   # Pausa entre peticiones
 DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/"
 FIXED_FILE_NAME = "soporte_prueba.pdf"
 FIXED_S3_KEY = f"{DEFAULT_DIRECTORIO_S3}{FIXED_FILE_NAME}"
-FIXED_BUCKET = "global66-sfc-bucket-local"
+FIXED_BUCKET = os.getenv("AWS_S3_BUCKET", "global66-sfc-bucket-local")
 
 # 🎯 Total de escenarios base ampliado (0 al 89 = 90 escenarios base)
 NUM_ESCENARIOS_BASE = 90

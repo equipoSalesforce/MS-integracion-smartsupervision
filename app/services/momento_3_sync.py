@@ -1,3 +1,4 @@
+# app/services/momento_3_sync.py
 import asyncio
 import logging
 import tempfile
@@ -50,15 +51,18 @@ class Momento3SincronizacionService:
         generar_pdf_cierre: bool = False,
         afijo_masivo: bool = False
     ) -> Dict[str, Any]:
+        # 🟢 EXTRACCIÓN SEGURO DE PROPIEDADES (Pydantic Model vs Dict)
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c") or payload.get("Case_id")
+            case_id_crm = payload.get("Case_id") or smart_code
             archivos_s3_raw = payload.get("archivos_s3", [])
             cuerpo_correo = payload.get("cuerpo_respuesta_final")
             cliente_nombre = payload.get("SuppliedName", "Consumidor Financiero")
         else:
             crm_dict = payload.model_dump()
             smart_code = payload.Smart_Code__c
+            case_id_crm = payload.Case_id or smart_code
             archivos_s3_raw = payload.archivos_s3
             cuerpo_correo = getattr(payload, "cuerpo_respuesta_final", None)
             cliente_nombre = getattr(payload, "SuppliedName", "Consumidor Financiero")
@@ -83,14 +87,16 @@ class Momento3SincronizacionService:
         try:
             pdf_generado_exito = False
             if generar_pdf_cierre and cuerpo_correo:
+                # 🟢 FIX: Se envían tanto el case_id para S3 como sfc_code para la transmisión SFC
                 await self._generar_y_enviar_pdf_respuesta_final(
-                    sfc_code=payload.get("Case_id"),
+                    case_id=case_id_crm,
+                    sfc_code=sfc_id_largo,
                     cuerpo_correo_html=cuerpo_correo,
                     cliente_nombre=cliente_nombre
                 )
                 pdf_generado_exito = True
 
-            # 🎯 DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS Y AFIJOS DE M3
+            # DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS Y AFIJOS DE M3
             if archivos_s3_raw:
                 await self.s3_service.transferir_lote_s3_a_sfc(
                     sfc_client=self.sfc_client,
@@ -150,7 +156,6 @@ class Momento3SincronizacionService:
                 )
             raise
 
-        # 🚨 Relanzar errores de red/conexión para que sean capturados por routes_quejas.py y encolados en Redis
         except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
             logger.error(f"❌ [Momento 3] Fallo de red/conexión para {smart_code}: {net_err}")
             raise net_err
@@ -162,6 +167,7 @@ class Momento3SincronizacionService:
 
     async def _generar_y_enviar_pdf_respuesta_final(
         self,
+        case_id: str,
         sfc_code: str,
         cuerpo_correo_html: str,
         cliente_nombre: str
@@ -172,17 +178,17 @@ class Momento3SincronizacionService:
                 texto_limpio = "Se emite respuesta formal y cierre definitivo al caso de reclamación."
             return generar_pdf_respuesta_final(
                 caso_nombre=cliente_nombre,
-                smart_code=sfc_code,
+                smart_code=case_id,
                 texto_crm=texto_limpio
             )
 
-        # ⚡ Renderizado seguro fuera del event loop (CPU-bound)
+        # Renderizado seguro fuera del event loop (CPU-bound)
         file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
         
-        final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
-        s3_key = f"caso/{sfc_code}/{final_pdf_name}"
+        final_pdf_name = f"Respuesta_Final_{case_id}_RESP_FINAL_SFC.pdf"
+        s3_key = f"caso/{case_id}/{final_pdf_name}"
 
-        # Subida directa de bytes en memoria RAM
+        # Subida directa a S3 usando la ruta del CRM
         try:
             await self.s3_service.subir_bytes_archivo(
                 s3_key=s3_key,
@@ -192,7 +198,7 @@ class Momento3SincronizacionService:
         except Exception as s3_err:
             logger.error(f"⚠️ [Momento 3] No se pudo guardar la copia del PDF en S3: {s3_err}")
 
-        # Transmitir a la SFC
+        # Transmitir a la SFC usando el código regulatorio sfc_code
         await self.s3_service.transferir_lote_s3_a_sfc(
             sfc_client=self.sfc_client,
             sfc_codigo_queja=sfc_code,
