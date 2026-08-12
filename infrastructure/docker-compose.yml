@@ -8,8 +8,8 @@ services:
     build:
       context: ../
       dockerfile: infrastructure/Dockerfile
-      target: final
-    image: ms-integracion-smartsupervision:latest
+      target: final-api          # 👈 antes: final
+    image: ms-integracion-smartsupervision-api:latest
     container_name: sfc-api-app
     ports:
       - "8000:8000"
@@ -35,9 +35,13 @@ services:
   # ⚙️ 2. SERVICIO WORKER DEDICADO (APScheduler + Cola Redis)
   # ======================================================================
   worker:
-    image: ms-integracion-smartsupervision:latest
+    build:
+      context: ../
+      dockerfile: infrastructure/Dockerfile
+      target: final-worker       # 👈 antes: usaba la misma imagen "final" que la API
+    image: ms-integracion-smartsupervision-worker:latest
     container_name: sfc-worker-app
-    command: ["python", "-m", "app.worker"] # 👈 Punto de entrada independiente
+    command: ["python", "-m", "app.worker"]
     env_file:
       - ../.env
     environment:
@@ -51,6 +55,7 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+    # healthcheck: heredado de la imagen final-worker (heartbeat file, no HTTP)
 
   # ======================================================================
   # 📦 3. COLA CENTRALIZADA REDIS (Para entornos DEV / EC2)

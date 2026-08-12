@@ -78,14 +78,12 @@ class MockAsyncRedis:
     async def eval(self, script: str, numkeys: int, *keys_and_args):
         """Emula la ejecución de scripts Lua de Redis para pruebas unitarias."""
         import json
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
 
         keys = keys_and_args[:numkeys]
         args = keys_and_args[numkeys:]
 
-        # Emulación de ENQUEUE_LUA_SCRIPT
-        if "INCR" in script and "sfc:queue:counter" in str(keys):
+        # 🟢 Emulación de ENQUEUE_LUA_SCRIPT compatible con Hash Tags con dos puntos
+        if "INCR" in script and ("counter" in str(keys) or "sfc:queue:counter" in str(keys) or "{sfc:queue}:counter" in str(keys)):
             smart_code = args[0]
             tipo_operacion = args[1]
             payload_json_raw = args[2]
@@ -107,7 +105,7 @@ class MockAsyncRedis:
             pendientes_count = await self.scard(pending_set_key)
 
             if existing_id and await self.sismember(pending_set_key, existing_id):
-                item_key = f"sfc:queue:item:{existing_id}"
+                item_key = f"{{sfc:queue}}:item:{existing_id}"
                 raw_item = await self.get(item_key)
                 if raw_item:
                     data = json.loads(raw_item)
@@ -128,7 +126,7 @@ class MockAsyncRedis:
                     })
 
             item_id = await self.incr(counter_key)
-            item_key = f"sfc:queue:item:{item_id}"
+            item_key = f"{{sfc:queue}}:item:{item_id}"
 
             item_data = {
                 "id": int(item_id),
@@ -158,14 +156,14 @@ class MockAsyncRedis:
                 "pendientes_previos": pendientes_count
             })
 
-        # Emulación de CLAIM_ITEM_LUA_SCRIPT
+        # 🟢 Emulación de CLAIM_ITEM_LUA_SCRIPT compatible con Hash Tags con dos puntos
         if "CLAIM" in script or "claim_key" in script or "NX" in script:
-            item_id = keys[0]
-            pending_set_key = keys[1]
-            claim_key = keys[2]
+            pending_set_key = keys[0]
+            claim_key = keys[1]
 
-            worker_id = args[0]
-            lease_px = float(args[1])
+            item_id = args[0]
+            worker_id = args[1]
+            lease_px = float(args[2])
 
             is_pending = await self.sismember(pending_set_key, item_id)
             if not is_pending:
@@ -375,7 +373,6 @@ class TestColaRedis(unittest.IsolatedAsyncioTestCase):
             error_inicial="Error 1",
         )
 
-        # Forzar límite máximo de intentos
         for i in range(settings.QUEUE_MAX_RETRIES):
             await service.registrar_fallo(item.id, f"Error {i+2}")
 

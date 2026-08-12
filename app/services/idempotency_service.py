@@ -1,3 +1,4 @@
+# app/services/idempotency_service.py
 import json
 import hashlib
 import logging
@@ -8,6 +9,8 @@ from zoneinfo import ZoneInfo
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+IDEMPOTENCY_PREFIX = "{sfc:idempotency}"
 
 
 class IdempotencyService:
@@ -68,16 +71,12 @@ class IdempotencyService:
         payload_dict: dict,
         source: str = "CRM_SALESFORCE"
     ) -> Tuple[bool, Optional[dict]]:
-        """
-        Consulta si la operación ya fue completada exitosamente previamente, está en proceso o encolada.
-        Retorna: (es_idempotente_hit: bool, respuesta_o_mensaje: Optional[dict])
-        """
         if not self.redis:
             return False, None
 
         operation = self.infer_operation_type(payload_dict)
         payload_hash = self.compute_payload_hash(payload_dict)
-        key = f"sfc:idempotency:{smart_code}:{operation}"
+        key = f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}"
         now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
 
         try:
@@ -87,7 +86,6 @@ class IdempotencyService:
                 record = json.loads(raw_record)
                 op_status = record.get("status")
 
-                # 🎯 1. HIT EXITOSO PREVIO (Happy Path duplicado) -> Retornar respuesta original
                 if op_status == "COMPLETED":
                     logger.info(f"🎯 [Idempotency Store] Hit exitoso previo para {smart_code} ({operation}). Retornando respuesta almacenada.")
                     return True, {
@@ -99,7 +97,6 @@ class IdempotencyService:
                         "sfc_response": record.get("sfc_response")
                     }
 
-                # 🎯 2. PETICIÓN PARALELA EN CURSO
                 if op_status == "PROCESSING":
                     logger.warning(f"⏳ [Idempotency Store] La operación '{operation}' para {smart_code} está en proceso.")
                     return True, {
@@ -109,7 +106,6 @@ class IdempotencyService:
                         "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
                     }
 
-                # 🎯 3. CASO YA ENCOLADO EN REDIS QUEUE
                 if op_status == "QUEUED":
                     logger.info(f"📦 [Idempotency Store] La operación '{operation}' para {smart_code} ya está encolada.")
                     return True, {
@@ -119,7 +115,6 @@ class IdempotencyService:
                         "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
                     }
 
-            # 🎯 CASO NUEVO: Registrar estado "PROCESSING" con bloqueo atómico de 60 segundos usando nx=True
             initial_record = {
                 "source": source,
                 "smart_code": smart_code,
@@ -131,16 +126,28 @@ class IdempotencyService:
                 "sfc_response": None
             }
 
+            # 🟢 FIX: Se amplia el TTL del lock inicial de 60s a 180s (3 minutos)
             set_success = await self.redis.set(
                 key, 
                 json.dumps(initial_record, ensure_ascii=False), 
-                px=60000, 
+                px=180000, 
                 nx=True
             )
 
-            # Si set_success es None/False, otra petición concurrente creó el estado PROCESSING entre el GET y el SET
             if not set_success:
-                logger.warning(f"⏳ [Idempotency Store] Petición concurrente detectada para {smart_code} ({operation}). Operación en proceso.")
+                # 🟢 FIX: Re-consulta preventiva para asegurar estado actualizado post-colisión
+                check_record = await self.redis.get(key)
+                if check_record:
+                    rec_json = json.loads(check_record)
+                    if rec_json.get("status") == "COMPLETED":
+                        return True, {
+                            "status": "success",
+                            "is_idempotent_hit": True,
+                            "smart_code": smart_code,
+                            "operation": operation,
+                            "sfc_response": rec_json.get("sfc_response")
+                        }
+
                 return True, {
                     "status": "processing",
                     "is_idempotent_hit": True,
@@ -156,12 +163,11 @@ class IdempotencyService:
             return False, None
 
     async def registrar_exito(self, smart_code: str, payload_dict: dict, sfc_response: dict):
-        """Registra la operación como COMPLETED con su respuesta oficial y TTL de 30 días."""
         if not self.redis:
             return
 
         operation = self.infer_operation_type(payload_dict)
-        key = f"sfc:idempotency:{smart_code}:{operation}"
+        key = f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}"
         now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
 
         record = {
@@ -182,12 +188,11 @@ class IdempotencyService:
             logger.error(f"Error registrando éxito en Idempotency Store para {smart_code}: {e}")
 
     async def registrar_encolado(self, smart_code: str, payload_dict: dict, error_msg: str):
-        """Registra la operación como QUEUED cuando la SFC no está disponible."""
         if not self.redis:
             return
 
         operation = self.infer_operation_type(payload_dict)
-        key = f"sfc:idempotency:{smart_code}:{operation}"
+        key = f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}"
         now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
 
         record = {
@@ -206,3 +211,20 @@ class IdempotencyService:
             await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
         except Exception as e:
             logger.error(f"Error registrando estado QUEUED en Idempotency Store para {smart_code}: {e}")
+
+    async def liberar_por_fallo_definitivo(self, smart_code: str, payload_dict: dict):
+        """
+        🟢 NUEVA FUNCIÓN: Elimina el registro de idempotencia cuando el caso alcanza el límite de reintentos (DLQ).
+        Permite que Salesforce CRM pueda volver a despachar el caso una vez corregido el problema raíz.
+        """
+        if not self.redis:
+            return
+
+        operation = self.infer_operation_type(payload_dict)
+        key = f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}"
+
+        try:
+            await self.redis.delete(key)
+            logger.info(f"🧹 [Idempotency Store] Registro de idempotencia '{operation}' liberado para {smart_code} tras falla definitiva (DLQ).")
+        except Exception as e:
+            logger.error(f"Error liberando registro de idempotencia por fallo definitivo para {smart_code}: {e}")

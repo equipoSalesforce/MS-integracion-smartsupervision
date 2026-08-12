@@ -15,10 +15,10 @@ services:
   # --- API HTTP (REPLICABLE) ---
   app:
     build:
-      context: ../                          
-      dockerfile: infrastructure/Dockerfile  
-      target: final
-    image: ms-integracion-smartsupervision:latest
+      context: ../
+      dockerfile: infrastructure/Dockerfile
+      target: final-api          # 👈 antes: final
+    image: ms-integracion-smartsupervision-api:latest
     env_file:
       - .env.test
     environment:
@@ -32,14 +32,15 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # healthcheck: heredado de la imagen final-api (HTTP /health/live)
 
   # --- WORKER DE PROCESAMIENTO (REPLICABLE) ---
   worker:
     build:
-      context: ../                          
-      dockerfile: infrastructure/Dockerfile  
-      target: final
-    image: ms-integracion-smartsupervision:latest
+      context: ../
+      dockerfile: infrastructure/Dockerfile
+      target: final-worker       # 👈 antes: final (por eso heredaba el healthcheck HTTP)
+    image: ms-integracion-smartsupervision-worker:latest
     env_file:
       - .env.test
     environment:
@@ -47,12 +48,13 @@ services:
       - AWS_S3_ENDPOINT_URL=http://minio:9000
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    command: python -m app.worker  # Ajusta al comando de tu worker
+    command: ["python", "-m", "app.worker"]
     depends_on:
       redis:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # healthcheck: heredado de la imagen final-worker (heartbeat file, no HTTP)
 
   # --- EMULADOR DE AWS S3 (MINIO) ---
   minio:

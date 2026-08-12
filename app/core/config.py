@@ -91,12 +91,10 @@ class Settings(BaseSettings):
     # --- Configuración SMTP Alertas ---
     SMTP_HOST: str = Field(default="smtp.gmail.com")
     SMTP_PORT: int = Field(default=587)
-    SMTP_USER: str = Field(default="juan.camargo@global66.com")
-    SMTP_PASSWORD: str = Field(default="xxxx xxxx xxxx xxxx")
+    SMTP_USER: str = Field(...)
+    SMTP_PASSWORD: str = Field(...)
     
-    ALERT_NOTIFY_EMAILS: List[str] = Field(
-        default=["juan.camargo@global66.com", "tl.correo@global66.com"]
-    )
+    ALERT_NOTIFY_EMAILS: List[str] = Field(...)
     ALERT_EMAILS_ENABLED: bool = Field(default=True)
 
     # --- Configuración de Matriz en Sheets ---

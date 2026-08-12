@@ -11,8 +11,8 @@ from app.core.middleware import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
+QUEUE_PREFIX = "{sfc:queue}"
 
-# 📜 Script Lua para extender el arrendamiento atómicamente si el worker sigue siendo el dueño
 EXTEND_LEASE_LUA_SCRIPT = """
 local claim_key = KEYS[1]
 local worker_id = ARGV[1]
@@ -27,7 +27,6 @@ else
 end
 """
 
-# 📜 Script Lua atómico para Encolar / Desduplicar casos en Redis
 ENQUEUE_LUA_SCRIPT = """
 local index_key = KEYS[1]
 local pending_set_key = KEYS[2]
@@ -52,7 +51,7 @@ local pendientes_count = redis.call("SCARD", pending_set_key)
 if existing_id then
     local is_pending = redis.call("SISMEMBER", pending_set_key, existing_id)
     if is_pending == 1 then
-        local item_key = "sfc:queue:item:" .. existing_id
+        local item_key = "{sfc_queue}:item:" .. existing_id
         local raw_item = redis.call("GET", item_key)
         if raw_item then
             local data = cjson.decode(raw_item)
@@ -76,7 +75,7 @@ if existing_id then
 end
 
 local item_id = tostring(redis.call("INCR", counter_key))
-local item_key = "sfc:queue:item:" .. item_id
+local item_key = "{sfc_queue}:item:" .. item_id
 
 local item_data = {
     id = tonumber(item_id),
@@ -107,14 +106,13 @@ return cjson.encode({
 })
 """
 
-# 📜 Script Lua para Reclamo Atómico de Ítem Individual (Lease Lock)
 CLAIM_ITEM_LUA_SCRIPT = """
-local item_id = KEYS[1]
-local pending_set_key = KEYS[2]
-local claim_key = KEYS[3]
+local pending_set_key = KEYS[1]
+local claim_key = KEYS[2]
 
-local worker_id = ARGV[1]
-local lease_px = tonumber(ARGV[2])
+local item_id = ARGV[1]
+local worker_id = ARGV[2]
+local lease_px = tonumber(ARGV[3])
 
 local is_pending = redis.call("SISMEMBER", pending_set_key, item_id)
 if is_pending == 0 then
@@ -146,7 +144,6 @@ class ColaItemRedis:
         self.es_duplicado = bool(data.get("es_duplicado", False))
 
     def to_dict(self) -> dict:
-        """Uso interno de workers/scheduler para procesar el reintento completo."""
         return {
             "id": self.id,
             "smart_code": self.smart_code,
@@ -163,9 +160,6 @@ class ColaItemRedis:
         }
 
     def to_summary_dict(self) -> dict:
-        """
-        🛡️ Salida administrativa sin PII ni datos confidenciales del cliente.
-        """
         return {
             "smart_code": self.smart_code,
             "status": self.estado,
@@ -183,10 +177,11 @@ class QueueService:
         self.redis = redis_client
 
     async def contar_pendientes(self) -> int:
+        """🟢 FIX: Usa QUEUE_PREFIX para coincidir con la llave con Hash Tag de Redis."""
         if not self.redis:
             return 0
         try:
-            return await self.redis.scard("sfc:queue:status:PENDIENTE")
+            return await self.redis.scard(f"{QUEUE_PREFIX}:status:PENDIENTE")
         except Exception as e:
             logger.error(f"Error contando pendientes en Redis: {e}")
             return 0
@@ -206,11 +201,11 @@ class QueueService:
         proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
 
         keys = [
-            f"sfc:queue:index:{smart_code}",
-            "sfc:queue:status:PENDIENTE",
-            "sfc:queue:pending_zset",
-            "sfc:queue:created_zset",
-            "sfc:queue:counter"
+            f"{QUEUE_PREFIX}:index:{smart_code}",
+            f"{QUEUE_PREFIX}:status:PENDIENTE",
+            f"{QUEUE_PREFIX}:pending_zset",
+            f"{QUEUE_PREFIX}:created_zset",
+            f"{QUEUE_PREFIX}:counter"
         ]
 
         args = [
@@ -268,19 +263,15 @@ class QueueService:
         worker_id: str, 
         lease_segundos: int = 60
     ) -> bool:
-        """
-        Reclama atómicamente un ítem individual para procesamiento exclusivo por un worker ECS.
-        Retorna True si el reclamo fue exitoso, False si ya fue reclamado por otro worker.
-        """
         if not self.redis:
             return False
 
         keys = [
-            str(registro_id),
-            "sfc:queue:status:PENDIENTE",
-            f"sfc:queue:claim:{registro_id}"
+            f"{QUEUE_PREFIX}:status:PENDIENTE",
+            f"{QUEUE_PREFIX}:claim:{registro_id}"
         ]
         args = [
+            str(registro_id),
             worker_id,
             str(lease_segundos * 1000)
         ]
@@ -301,15 +292,15 @@ class QueueService:
         limite_ts = (now_bogota - timedelta(hours=horas_limite)).timestamp()
 
         try:
-            item_ids = await self.redis.zrangebyscore("sfc:queue:created_zset", "-inf", limite_ts)
+            item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:created_zset", "-inf", limite_ts)
             casos_vencidos = []
 
             for item_id in item_ids:
-                is_pending = await self.redis.sismember("sfc:queue:status:PENDIENTE", str(item_id))
+                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:PENDIENTE", str(item_id))
                 if not is_pending:
                     continue
 
-                raw_item = await self.redis.get(f"sfc:queue:item:{item_id}")
+                raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
                 if not raw_item:
                     continue
 
@@ -337,15 +328,15 @@ class QueueService:
 
         now_ts = datetime.now(ZoneInfo("America/Bogota")).timestamp()
         try:
-            item_ids = await self.redis.zrangebyscore("sfc:queue:pending_zset", "-inf", now_ts)
+            item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:pending_zset", "-inf", now_ts)
             pendientes = []
 
             for item_id in item_ids:
-                is_pending = await self.redis.sismember("sfc:queue:status:PENDIENTE", str(item_id))
+                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:PENDIENTE", str(item_id))
                 if not is_pending:
                     continue
 
-                raw_item = await self.redis.get(f"sfc:queue:item:{item_id}")
+                raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
                 if not raw_item:
                     continue
 
@@ -359,12 +350,11 @@ class QueueService:
             return []
 
     async def marcar_exitoso(self, registro_id: int):
-        """Marca de forma atómica un registro como entregado y remueve reclamos e índices."""
         if not self.redis:
             return
 
-        item_key = f"sfc:queue:item:{registro_id}"
-        claim_key = f"sfc:queue:claim:{registro_id}"
+        item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
+        claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
         try:
             raw_item = await self.redis.get(item_key)
             if not raw_item:
@@ -377,24 +367,23 @@ class QueueService:
 
             async with self.redis.pipeline(transaction=True) as pipe:
                 pipe.set(item_key, json.dumps(data, ensure_ascii=False))
-                pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
-                pipe.sadd("sfc:queue:status:EXITOSO", str(registro_id))
-                pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                pipe.srem(f"{QUEUE_PREFIX}:status:PENDIENTE", str(registro_id))
+                pipe.sadd(f"{QUEUE_PREFIX}:status:EXITOSO", str(registro_id))
+                pipe.zrem(f"{QUEUE_PREFIX}:pending_zset", str(registro_id))
                 pipe.delete(claim_key)
                 if smart_code:
-                    pipe.delete(f"sfc:queue:index:{smart_code}")
+                    pipe.delete(f"{QUEUE_PREFIX}:index:{smart_code}")
                 await pipe.execute()
 
         except Exception as e:
             logger.error(f"Error marcando exitoso registro {registro_id} en Redis: {e}")
 
     async def registrar_fallo(self, registro_id: int, error_msg: str):
-        """Suma intento, recalcula backoff y elimina el reclamo temporal."""
         if not self.redis:
             return
 
-        item_key = f"sfc:queue:item:{registro_id}"
-        claim_key = f"sfc:queue:claim:{registro_id}"
+        item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
+        claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
         try:
             raw_item = await self.redis.get(item_key)
             if not raw_item:
@@ -417,6 +406,12 @@ class QueueService:
                     ultimo_error=error_msg,
                     correlation_id=data.get("correlation_id")
                 )
+                # 🟢 FIX: Invalida en IdempotencyStore para permitir re-envíos desde Salesforce CRM
+                from app.services.idempotency_service import IdempotencyService
+                idempotency_service = IdempotencyService(self.redis)
+                payload_json = data.get("payload_json", {})
+                if smart_code and payload_json:
+                    await idempotency_service.liberar_por_fallo_definitivo(smart_code=smart_code, payload_dict=payload_json)
             else:
                 espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES * data["intentos"]
                 proximo_at = now_bogota + timedelta(minutes=espera_minutos)
@@ -429,13 +424,13 @@ class QueueService:
                 pipe.delete(claim_key)
                 
                 if es_definitivo:
-                    pipe.srem("sfc:queue:status:PENDIENTE", str(registro_id))
-                    pipe.sadd("sfc:queue:status:FALLIDO_DEFINITIVO", str(registro_id))
-                    pipe.zrem("sfc:queue:pending_zset", str(registro_id))
+                    pipe.srem(f"{QUEUE_PREFIX}:status:PENDIENTE", str(registro_id))
+                    pipe.sadd(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO", str(registro_id))
+                    pipe.zrem(f"{QUEUE_PREFIX}:pending_zset", str(registro_id))
                     if smart_code:
-                        pipe.delete(f"sfc:queue:index:{smart_code}")
+                        pipe.delete(f"{QUEUE_PREFIX}:index:{smart_code}")
                 else:
-                    pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_at.timestamp()})
+                    pipe.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(registro_id): proximo_at.timestamp()})
                 
                 await pipe.execute()
 
@@ -448,8 +443,7 @@ class QueueService:
 
         try:
             if estado:
-                set_key = f"sfc:queue:status:{estado.upper()}"
-                # 🔄 Iteración por lotes sobre Sets (reemplaza SMEMBERS bloqueante)
+                set_key = f"{QUEUE_PREFIX}:status:{estado.upper()}"
                 if hasattr(self.redis, "sscan_iter"):
                     item_ids = [
                         m if isinstance(m, str) else m.decode("utf-8")
@@ -459,21 +453,20 @@ class QueueService:
                     raw_members = await self.redis.smembers(set_key)
                     item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
             else:
-                # 🚀 SCAN no bloqueante por lotes (reemplaza KEYS sfc:queue:item:*)
                 if hasattr(self.redis, "scan_iter"):
                     item_keys = [
                         k if isinstance(k, str) else k.decode("utf-8")
-                        async for k in self.redis.scan_iter(match="sfc:queue:item:*", count=100)
+                        async for k in self.redis.scan_iter(match=f"{QUEUE_PREFIX}:item:*", count=100)
                     ]
                 else:
-                    raw_keys = await self.redis.keys("sfc:queue:item:*")
+                    raw_keys = await self.redis.keys(f"{QUEUE_PREFIX}:item:*")
                     item_keys = [k if isinstance(k, str) else k.decode("utf-8") for k in raw_keys]
 
                 item_ids = [k.split(":")[-1] for k in item_keys]
 
             registros = []
             for item_id in item_ids:
-                raw_item = await self.redis.get(f"sfc:queue:item:{item_id}")
+                raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
                 if raw_item:
                     data = json.loads(raw_item, strict=False)
                     registros.append(ColaItemRedis(data))
@@ -489,10 +482,6 @@ class QueueService:
         dias_retencion: int = settings.QUEUE_RETENTION_DAYS, 
         dias_retencion_dlq: int = getattr(settings, "QUEUE_RETENTION_DAYS_DLQ", 30)
     ) -> int:
-        """
-        Elimina registros antiguos tanto de casos 'EXITOSO' como de la 
-        Dead Letter Queue 'FALLIDO_DEFINITIVO', evitando la fuga de memoria en Redis.
-        """
         if not self.redis:
             return 0
 
@@ -502,10 +491,9 @@ class QueueService:
 
         total_purgados = 0
 
-        # Lotes de estados a evaluar con sus respectivos límites de tiempo
         estados_a_evaluar = [
-            ("sfc:queue:status:EXITOSO", limite_exitoso),
-            ("sfc:queue:status:FALLIDO_DEFINITIVO", limite_dlq)
+            (f"{QUEUE_PREFIX}:status:EXITOSO", limite_exitoso),
+            (f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO", limite_dlq)
         ]
 
         try:
@@ -523,7 +511,7 @@ class QueueService:
                 inconsistentes = []
 
                 for item_id in item_ids:
-                    item_key = f"sfc:queue:item:{item_id}"
+                    item_key = f"{QUEUE_PREFIX}:item:{item_id}"
                     raw_item = await self.redis.get(item_key)
                     if not raw_item:
                         inconsistentes.append(str(item_id))
@@ -541,9 +529,9 @@ class QueueService:
                             pipe.srem(set_key, item_id)
 
                         for item_id in a_eliminar:
-                            pipe.delete(f"sfc:queue:item:{item_id}")
+                            pipe.delete(f"{QUEUE_PREFIX}:item:{item_id}")
                             pipe.srem(set_key, item_id)
-                            pipe.zrem("sfc:queue:created_zset", item_id)
+                            pipe.zrem(f"{QUEUE_PREFIX}:created_zset", item_id)
                             total_purgados += 1
 
                         await pipe.execute()
@@ -567,8 +555,8 @@ class QueueService:
 
         modificados = 0
         for registro_id in registro_ids:
-            item_key = f"sfc:queue:item:{registro_id}"
-            claim_key = f"sfc:queue:claim:{registro_id}"
+            item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
+            claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
             try:
                 raw_item = await self.redis.get(item_key)
                 if not raw_item:
@@ -581,7 +569,7 @@ class QueueService:
 
                 async with self.redis.pipeline(transaction=True) as pipe:
                     pipe.set(item_key, json.dumps(data, ensure_ascii=False))
-                    pipe.zadd("sfc:queue:pending_zset", {str(registro_id): proximo_ts})
+                    pipe.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(registro_id): proximo_ts})
                     pipe.delete(claim_key)
                     await pipe.execute()
 
@@ -598,14 +586,10 @@ class QueueService:
         worker_id: str, 
         lease_segundos: int = 60
     ) -> bool:
-        """
-        Extiende atómicamente el tiempo de vida (TTL) del bloqueo de un ítem
-        siempre que el worker_id siga siendo el propietario actual.
-        """
         if not self.redis:
             return False
 
-        keys = [f"sfc:queue:claim:{registro_id}"]
+        keys = [f"{QUEUE_PREFIX}:claim:{registro_id}"]
         args = [worker_id, str(lease_segundos * 1000)]
 
         try:

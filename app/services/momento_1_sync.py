@@ -9,10 +9,14 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):
         self.sfc_client = sfc_client
-        self.s3_service = S3StorageService(s3_client=s3_client, http_client=getattr(sfc_client, "client", None))
+        self.s3_service = S3StorageService(
+            s3_client=s3_client, 
+            http_client=getattr(sfc_client, "client", None)
+        )
 
     async def ejecutar_flujo_completo_momento_1(self) -> List[Dict[str, Any]]:
         logger.info("[Momento 1] Descargando y procesando lote de quejas M1 de SFC...")
@@ -40,11 +44,24 @@ class SincronizacionService:
         TAMANO_CHUNK = 10
         chunks = [raw_quejas[i:i + TAMANO_CHUNK] for i in range(0, len(raw_quejas), TAMANO_CHUNK)]
         resultados = []
+        
         for chunk in chunks:
             tareas = [self._procesar_queja_individual(queja) for queja in chunk]
-            resultados_chunk = await asyncio.gather(*tareas)
-            resultados.extend(resultados_chunk)
-        return [q for q in resultados if q is not None]
+            
+            # 🟢 FIX: return_exceptions=True evita que la falla de una sola queja
+            # cancele o aborte las demás peticiones en paralelo dentro del mismo chunk.
+            resultados_chunk = await asyncio.gather(*tareas, return_exceptions=True)
+            
+            for res in resultados_chunk:
+                if isinstance(res, Exception):
+                    logger.error(
+                        f"❌ [Momento 1] Error no controlado procesando queja individual dentro del lote: {res}",
+                        exc_info=res
+                    )
+                elif res is not None:
+                    resultados.append(res)
+
+        return resultados
 
     async def _procesar_queja_individual(self, queja_sfc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         codigo_queja = queja_sfc.get("codigo_queja")

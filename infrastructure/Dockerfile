@@ -20,13 +20,12 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # ======================================================================
-# FASE 2: Entorno de Ejecución Mínimo y Seguro (Final / Production)
+# FASE 2: Base común de ejecución (sin HEALTHCHECK ni CMD todavía)
 # ======================================================================
-FROM python:3.12-slim AS final
+FROM python:3.12-slim AS base
 
 WORKDIR /code
 
-# 🟢 WEB_CONCURRENCY: Ajusta el número de workers (por defecto 2 para ECS Fargate)
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
@@ -43,12 +42,40 @@ RUN chown -R appuser:appgroup /code
 
 USER appuser
 
+# ======================================================================
+# FASE 3a: Target API (FastAPI/Gunicorn - expone HTTP en :8000)
+# ======================================================================
+FROM base AS final-api
+
 EXPOSE 8000
 
-# 🚦 HEALTHCHECK nativo con Python (evita instar curl/wget)
+# 🚦 HEALTHCHECK nativo con Python (evita instalar curl/wget)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
 
-# 🟢 COMANDO DE ARRANQUE MULTIPROCESO CON GUNICORN + UVICORN WORKERS
-# Utiliza Gunicorn como Process Manager y UvicornWorker para manejar peticiones asíncronas
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120", "--graceful-timeout", "30"]
+# 🟢 Forma "shell" para que WEB_CONCURRENCY sí se expanda en runtime
+CMD gunicorn app.main:app -k uvicorn.workers.UvicornWorker \
+    --bind 0.0.0.0:8000 \
+    --workers "${WEB_CONCURRENCY:-2}" \
+    --timeout 120 \
+    --graceful-timeout 30
+
+# ======================================================================
+# FASE 3b: Target Worker (APScheduler + Cola Redis - sin HTTP)
+# ======================================================================
+FROM base AS final-worker
+
+# 🚦 HEALTHCHECK basado en heartbeat de archivo (no HTTP: este contenedor
+# no expone ningún puerto). app.worker actualiza /tmp/worker_heartbeat
+# en cada ciclo; si el archivo no se refresca, el proceso está trabado.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python /code/infrastructure/healthcheck_worker.py || exit 1
+
+CMD ["python", "-m", "app.worker"]
+
+# ======================================================================
+# FASE 3c (opcional): Target "final" por compatibilidad hacia atrás
+# Si algún pipeline/build referencia --target final explícitamente,
+# apunta al comportamiento API por defecto.
+# ======================================================================
+FROM final-api AS final

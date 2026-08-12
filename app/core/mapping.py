@@ -77,8 +77,8 @@ class SfcSalesforceMapper:
         return normalized.lower().strip()
 
     @classmethod
-    async def _obtener_google_access_token(cls) -> Optional[str]:
-        """Obtiene token de acceso vía Google OAuth 2.0."""
+    async def _obtener_google_access_token(cls, client: Optional[httpx.AsyncClient] = None) -> Optional[str]:
+        """Obtiene token de acceso vía Google OAuth 2.0 reutilizando cliente o con timeout extendido."""
         client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
         client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
         refresh_token = getattr(settings, "GOOGLE_REFRESH_TOKEN", None)
@@ -95,17 +95,23 @@ class SfcSalesforceMapper:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            if client is not None:
                 res = await client.post(url_oauth, data=payload)
-                if res.status_code == 200:
-                    return res.json().get("access_token")
+            else:
+                async with httpx.AsyncClient(timeout=8.0) as http_client:
+                    res = await http_client.post(url_oauth, data=payload)
+
+            if res.status_code == 200:
+                return res.json().get("access_token")
+            else:
+                logger.warning(f"⚠️ [SfcSalesforceMapper] Google OAuth respondió HTTP {res.status_code}")
         except Exception as e:
             logger.warning(f"⚠️ [SfcSalesforceMapper] Error solicitando Access Token a Google: {e}")
 
         return None
 
     @classmethod
-    async def obtener_catalogos_y_mapeos(cls) -> None:
+    async def obtener_catalogos_y_mapeos(cls, http_client: Optional[httpx.AsyncClient] = None) -> None:
         """
         Sincroniza Catálogos y Mapeos consultando las pestañas individuales de Google Sheets en un solo lote (batchGet).
         """
@@ -120,81 +126,87 @@ class SfcSalesforceMapper:
 
         if spreadsheet_id:
             try:
-                access_token = await cls._obtener_google_access_token()
+                access_token = await cls._obtener_google_access_token(client=http_client)
 
                 if access_token:
                     headers = {"Authorization": f"Bearer {access_token}"}
                     url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
                     
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        res_meta = await client.get(url_meta, headers=headers)
+                    # Usar cliente inyectado o crear uno de respaldo con timeout de 10s
+                    async def _fetch_sheets(client_to_use: httpx.AsyncClient):
+                        res_meta = await client_to_use.get(url_meta, headers=headers)
+                        if res_meta.status_code != 200:
+                            return None
                         
-                        if res_meta.status_code == 200:
-                            sheet_titles = [
-                                s["properties"]["title"] 
-                                for s in res_meta.json().get("sheets", []) 
-                                if "properties" in s and "title" in s["properties"]
-                            ]
+                        sheet_titles = [
+                            s["properties"]["title"] 
+                            for s in res_meta.json().get("sheets", []) 
+                            if "properties" in s and "title" in s["properties"]
+                        ]
 
-                            params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
-                            url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
-                            
-                            res_batch = await client.get(url_batch, headers=headers, params=params)
-                            if res_batch.status_code == 200:
-                                value_ranges = res_batch.json().get("valueRanges", [])
-                                
-                                nuevos_catalogos: Dict[str, Dict[str, str]] = {}
-                                m1_map, m4_map = {}, {}
+                        params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
+                        url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
+                        return await client_to_use.get(url_batch, headers=headers, params=params)
 
-                                for vr in value_ranges:
-                                    range_str = vr.get("range", "")
-                                    tab_title = range_str.split("!")[0].replace("'", "").strip()
-                                    rows = vr.get("values", [])[1:]
+                    if http_client is not None:
+                        res_batch = await _fetch_sheets(http_client)
+                    else:
+                        async with httpx.AsyncClient(timeout=10.0) as local_client:
+                            res_batch = await _fetch_sheets(local_client)
 
-                                    if tab_title.lower() == "mapeo_campos":
-                                        for row in rows:
-                                            if len(row) >= 3 and row[0] and row[1] and row[2]:
-                                                momento = str(row[0]).strip().upper()
-                                                campo_sfc = str(row[1]).strip()
-                                                campo_crm = str(row[2]).strip()
-                                                
-                                                if "MOMENTO_1" in momento or "M1" in momento:
-                                                    m1_map[campo_sfc] = campo_crm
-                                                elif "MOMENTO_4" in momento or "M4" in momento:
-                                                    m4_map[campo_sfc] = campo_crm
-                                    else:
-                                        cat_key = tab_title.lower()
-                                        cat_dict = {}
-                                        for row in rows:
-                                            if len(row) >= 2 and row[0] and row[1]:
-                                                code = str(row[0]).strip()
-                                                val = str(row[1]).strip()
-                                                cat_dict[code] = val
-                                                
-                                        if cat_dict:
-                                            nuevos_catalogos[cat_key] = cat_dict
+                    if res_batch and res_batch.status_code == 200:
+                        value_ranges = res_batch.json().get("valueRanges", [])
+                        
+                        nuevos_catalogos: Dict[str, Dict[str, str]] = {}
+                        m1_map, m4_map = {}, {}
 
-                                if nuevos_catalogos:
-                                    cls.CATALOGOS = nuevos_catalogos
-                                    cls._construir_indices_inversos()
-                                    cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
-                                    cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
-                                    cls.ULTIMA_ACTUALIZACION = ahora
-                                    logger.info(
-                                        f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
-                                        f"cargados desde pestañas de Google Sheets."
-                                    )
-                                    return
+                        for vr in value_ranges:
+                            range_str = vr.get("range", "")
+                            tab_title = range_str.split("!")[0].replace("'", "").strip()
+                            rows = vr.get("values", [])[1:]
+
+                            if tab_title.lower() == "mapeo_campos":
+                                for row in rows:
+                                    if len(row) >= 3 and row[0] and row[1] and row[2]:
+                                        momento = str(row[0]).strip().upper()
+                                        campo_sfc = str(row[1]).strip()
+                                        campo_crm = str(row[2]).strip()
+                                        
+                                        if "MOMENTO_1" in momento or "M1" in momento:
+                                            m1_map[campo_sfc] = campo_crm
+                                        elif "MOMENTO_4" in momento or "M4" in momento:
+                                            m4_map[campo_sfc] = campo_crm
+                            else:
+                                cat_key = tab_title.lower()
+                                cat_dict = {}
+                                for row in rows:
+                                    if len(row) >= 2 and row[0] and row[1]:
+                                        code = str(row[0]).strip()
+                                        val = str(row[1]).strip()
+                                        cat_dict[code] = val
+                                        
+                                if cat_dict:
+                                    nuevos_catalogos[cat_key] = cat_dict
+
+                        if nuevos_catalogos:
+                            cls.CATALOGOS = nuevos_catalogos
+                            cls._construir_indices_inversos()
+                            cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
+                            cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
+                            cls.ULTIMA_ACTUALIZACION = ahora
+                            logger.info(
+                                f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
+                                f"cargados desde pestañas de Google Sheets."
+                            )
+                            return
             except Exception as e:
                 logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Usando datos vigentes/local.")
         else:
             logger.info("ℹ️ [SfcSalesforceMapper] GOOGLE_CATALOGS_SPREADSHEET_ID no está configurado. Usando respaldo local.")
 
-        # 2. Fallback local si no hay datos en RAM
         if not cls.CATALOGOS:
             cls.cargar_catalogos_local()
 
-        # 3. Actualizar marca de tiempo únicamente cuando se procesó la sincronización
         cls.ULTIMA_ACTUALIZACION = ahora
 
     @classmethod

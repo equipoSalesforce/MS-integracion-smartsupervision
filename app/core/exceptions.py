@@ -162,7 +162,7 @@ class SfcErrorTranslator:
 
     @classmethod
     def _extraer_informacion_error(cls, response_text: str) -> Tuple[Optional[str], str]:
-        """Extrae el campo (sfc_field) y el mensaje legible (raw_message) del JSON de respuesta."""
+        """Extrae los campos (sfc_field) y los mensajes legibles (raw_message) del JSON de respuesta."""
         sfc_field = None
         raw_message = response_text
 
@@ -174,21 +174,33 @@ class SfcErrorTranslator:
             msg_obj = data.get("message")
 
             if isinstance(msg_obj, dict):
+                fields_list = []
+                messages_list = []
                 for key, value in msg_obj.items():
-                    sfc_field = key
-                    raw_message = str(value[0]) if isinstance(value, list) and value else str(value)
-                    break
+                    val_str = str(value[0]) if isinstance(value, list) and value else str(value)
+                    fields_list.append(key)
+                    messages_list.append(f"{key}: {val_str}")
+                
+                sfc_field = ", ".join(fields_list) if fields_list else None
+                raw_message = " | ".join(messages_list) if messages_list else response_text
+
             elif isinstance(msg_obj, str):
                 raw_message = msg_obj
             elif "detail" in data and data["detail"] != "Error en API":
                 raw_message = str(data["detail"])
             else:
+                fields_list = []
+                messages_list = []
                 for key, value in data.items():
                     if key in ("status_code", "detail"):
                         continue
-                    sfc_field = key
-                    raw_message = str(value[0]) if isinstance(value, list) and value else str(value)
-                    break
+                    val_str = str(value[0]) if isinstance(value, list) and value else str(value)
+                    fields_list.append(key)
+                    messages_list.append(f"{key}: {val_str}")
+                
+                if fields_list:
+                    sfc_field = ", ".join(fields_list)
+                    raw_message = " | ".join(messages_list)
         except (json.JSONDecodeError, TypeError):
             pass
 

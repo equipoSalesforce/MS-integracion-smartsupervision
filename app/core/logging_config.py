@@ -1,3 +1,4 @@
+# app/core/logging_config.py
 import json
 import logging
 import sys
@@ -32,7 +33,8 @@ class JSONFormatter(logging.Formatter):
         if hasattr(record, "extra_data") and isinstance(record.extra_data, dict):
             log_obj["extra"] = record.extra_data
 
-        return json.dumps(log_obj, ensure_ascii=False)
+        # 🟢 FIX: default=str previene TypeErrors si extra_data contiene objetos no serializables (datetime, UUID, etc.)
+        return json.dumps(log_obj, ensure_ascii=False, default=str)
 
 
 class TraceContextFilter(logging.Filter):

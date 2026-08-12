@@ -51,15 +51,14 @@ class CrmWebhookService:
         smart_code: str,
         http_client: Optional[httpx.AsyncClient] = None
     ) -> bool:
-        """Función encargada de notificar al CRM mediante un webhook que una queja fue despachada desde la cola con éxito
+        """
+        Notifica al CRM mediante Webhook que un caso encolado se despachó con éxito a la SFC.
         """
         webhook_url = settings.CRM_WEBHOOK_URL
         api_key = settings.CRM_WEBHOOK_API_KEY
 
         if not webhook_url:
             logger.info("ℹ️ [CRM Webhook] CRM_WEBHOOK_URL no configurada. Omitiendo notificación.")
-            # 🟢 Si no está configurada la URL, no se requiere notificación Webhook.
-            # Retorna True para no bloquear el estado EXITOSO en la cola de Redis.
             return True
 
         cid = get_correlation_id()
@@ -71,6 +70,7 @@ class CrmWebhookService:
             "User-Agent": "MS-SmartSupervision-WebhookBot/1.0"
         }
 
+        # Contracto saliente hacia Salesforce CRM
         payload = {
             "case_number": case_id_crm,
             "smart_code": smart_code,
@@ -99,6 +99,7 @@ class CrmWebhookService:
             res_headers_clean = sanitizar_headers(dict(response.headers))
             res_headers_formatted = "\n".join([f"   {k}: {v}" for k, v in res_headers_clean.items()])
             
+            raw_json = {}
             try:
                 raw_json = response.json() if response.text else {}
                 res_body_str = json.dumps(sanitizar_payload(raw_json), ensure_ascii=False)
@@ -116,15 +117,29 @@ class CrmWebhookService:
             )
 
             if response.status_code in (200, 201, 202):
-                data = response.json() if response.text else {}
-                logger.info(
-                    f"✅ [CRM Webhook] [CID: {cid}] Confirmación recibida por el CRM. "
-                    f"Case ID: {data.get('case_id', 'N/A')}"
-                )
-                return True
+                # 🟢 Validación de respuesta del CRM usando el nuevo contrato
+                is_success = raw_json.get("success", True) if isinstance(raw_json, dict) else True
+                
+                if is_success:
+                    crm_case_id = raw_json.get("case_id", "N/A")
+                    crm_case_number = raw_json.get("case_number", case_id_crm)
+                    is_idempotent = raw_json.get("idempotent", False)
+                    is_reconciled = raw_json.get("reconciled", False)
+
+                    logger.info(
+                        f"✅ [CRM Webhook] [CID: {cid}] Confirmación recibida por el CRM con éxito. "
+                        f"Case Number: {crm_case_number} | Case ID: {crm_case_id} | "
+                        f"Idempotent: {is_idempotent} | Reconciled: {is_reconciled}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"⚠️ [CRM Webhook] [CID: {cid}] El CRM respondió HTTP {response.status_code} pero indicó 'success': false: {res_body_str}"
+                    )
+                    return False
             else:
                 logger.warning(
-                    f"⚠️ [CRM Webhook] [CID: {cid}] El CRM respondió con código {response.status_code}: {response.text}"
+                    f"⚠️ [CRM Webhook] [CID: {cid}] El CRM respondió con código {response.status_code}: {res_body_str}"
                 )
                 return False
 

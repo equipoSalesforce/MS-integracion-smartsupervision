@@ -4,10 +4,10 @@ services:
   # --- API HTTP (Simula la tarea/servicio Web en AWS ECS) ---
   app:
     build:
-      context: ../                          
-      dockerfile: infrastructure/Dockerfile  
-      target: final
-    image: ms-integracion-smartsupervision:latest
+      context: ../
+      dockerfile: infrastructure/Dockerfile
+      target: final-api          # 👈 antes: final
+    image: ms-integracion-smartsupervision-api:latest
     container_name: api-smartsupervision
     ports:
       - "8000:8000"
@@ -35,10 +35,10 @@ services:
   # --- WORKER DE PROCESAMIENTO (Simula la tarea/servicio Worker en AWS ECS) ---
   worker:
     build:
-      context: ../                          
-      dockerfile: infrastructure/Dockerfile  
-      target: final
-    image: ms-integracion-smartsupervision:latest
+      context: ../
+      dockerfile: infrastructure/Dockerfile
+      target: final-worker       # 👈 antes: final (por eso heredaba el healthcheck HTTP)
+    image: ms-integracion-smartsupervision-worker:latest
     container_name: worker-smartsupervision
     env_file:
       - .env.test
@@ -47,7 +47,7 @@ services:
       - AWS_S3_ENDPOINT_URL=http://minio:9000
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    command: python -m app.worker  # Ajusta al comando de tu worker (ej. celery, arq, rq)
+    command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     depends_on:
       redis:
@@ -56,6 +56,7 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+    # healthcheck: heredado de la imagen final-worker (heartbeat file, no HTTP)
 
   # --- EMULADOR DE AWS S3 (MINIO) ---
   minio:
