@@ -29,27 +29,24 @@ class Settings(BaseSettings):
     ] = Field(default=["*"])
 
     # --- Configuración AWS S3 ---
-    AWS_S3_BUCKET: str = "mi-bucket-smartsupervision"
-    AWS_ACCESS_KEY_ID: Optional[str] = Field(default="test_key")
-    AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default="test_secret")
-    AWS_REGION: str = "us-east-1"
+    AWS_S3_BUCKET: str
+    AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
+    AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)
+    AWS_REGION: str
     AWS_ENDPOINT_URL: Optional[str] = None
 
     # --- Constantes de Entidad para la SFC ---
-    SFC_TIPO_ENTIDAD: int = 1
-    SFC_ENTIDAD_COD: str = "423"
+    SFC_TIPO_ENTIDAD: int = 128
+    SFC_ENTIDAD_COD: str = "6"
 
     # --- Integración con Smart Supervisión (SFC) ---
     SFC_URL_BASE: str = Field(
-        default="http://127.0.0.1:8080/",
         description="URL base alias para configuraciones de infraestructura"
     )
     SFC_USERNAME: str = Field(
-        default="admin",
         description="Usuario de autenticación asignado por la SFC"
     )
     SFC_PASSWORD: str = Field(
-        default="123456789",
         description="Contraseña de autenticación asignada por la SFC"
     )
     SFC_SECRET_KEY: str = Field(
@@ -62,15 +59,12 @@ class Settings(BaseSettings):
     )
     
     CRM_API_KEY: str = Field(
-        default="g66_sk_test_super_secreto_12345", 
         description="API Key requerida para que el CRM consuma los endpoints de despacho e integración"
     )
     ADMIN_API_KEY: str = Field(
-        default="g66_sk_test_admin_secreto_99999",
         description="API Key administrativa requerida para endpoints de monitoreo e infraestructura (ej. /queue)"
     )
     CRM_CORS_ORIGINS: List[str] = Field(
-        default=["*"], 
         description="Orígenes permitidos para CORS"
     )
 

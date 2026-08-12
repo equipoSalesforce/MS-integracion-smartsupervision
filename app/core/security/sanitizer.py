@@ -11,6 +11,13 @@ SENSITIVE_HEADERS = {
     "authorization", "x-sfc-signature", "x-api-key", "cookie", "set-cookie"
 }
 
+IGNORED_LOG_HEADERS = {
+    "host", "accept", "accept-encoding", "connection", 
+    "user-agent", "content-length", "via", "server", 
+    "alt-svc", "referrer-policy", "x-content-type-options", 
+    "x-frame-options", "permissions-policy", "content-security-policy"
+}
+
 # Campos de PII y credenciales en payloads (SFC y CRM)
 SENSITIVE_FIELDS = {
     "nombres", "suppliedname", "numero_id_cf", "id_number__c", 
@@ -41,10 +48,13 @@ def mask_value(val: str, visible_chars: int = 2) -> str:
 
 
 def sanitizar_headers(headers: Any) -> Dict[str, str]:
-    """Oculta tokens y firmas de los encabezados HTTP."""
+    """Oculta tokens y firmas de los encabezados HTTP y filtra cabeceras ruidosas."""
     sanitized = {}
     for k, v in headers.items():
-        if k.lower() in SENSITIVE_HEADERS:
+        k_lower = k.lower()
+        if k_lower in IGNORED_LOG_HEADERS:
+            continue
+        if k_lower in SENSITIVE_HEADERS:
             sanitized[k] = mask_value(v, visible_chars=4)
         else:
             sanitized[k] = v

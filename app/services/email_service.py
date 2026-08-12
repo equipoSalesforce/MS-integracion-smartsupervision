@@ -17,8 +17,6 @@ class EmailAlertService:
     @classmethod
     def _obtener_destinatarios(cls, solo_dev: bool = False) -> List[str]:
         """Resuelve los destinatarios según el entorno o si la alerta es exclusiva para Dev."""
-        if settings.ENVIRONMENT == "local":
-            return ["juan.camargo@global66.com"]
         if solo_dev and settings.ALERT_NOTIFY_EMAILS:
             return [settings.ALERT_NOTIFY_EMAILS[0]]
         return settings.ALERT_NOTIFY_EMAILS or []

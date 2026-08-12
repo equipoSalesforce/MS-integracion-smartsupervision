@@ -18,6 +18,10 @@ from app.core.middleware import correlation_id_ctx
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
+# 🔑 Hash Tag unificado para candados del Scheduler (compatible con Redis Cluster)
+SCHEDULER_LOCK_PREFIX = "{sfc:scheduler}"
+
+
 class QueueLockWatchdog:
     """
     Context Manager asíncrono que mantiene vivo el arrendamiento de un ítem en Redis
@@ -65,6 +69,7 @@ class QueueLockWatchdog:
             except asyncio.CancelledError:
                 pass
 
+
 def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
     """Evalúa si un mensaje corresponde a una indisponibilidad/caída de la SFC o red."""
     if not error_msg:
@@ -83,6 +88,13 @@ async def reintentar_despachos_pendientes_job():
     redis = get_redis_client()
     if not redis:
         logger.warning("⚠️ [Scheduler Job] Cliente Redis no disponible. Omitiendo ciclo de reintentos.")
+        return
+
+    # 🟢 FIX MULTI-INSTANCIA: Candado distribuido global (ex=50s) para que solo UN worker ejecute el ciclo
+    lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:retry_job"
+    lock_acquired = await redis.set(lock_key, "locked", nx=True, ex=50)
+    if not lock_acquired:
+        logger.debug("ℹ️ [Scheduler Job] Otro nodo worker ya se encuentra ejecutando el ciclo de reintentos.")
         return
 
     worker_id = f"worker_node:{uuid.uuid4()}"
@@ -136,15 +148,12 @@ async def reintentar_despachos_pendientes_job():
             lease_segundos=60, 
             intervalo_segundos=15
         ):
-        
             try:
                 payload_actual = item.payload_json
                 sfc_ya_completado = payload_actual.get("_sfc_completado", False)
                 resultado = payload_actual.get("_sfc_resultado", {})
 
-                # ------------------------------------------------------------------
                 # PASO 1: Procesamiento en SFC (solo si no fue completado previamente)
-                # ------------------------------------------------------------------
                 if not sfc_ya_completado:
                     resultado = await orquestador.procesar_despacho_raw_json(payload_actual)
 
@@ -154,7 +163,6 @@ async def reintentar_despachos_pendientes_job():
                         es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                         continue
 
-                    # 🟢 Marcar SFC como completado de inmediato en IdempotencyStore y Redis Payload
                     await idempotency_service.registrar_exito(
                         smart_code=item.smart_code,
                         payload_dict=payload_actual,
@@ -163,9 +171,7 @@ async def reintentar_despachos_pendientes_job():
                     payload_actual["_sfc_completado"] = True
                     payload_actual["_sfc_resultado"] = resultado
 
-                # ------------------------------------------------------------------
                 # PASO 2: Notificación al CRM Webhook
-                # ------------------------------------------------------------------
                 case_id_crm = payload_actual.get("Case_id") or item.smart_code
                 crm_notificado = await CrmWebhookService.notificar_resolucion_contingencia(
                     case_id_crm=case_id_crm,
@@ -173,8 +179,6 @@ async def reintentar_despachos_pendientes_job():
                 )
 
                 if not crm_notificado:
-                    # Si falla el CRM, registramos el fallo actualizando el payload en Redis con _sfc_completado=True.
-                    # En el próximo reintento no se volverá a llamar a la SFC.
                     error_msg = (
                         f"SFC procesó la queja exitosamente ({resultado.get('message', '')}), "
                         f"pero la notificación hacia el CRM Webhook falló."
@@ -182,7 +186,6 @@ async def reintentar_despachos_pendientes_job():
                     logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
                     await queue_service.registrar_fallo(item.id, error_msg=error_msg)
                 else:
-                    # 🟢 SFC OK + CRM OK -> Conclusión exitosa y remoción de la cola
                     await queue_service.marcar_exitoso(item.id)
                     casos_despachados_exito += 1
                     logger.info(
@@ -220,12 +223,21 @@ async def reintentar_despachos_pendientes_job():
 async def purgar_cola_job():
     """Job diario que elimina registros 'EXITOSO' antiguos de la cola Redis."""
     redis = get_redis_client()
-    if redis:
-        queue_service = QueueService(redis)
-        await queue_service.purgar_registros_antiguos(
-            dias_retencion=settings.QUEUE_RETENTION_DAYS,
-            dias_retencion_dlq=settings.QUEUE_RETENTION_DAYS_DLQ
-        )
+    if not redis:
+        return
+
+    # 🟢 FIX MULTI-INSTANCIA: Candado distribuido diario para evitar ejecución duplicada de purga
+    lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:purge_job"
+    lock_acquired = await redis.set(lock_key, "locked", nx=True, ex=3600)
+    if not lock_acquired:
+        logger.debug("ℹ️ [Scheduler Job] Otro nodo worker ya se encuentra ejecutando la purga nocturna.")
+        return
+
+    queue_service = QueueService(redis)
+    await queue_service.purgar_registros_antiguos(
+        dias_retencion=settings.QUEUE_RETENTION_DAYS,
+        dias_retencion_dlq=settings.QUEUE_RETENTION_DAYS_DLQ
+    )
 
 
 def iniciar_scheduler():

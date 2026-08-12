@@ -51,7 +51,6 @@ local pendientes_count = redis.call("SCARD", pending_set_key)
 if existing_id then
     local is_pending = redis.call("SISMEMBER", pending_set_key, existing_id)
     if is_pending == 1 then
-        -- 🟢 FIX: Se corrige {sfc_queue} -> {sfc:queue}
         local item_key = "{sfc:queue}:item:" .. existing_id
         local raw_item = redis.call("GET", item_key)
         if raw_item then
@@ -76,7 +75,6 @@ if existing_id then
 end
 
 local item_id = tostring(redis.call("INCR", counter_key))
--- 🟢 FIX: Se corrige {sfc_queue} -> {sfc:queue}
 local item_key = "{sfc:queue}:item:" .. item_id
 
 local item_data = {
@@ -178,8 +176,25 @@ class QueueService:
     def __init__(self, redis_client=None):
         self.redis = redis_client
 
+    def _crear_pipeline_compatible(self):
+        """
+        🟢 FIX COMPATIBILIDAD CLUSTER:
+        Detecta si el cliente es RedisCluster para omitir transaction=True,
+        evitando la excepción 'ClusterPipeline does not support transactions'.
+        """
+        if not self.redis:
+            return None
+        
+        is_cluster = (
+            getattr(settings, "REDIS_CLUSTER_MODE", False) or 
+            "Cluster" in self.redis.__class__.__name__
+        )
+        
+        if is_cluster:
+            return self.redis.pipeline(transaction=False)
+        return self.redis.pipeline(transaction=True)
+
     async def contar_pendientes(self) -> int:
-        """🟢 FIX: Usa QUEUE_PREFIX para coincidir con la llave con Hash Tag de Redis."""
         if not self.redis:
             return 0
         try:
@@ -367,7 +382,8 @@ class QueueService:
             data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
             smart_code = data.get("smart_code")
 
-            async with self.redis.pipeline(transaction=True) as pipe:
+            # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
+            async with self._crear_pipeline_compatible() as pipe:
                 pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                 pipe.srem(f"{QUEUE_PREFIX}:status:PENDIENTE", str(registro_id))
                 pipe.sadd(f"{QUEUE_PREFIX}:status:EXITOSO", str(registro_id))
@@ -408,7 +424,6 @@ class QueueService:
                     ultimo_error=error_msg,
                     correlation_id=data.get("correlation_id")
                 )
-                # 🟢 FIX: Invalida en IdempotencyStore para permitir re-envíos desde Salesforce CRM
                 from app.services.idempotency_service import IdempotencyService
                 idempotency_service = IdempotencyService(self.redis)
                 payload_json = data.get("payload_json", {})
@@ -421,7 +436,8 @@ class QueueService:
 
             data["updated_at"] = now_bogota.isoformat()
 
-            async with self.redis.pipeline(transaction=True) as pipe:
+            # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
+            async with self._crear_pipeline_compatible() as pipe:
                 pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                 pipe.delete(claim_key)
                 
@@ -526,7 +542,8 @@ class QueueService:
                         a_eliminar.append(str(item_id))
 
                 if a_eliminar or inconsistentes:
-                    async with self.redis.pipeline(transaction=True) as pipe:
+                    # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
+                    async with self._crear_pipeline_compatible() as pipe:
                         for item_id in inconsistentes:
                             pipe.srem(set_key, item_id)
 
@@ -569,7 +586,8 @@ class QueueService:
                 data["updated_at"] = now_bogota.isoformat()
                 data["ultimo_error"] = "Reintento pospuesto automáticamente por caída de plataforma SFC."
 
-                async with self.redis.pipeline(transaction=True) as pipe:
+                # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
+                async with self._crear_pipeline_compatible() as pipe:
                     pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                     pipe.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(registro_id): proximo_ts})
                     pipe.delete(claim_key)
