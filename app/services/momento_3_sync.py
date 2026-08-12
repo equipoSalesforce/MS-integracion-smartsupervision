@@ -84,7 +84,7 @@ class Momento3SincronizacionService:
             pdf_generado_exito = False
             if generar_pdf_cierre and cuerpo_correo:
                 await self._generar_y_enviar_pdf_respuesta_final(
-                    sfc_code=sfc_id_largo,
+                    sfc_code=payload.get("Case_id"),
                     cuerpo_correo_html=cuerpo_correo,
                     cliente_nombre=cliente_nombre
                 )
