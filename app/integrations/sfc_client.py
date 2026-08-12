@@ -64,11 +64,28 @@ async def log_request(request: httpx.Request):
 
 async def log_response(response: httpx.Response):
     """Hook para registrar respuestas HTTP entrantes desde la SFC en formato JSON estructurado."""
+    content_type = response.headers.get("content-type", "").lower()
+    url_str = str(response.url).lower()
+    
     is_file_response = (
-        SfcEndpoints.STORAGE.value in str(response.url)
+        SfcEndpoints.STORAGE.value in url_str
+        or "storage.googleapis.com" in url_str
+        or "application/pdf" in content_type
+        or "application/octet-stream" in content_type
         or (response.request and "multipart/form-data" in response.request.headers.get("content-type", ""))
     )
+    
     if is_file_response and not getattr(settings, "ENABLE_FILE_LOGS", False):
+        logger.info("AUDIT_HTTP_INCOMING_RESPONSE", extra={
+            "extra_data": {
+                "direction": "INCOMING_RESPONSE",
+                "status_code": response.status_code,
+                "reason_phrase": response.reason_phrase,
+                "url": str(response.url),
+                "headers": sanitizar_headers(dict(response.headers)),
+                "body": f"[BINARY_FILE_CONTENT: {content_type}]"
+            }
+        })
         return
 
     await response.aread()

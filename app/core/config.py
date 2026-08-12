@@ -44,8 +44,10 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)
+    AWS_SESSION_TOKEN: Optional[str] = Field(default=None)  # 🟢 FIX: Necesario para AWS SSO / aws-vault
     AWS_REGION: str
     AWS_ENDPOINT_URL: Optional[str] = None
+    AWS_S3_ENDPOINT_URL: Optional[str] = None
 
     # --- Constantes de Entidad para la SFC ---
     SFC_TIPO_ENTIDAD: int = 128

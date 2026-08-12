@@ -178,9 +178,9 @@ class Momento3SincronizacionService:
 
         # ⚡ Renderizado seguro fuera del event loop (CPU-bound)
         file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
-
+        
         final_pdf_name = f"Respuesta_Final_{sfc_code}_RESP_FINAL_SFC.pdf"
-        s3_key = f"caso/cierre/{sfc_code}/{final_pdf_name}"
+        s3_key = f"caso/{sfc_code}/{final_pdf_name}"
 
         # Subida directa de bytes en memoria RAM
         try:

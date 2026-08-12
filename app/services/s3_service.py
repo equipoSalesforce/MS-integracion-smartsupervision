@@ -426,7 +426,7 @@ class S3StorageService:
 
                     max_bytes = 30 * 1024 * 1024
                     downloaded_bytes = 0
-                    timeout_descarga = httpx.Timeout(connect=5.0, read=30.0)
+                    timeout_descarga = httpx.Timeout(30.0, connect=5.0)
 
                     async with client.stream("GET", url_sfc, timeout=timeout_descarga) as response:
                         response.raise_for_status()

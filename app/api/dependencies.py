@@ -1,4 +1,5 @@
 # app/api/dependencies.py
+import os
 import secrets
 import logging
 from typing import Optional
@@ -58,18 +59,37 @@ def get_s3_client():
     global _s3_client_instance
     if _s3_client_instance is None:
         try:
+            
+            endpoint_url = (
+                getattr(settings, "AWS_ENDPOINT_URL", None) or 
+                getattr(settings, "AWS_S3_ENDPOINT_URL", None) or 
+                os.getenv("AWS_S3_ENDPOINT_URL")
+            )
+            
             if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
-                logger.info("Inicializando S3 Client Singleton usando credenciales explícitas.")
-                _s3_client_instance = boto3.client(
-                    "s3",
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_REGION,
-                    endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None) 
-                )
+                logger.info("Inicializando S3 Client Singleton usando credenciales explícitas/STS.")
+                kwargs = {
+                    "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
+                    "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+                    "region_name": settings.AWS_REGION,
+                }
+                
+                # 🟢 FIX: Si existen credenciales temporales (ASIA...), inyecta el token de sesión
+                session_token = getattr(settings, "AWS_SESSION_TOKEN", None) or os.getenv("AWS_SESSION_TOKEN")
+                if session_token:
+                    kwargs["aws_session_token"] = session_token
+
+                if endpoint_url:
+                    kwargs["endpoint_url"] = endpoint_url
+
+                _s3_client_instance = boto3.client("s3", **kwargs)
             else:
                 logger.info("Buscando IAM Role en el ambiente para S3 Client Singleton.")
-                _s3_client_instance = boto3.client("s3", region_name=settings.AWS_REGION)
+                kwargs = {"region_name": settings.AWS_REGION}
+                if endpoint_url:
+                    kwargs["endpoint_url"] = endpoint_url
+
+                _s3_client_instance = boto3.client("s3", **kwargs)
         except Exception as e:
             logger.warning(f"No se pudo inicializar AWS S3 Singleton: {str(e)}")
             _s3_client_instance = None
