@@ -19,12 +19,9 @@ def _es_error_queja_ya_existe_m2(exc_raw_msg: str, error_type: Optional[str] = N
     Evalúa si la SFC rechazó la creación porque EL MISMO código de queja ya existía previamente.
     Distingue la colisión por el mismo codigo_queja de la regla anti-duplicados funcional por motivo/producto/canal.
     """
-    if error_type == "ALREADY_EXISTS":
-        return True
-
     msg = (exc_raw_msg or "").lower()
 
-    # 🚫 Si el mensaje indica duplicidad por motivo/producto/canal (otra queja distinta), NO es el mismo código
+    # 1. Prioridad: Si el mensaje indica duplicidad por motivo/producto/canal (otra queja distinta), NO es el mismo código
     frases_colision_funcional = [
         "mismo motivo",
         "mismo producto",
@@ -33,6 +30,10 @@ def _es_error_queja_ya_existe_m2(exc_raw_msg: str, error_type: Optional[str] = N
     ]
     if any(frase in msg for frase in frases_colision_funcional):
         return False
+
+    # 2. Si el error fue por duplicidad real del mismo código
+    if error_type == "ALREADY_EXISTS":
+        return True
 
     keywords = ["ya existe", "already exists", "registrado en la sfc"]
     return any(kw in msg for kw in keywords)
