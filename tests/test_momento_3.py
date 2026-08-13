@@ -1,3 +1,4 @@
+# tests/test_momento_3.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import date
@@ -22,6 +23,15 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         # Inyección de Dependencias nativa para los tests de Integración
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
+
+        # 🟢 SIMULACIÓN DE REDIS: Evita que la política Fail-Closed bloquee con 503 durante unit tests
+        self.redis_patcher = patch("app.api.routes_quejas.get_redis_client")
+        self.mock_get_redis = self.redis_patcher.start()
+
+        self.mock_redis = AsyncMock()
+        self.mock_redis.get.return_value = None
+        self.mock_redis.set.return_value = True
+        self.mock_get_redis.return_value = self.mock_redis
         
         self.client = TestClient(app)
         
@@ -72,6 +82,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        self.redis_patcher.stop()
 
     # ======================================================================
     # 🧪 SUITE 1: PRUEBAS DE INTEGRACIÓN (HTTP ENDPOINT UNIFICADO & PYDANTIC)

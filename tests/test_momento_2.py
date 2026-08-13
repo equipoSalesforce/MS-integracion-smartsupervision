@@ -1,3 +1,4 @@
+# tests/test_momento_2.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import ValidationError
@@ -112,7 +113,7 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.post_adjunto_queja.assert_called_once()
 
     async def test_envio_fallido_error_api_sfc(self):
-        """Prueba el aislamiento de fallos: si la SFC falla con excepción genérica, capturamos el error."""
+        """Verifica que si la SFC falla con una excepción no controlada, la excepción se relanza (Hallazgo 40)."""
         self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=Exception("SFC Timeout Connection"))
         
         service = Momento2SincronizacionService(
@@ -122,11 +123,10 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         
         payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
         
-        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
-        
-        # Verificaciones
-        self.assertEqual(resultado["status"], "error")
-        self.assertIn("Pipeline interrumpido", resultado["message"])
+        with self.assertRaises(Exception) as ctx:
+            await service.ejecutar_envio_momento_2(payload_pydantic)
+            
+        self.assertEqual(str(ctx.exception), "SFC Timeout Connection")
 
     async def test_envio_fallido_sfc_integration_exception(self):
         """Prueba que si la SFC lanza una SfcIntegrationException, se propaga para que la atrape el router."""

@@ -1,3 +1,5 @@
+# app/core/mapping.py
+import asyncio
 import json
 import logging
 import os
@@ -29,6 +31,12 @@ class SfcSalesforceMapper:
 
     ULTIMA_ACTUALIZACION: float = 0
     CACHE_TTL_SEGUNDOS: int = 600
+    MAX_STALE_TTL_SEGUNDOS: int = 86400  # 🟢 FIX HALLAZGO 49: Umbral máximo de obsolescencia (24 Horas)
+
+    # 🟢 FIX HALLAZGO 48: Candado de refresco Single-Flight para evitar estampidas contra Google Sheets API
+    _REFRESH_LOCK: Optional[asyncio.Lock] = None
+    
+    
 
     DEPT_DIVIPOLA_INV: Dict[str, str] = {}  
     MUNI_DIVIPOLA_INV: Dict[str, str] = {}  
@@ -67,6 +75,12 @@ class SfcSalesforceMapper:
         "departamento_cod": "Departamento__c", "municipio_cod": "SC_municipio__c",
     }
 
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        if cls._REFRESH_LOCK is None:
+            cls._REFRESH_LOCK = asyncio.Lock()
+        return cls._REFRESH_LOCK
+
     @staticmethod
     def _normalize_text(text: str) -> str:
         """Remueve tildes, signos de puntuación y convierte a minúsculas limpias."""
@@ -79,9 +93,9 @@ class SfcSalesforceMapper:
     @classmethod
     async def _obtener_google_access_token(cls, client: Optional[httpx.AsyncClient] = None) -> Optional[str]:
         """Obtiene token de acceso vía Google OAuth 2.0 reutilizando cliente o con timeout extendido."""
-        client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
-        client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
-        refresh_token = getattr(settings, "GOOGLE_REFRESH_TOKEN", None)
+        client_id = settings.GOOGLE_CLIENT_ID
+        client_secret = settings.GOOGLE_CLIENT_SECRET
+        refresh_token = settings.GOOGLE_REFRESH_TOKEN
 
         if not all([client_id, client_secret, refresh_token]):
             return None
@@ -114,100 +128,131 @@ class SfcSalesforceMapper:
     async def obtener_catalogos_y_mapeos(cls, http_client: Optional[httpx.AsyncClient] = None) -> None:
         """
         Sincroniza Catálogos y Mapeos consultando las pestañas individuales de Google Sheets en un solo lote (batchGet).
+        Implementa el patrón Single-Flight para evitar estampidas de peticiones concurrentes.
         """
         ahora = time.time()
-        # 1. Validación de caché fresca en RAM
+        # 1. Fast Path: Validación de caché fresca en RAM sin bloqueo
         if cls.CATALOGOS and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
             return
 
-        logger.info("🔄 [SfcSalesforceMapper] Intentando conectar con catalogo de mapeo en Google Sheets...")
+        # 2. Bloqueo Single-Flight: Solo una petición concurrente refresca la caché
+        async with cls._get_lock():
+            ahora = time.time()
+            # Double-check locking: si otra corrutina ya actualizó la caché mientras esperábamos el candado
+            if cls.CATALOGOS and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
+                return
 
-        spreadsheet_id = getattr(settings, "GOOGLE_CATALOGS_SPREADSHEET_ID", None)
+            logger.info("🔄 [SfcSalesforceMapper] Intentando conectar con catalogo de mapeo en Google Sheets...")
 
-        if spreadsheet_id:
-            try:
-                access_token = await cls._obtener_google_access_token(client=http_client)
+            spreadsheet_id = settings.GOOGLE_CATALOGS_SPREADSHEET_ID
 
-                if access_token:
-                    headers = {"Authorization": f"Bearer {access_token}"}
-                    url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
-                    
-                    # Usar cliente inyectado o crear uno de respaldo con timeout de 10s
-                    async def _fetch_sheets(client_to_use: httpx.AsyncClient):
-                        res_meta = await client_to_use.get(url_meta, headers=headers)
-                        if res_meta.status_code != 200:
-                            return None
+            if spreadsheet_id:
+                try:
+                    access_token = await cls._obtener_google_access_token(client=http_client)
+
+                    if access_token:
+                        headers = {"Authorization": f"Bearer {access_token}"}
+                        url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
                         
-                        sheet_titles = [
-                            s["properties"]["title"] 
-                            for s in res_meta.json().get("sheets", []) 
-                            if "properties" in s and "title" in s["properties"]
-                        ]
+                        async def _fetch_sheets(client_to_use: httpx.AsyncClient):
+                            res_meta = await client_to_use.get(url_meta, headers=headers)
+                            if res_meta.status_code != 200:
+                                return None
+                            
+                            sheet_titles = [
+                                s["properties"]["title"] 
+                                for s in res_meta.json().get("sheets", []) 
+                                if "properties" in s and "title" in s["properties"]
+                            ]
 
-                        params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
-                        url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
-                        return await client_to_use.get(url_batch, headers=headers, params=params)
+                            params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
+                            url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
+                            return await client_to_use.get(url_batch, headers=headers, params=params)
 
-                    if http_client is not None:
-                        res_batch = await _fetch_sheets(http_client)
-                    else:
-                        async with httpx.AsyncClient(timeout=10.0) as local_client:
-                            res_batch = await _fetch_sheets(local_client)
+                        if http_client is not None:
+                            res_batch = await _fetch_sheets(http_client)
+                        else:
+                            async with httpx.AsyncClient(timeout=10.0) as local_client:
+                                res_batch = await _fetch_sheets(local_client)
 
-                    if res_batch and res_batch.status_code == 200:
-                        value_ranges = res_batch.json().get("valueRanges", [])
-                        
-                        nuevos_catalogos: Dict[str, Dict[str, str]] = {}
-                        m1_map, m4_map = {}, {}
+                        if res_batch and res_batch.status_code == 200:
+                            value_ranges = res_batch.json().get("valueRanges", [])
+                            
+                            nuevos_catalogos: Dict[str, Dict[str, str]] = {}
+                            m1_map, m4_map = {}, {}
 
-                        for vr in value_ranges:
-                            range_str = vr.get("range", "")
-                            tab_title = range_str.split("!")[0].replace("'", "").strip()
-                            rows = vr.get("values", [])[1:]
+                            for vr in value_ranges:
+                                range_str = vr.get("range", "")
+                                tab_title = range_str.split("!")[0].replace("'", "").strip()
+                                rows = vr.get("values", [])[1:]
 
-                            if tab_title.lower() == "mapeo_campos":
-                                for row in rows:
-                                    if len(row) >= 3 and row[0] and row[1] and row[2]:
-                                        momento = str(row[0]).strip().upper()
-                                        campo_sfc = str(row[1]).strip()
-                                        campo_crm = str(row[2]).strip()
-                                        
-                                        if "MOMENTO_1" in momento or "M1" in momento:
-                                            m1_map[campo_sfc] = campo_crm
-                                        elif "MOMENTO_4" in momento or "M4" in momento:
-                                            m4_map[campo_sfc] = campo_crm
-                            else:
-                                cat_key = tab_title.lower()
-                                cat_dict = {}
-                                for row in rows:
-                                    if len(row) >= 2 and row[0] and row[1]:
-                                        code = str(row[0]).strip()
-                                        val = str(row[1]).strip()
-                                        cat_dict[code] = val
-                                        
-                                if cat_dict:
-                                    nuevos_catalogos[cat_key] = cat_dict
+                                if tab_title.lower() == "mapeo_campos":
+                                    for row in rows:
+                                        if len(row) >= 3 and row[0] and row[1] and row[2]:
+                                            momento = str(row[0]).strip().upper()
+                                            campo_sfc = str(row[1]).strip()
+                                            campo_crm = str(row[2]).strip()
+                                            
+                                            if "MOMENTO_1" in momento or "M1" in momento:
+                                                m1_map[campo_sfc] = campo_crm
+                                            elif "MOMENTO_4" in momento or "M4" in momento:
+                                                m4_map[campo_sfc] = campo_crm
+                                else:
+                                    cat_key = tab_title.lower()
+                                    cat_dict = {}
+                                    for row in rows:
+                                        if len(row) >= 2 and row[0] and row[1]:
+                                            code = str(row[0]).strip()
+                                            val = str(row[1]).strip()
+                                            cat_dict[code] = val
+                                            
+                                    if cat_dict:
+                                        nuevos_catalogos[cat_key] = cat_dict
 
-                        if nuevos_catalogos:
-                            cls.CATALOGOS = nuevos_catalogos
-                            cls._construir_indices_inversos()
-                            cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
-                            cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
-                            cls.ULTIMA_ACTUALIZACION = ahora
-                            logger.info(
-                                f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
-                                f"cargados desde pestañas de Google Sheets."
+                            if nuevos_catalogos:
+                                cls.CATALOGOS = nuevos_catalogos
+                                cls._construir_indices_inversos()
+                                cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
+                                cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
+                                cls.ULTIMA_ACTUALIZACION = ahora
+                                logger.info(
+                                    f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
+                                    f"cargados desde pestañas de Google Sheets."
+                                )
+                                return
+                except Exception as e:
+                    # 🟢 FIX HALLAZGO 49: Registro estructurado de edad de la caché y alerta por obsolescencia
+                    edad_segundos = (ahora - cls.ULTIMA_ACTUALIZACION) if cls.ULTIMA_ACTUALIZACION > 0 else 0
+                    edad_horas = edad_segundos / 3600.0
+
+                    logger.warning(
+                        f"⚠️ [SfcSalesforceMapper] Falló la sincronización con Google Sheets: {e}. "
+                        f"Antigüedad de la caché en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
+                    )
+
+                    if cls.ULTIMA_ACTUALIZACION > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+                        logger.critical(
+                            f"🚨 [SfcSalesforceMapper] ALERTA CRÍTICA: La caché de catálogos en RAM tiene {edad_horas:.1f}h "
+                            f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
+                        )
+                        try:
+                            from app.services.email_service import EmailAlertService
+                            asyncio.create_task(
+                                EmailAlertService.notificar_catalogo_stale(
+                                    nombre_componente="SfcSalesforceMapper (Catálogos)",
+                                    edad_horas=edad_horas,
+                                    error_msg=str(e)
+                                )
                             )
-                            return
-            except Exception as e:
-                logger.warning(f"⚠️ [SfcSalesforceMapper] Falló sincronización por pestañas: {e}. Usando datos vigentes/local.")
-        else:
-            logger.info("ℹ️ [SfcSalesforceMapper] GOOGLE_CATALOGS_SPREADSHEET_ID no está configurado. Usando respaldo local.")
+                        except Exception as alert_err:
+                            logger.warning(f"No se pudo disparar la alerta por catálogo stale: {alert_err}")
+            else:
+                logger.info("ℹ️ [SfcSalesforceMapper] GOOGLE_CATALOGS_SPREADSHEET_ID no está configurado. Usando respaldo local.")
 
-        if not cls.CATALOGOS:
-            cls.cargar_catalogos_local()
+            if not cls.CATALOGOS:
+                cls.cargar_catalogos_local()
 
-        cls.ULTIMA_ACTUALIZACION = ahora
+            cls.ULTIMA_ACTUALIZACION = ahora
 
     @classmethod
     def _construir_indices_inversos(cls):
@@ -222,7 +267,6 @@ class SfcSalesforceMapper:
                 for idx, nombre in enumerate(cls.PRODUCTO_SFC_TEXTO_TO_SF.values(), 1)
             }
 
-        # 🟢 CONSTRUCCIÓN EN VARIABLE LOCAL: No vacía la referencia global cls.INVERSE_CATALOGS
         nuevos_indices_inversos: Dict[str, Dict[str, Any]] = {}
 
         for cat_key, cat_dict in cls.CATALOGOS.items():
@@ -233,7 +277,6 @@ class SfcSalesforceMapper:
                 cat_inverse[str(k)] = val_to_store 
             nuevos_indices_inversos[cat_key] = cat_inverse
         
-        # Inyección de alias previa a la publicación
         if "tipo_id" in nuevos_indices_inversos:
             nuevos_indices_inversos["tipo_id"].update({
                 "cc": 1, "ce": 2, "rut": 3, "nit": 3, "dni": 4, "pass": 5, "passport": 5, "pasaporte": 5
@@ -243,7 +286,6 @@ class SfcSalesforceMapper:
                 "activate b2c": 99, "form: change data": 99, "updatecom": 99, "manual": 1, "internet": 2
             })
 
-        # 🟢 REASIGNACIÓN ATÓMICA: Las corrutinas lectoras conmutan a los nuevos índices instantáneamente
         cls.INVERSE_CATALOGS = nuevos_indices_inversos
 
     @classmethod
@@ -262,7 +304,6 @@ class SfcSalesforceMapper:
             cls.MAPPING_MOMENTO_4_SFC_TO_CRM = cls.DEFAULT_MAPPING_M4
             cls.cargar_divipola(force=force)
 
-            # 🟢 REMOVIDO: No asignar ULTIMA_ACTUALIZACION al cargar el JSON en la importación del módulo
             logger.info("📂 [SfcSalesforceMapper] Respaldo local de catálogos cargado en RAM.")
         except Exception as e:
             logger.error(f"❌ Error al cargar catalogos_sfc_crm.json: {e}")
@@ -345,36 +386,42 @@ class SfcSalesforceMapper:
     def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
         if sfc_value is None: 
             return None
+        
         str_key = str(sfc_value).strip()
+        if not str_key:
+            return None
         
         if sfc_key == "codigo_pais":
             cat_paises = cls.CATALOGOS.get("codigo_pais", {})
-            return cat_paises.get(str_key, "Colombia")
+            if str_key in cat_paises:
+                return cat_paises[str_key]
+            logger.warning(f"⚠️ [Mapping M1] Código de país no mapeado recibido de SFC: '{str_key}'")
+            return str_key
         
         key_to_cat = {
-            "sexo": ("genero", "No Aplica"),
-            "tipo_id_CF": ("tipo_id", "Cedula de ciudadanía"),
-            "tipo_persona": ("persona", "B2C"),
-            "lgbtiq": ("lgbtiq", "No"),
-            "sc_LGBTIQ__c": ("lgbtiq", "No"),
-            "condicion_especial": ("condicion_especial", "No aplica"),
-            "canal_cod": ("canal", "Internet"),
-            "ente_control": ("ente_control", "Otros"),
-            "insta_recepcion": ("instancia_recepcion", "Entidad vigilada"),
-            "admision": ("admision", "No Aplica"),
-            "a_favor_de": ("favorabilidad", "No favorable"),
-            "aceptacion_queja": ("aceptacion", "Respuesta final a favor del consumidor financiero no aceptadas por la entidad"),
-            "rectificacion_queja": ("rectificacion", "Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF"),
-            "desistimiento_queja": ("desistimiento", "Queja o reclamo no desistida por el CF"),
-            "tipo_fraude": ("tipo_fraude", "Externo"),
-            "modalidad_fraude": ("modalidad_fraude", "Otra"),
-            "punto_recepcion": ("punto_recepcion", "Manual"),
-            "macro_motivo_cod": ("macro_motivo", "Transacción no reconocida"),
-            "Categorias_COL__c": ("macro_motivo", "Transacción no reconocida")
+            "sexo": "genero",
+            "tipo_id_CF": "tipo_id",
+            "tipo_persona": "persona",
+            "lgbtiq": "lgbtiq",
+            "sc_LGBTIQ__c": "lgbtiq",
+            "condicion_especial": "condicion_especial",
+            "canal_cod": "canal",
+            "ente_control": "ente_control",
+            "insta_recepcion": "instancia_recepcion",
+            "admision": "admision",
+            "a_favor_de": "favorabilidad",
+            "aceptacion_queja": "aceptacion",
+            "rectificacion_queja": "rectificacion",
+            "desistimiento_queja": "desistimiento",
+            "tipo_fraude": "tipo_fraude",
+            "modalidad_fraude": "modalidad_fraude",
+            "punto_recepcion": "punto_recepcion",
+            "macro_motivo_cod": "macro_motivo",
+            "Categorias_COL__c": "macro_motivo"
         }
 
         if sfc_key in key_to_cat:
-            cat_key, default_val = key_to_cat[sfc_key]
+            cat_key = key_to_cat[sfc_key]
             cat_dict = cls.CATALOGOS.get(cat_key, {})
 
             if str_key in cat_dict:
@@ -385,7 +432,8 @@ class SfcSalesforceMapper:
                 if offset_key in cat_dict:
                     return cat_dict[offset_key]
 
-            return default_val
+            logger.warning(f"⚠️ [Mapping M1] Código no reconocido en catálogo '{cat_key}' para la llave '{sfc_key}': '{str_key}'")
+            return str_key
 
         if sfc_key in ("departamento_cod", "Departamento__c"):
             return cls.DEPT_DIVIPOLA_INV.get(str_key, str(sfc_value))
@@ -418,7 +466,6 @@ class SfcSalesforceMapper:
             v_clean = str(sf_value).lower().strip()
             return v_clean in ("si", "sí", "true", "1")
 
-        # 🎯 PRODUCTO SFC: Retorno directo ANTES de evaluar la matriz genérica
         if sf_key == "Product__c":
             return 207
 
@@ -505,18 +552,22 @@ class SfcSalesforceMapper:
 
     @classmethod
     def sfc_user_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
-        crm_data = {}
         if not isinstance(sfc_data, dict):
-            return crm_data
-
+            raise ValueError("El payload de usuario recibido de la SFC debe ser un objeto/diccionario válido.")
+    
+        num_id = sfc_data.get("numero_id_CF") or sfc_data.get("numero_id") or sfc_data.get("id_number__c")
+        if not num_id or not str(num_id).strip():
+            raise ValueError("Campo obligatorio 'numero_id_CF' ausente o vacío en el registro de usuario de la SFC.")
+    
+        crm_data = {}
         mapping_m4 = cls.MAPPING_MOMENTO_4_SFC_TO_CRM or cls.DEFAULT_MAPPING_M4
-
+    
         for sfc_key, value in sfc_data.items():
             if value is None:
                 continue
-
+    
             crm_key = mapping_m4.get(sfc_key) or mapping_m4.get(str(sfc_key).lower())
-
+    
             if crm_key:
                 if sfc_key == "fecha_nacimiento" and isinstance(value, str) and value.strip():
                     try:
@@ -526,12 +577,12 @@ class SfcSalesforceMapper:
                         crm_data[crm_key] = value
                 else:
                     crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
-
+    
         first_name = crm_data.get("FirstName", "")
         last_name = crm_data.get("LastName", "")
         if first_name or last_name:
             crm_data["SuppliedName"] = f"{first_name} {last_name}".strip()
-
+    
         return crm_data
 
     @classmethod
@@ -653,11 +704,8 @@ class SfcSalesforceMapper:
             return cls.crm_entity_to_sfc_momento3_payload(entity)
         return cls.crm_entity_to_sfc_momento2_payload(entity)
 
-
-# ⚡ Cargar respaldo local inicial al importar el módulo
 SfcSalesforceMapper.cargar_catalogos_local()
 
-# Aliases de compatibilidad
 sfc_payload_to_db_dict = SfcSalesforceMapper.sfc_payload_to_db_dict
 sfc_user_payload_to_db_dict = SfcSalesforceMapper.sfc_user_payload_to_db_dict
 crm_entity_to_sfc_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload

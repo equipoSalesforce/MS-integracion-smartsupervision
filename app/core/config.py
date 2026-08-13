@@ -1,27 +1,47 @@
 # app/core/config.py
-from typing import List, Any, Optional
-from pydantic import BeforeValidator, Field, SecretStr, field_validator, model_validator
+import json
+from typing import List, Any, Optional, Union
+from pydantic import BeforeValidator, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
 
 def parse_cors(v: Any) -> List[str]:
-    if isinstance(v, str) and not v.startswith("["):
-        return [i.strip() for i in v.split(",")]
-    elif isinstance(v, (list, str)):
-        return v
-    raise ValueError(v)
-
-def parse_email_list(v: Any) -> List[str]:
     """
-    🟢 RESILIENCIA EN SECRETS MANAGER:
-    Permite parsear la lista de correos tanto si viene como cadena formateada en JSON
-    '["a@g66.com", "b@g66.com"]' como si viene en texto plano separado por comas 'a@g66.com, b@g66.com'.
+    🟢 PARSER RESILIENTE DE CORS:
+    Soporta arreglos JSON '["*"]', listas Python, o cadenas separadas por comas '*', 'http://a.com,http://b.com'.
     """
     if isinstance(v, str):
         v_clean = v.strip()
-        if not v_clean.startswith("["):
-            return [i.strip() for i in v_clean.split(",") if i.strip()]
-    return v
+        if v_clean.startswith("[") and v_clean.endswith("]"):
+            try:
+                parsed = json.loads(v_clean)
+                if isinstance(parsed, list):
+                    return [str(i).strip() for i in parsed if str(i).strip()]
+            except Exception:
+                pass
+        return [i.strip() for i in v_clean.split(",") if i.strip()]
+    elif isinstance(v, list):
+        return [str(i).strip() for i in v if str(i).strip()]
+    raise ValueError(f"Valor CORS inválido: {v}")
+
+def parse_email_list(v: Any) -> List[str]:
+    """
+    🟢 PARSER RESILIENTE DE EMAILS:
+    Soporta formato JSON '["a@g66.com"]' o texto separado por comas 'a@g66.com, b@g66.com'.
+    """
+    if isinstance(v, str):
+        v_clean = v.strip()
+        if v_clean.startswith("[") and v_clean.endswith("]"):
+            try:
+                parsed = json.loads(v_clean)
+                if isinstance(parsed, list):
+                    return [str(i).strip() for i in parsed if str(i).strip()]
+            except Exception:
+                pass
+        return [i.strip() for i in v_clean.split(",") if i.strip()]
+    elif isinstance(v, list):
+        return [str(i).strip() for i in v if str(i).strip()]
+    raise ValueError(f"Lista de emails inválida: {v}")
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -35,21 +55,28 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "local"
     API_V1_STR: str = "/api/v1"
     
+    # 🟢 FIX HALLAZGO 28: Deshabilitar Swagger/OpenAPI por defecto en entornos no-locales
+    ENABLE_DOCS: bool = Field(
+        default=False, 
+        description="Interruptor de seguridad para activar o desactivar /docs, /redoc y /openapi.json"
+    )
+    
+    ENABLE_FILE_LOGS: bool = Field(
+        default=False,
+        description="Interruptor para configurar si se muestra o no logs de archivos binarios"
+    )
+
     # --- Configuración CORS ---
-    # 🟢 FIX: unificado en un solo campo obligatorio (sin default inseguro).
-    # Antes existían BACKEND_CORS_ORIGINS (con default "*", efectivamente en uso
-    # por el middleware) y CRM_CORS_ORIGINS (obligatorio, pero nunca conectado al
-    # middleware) — dos fuentes de verdad desincronizadas. Se deja una sola.
     CRM_CORS_ORIGINS: Annotated[
-        List[str], BeforeValidator(parse_cors)
-    ] = Field(description="Orígenes permitidos para CORS (dominios reales del CRM, sin comodín)")
+        Union[List[str], str], BeforeValidator(parse_cors)
+    ] = Field(..., description="Orígenes permitidos para CORS (dominios reales del CRM, sin comodín)")
 
     # --- Configuración AWS S3 ---
-    AWS_S3_BUCKET: str
+    AWS_S3_BUCKET: str = Field(..., description="Nombre del bucket S3 para adjuntos")
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)
-    AWS_SESSION_TOKEN: Optional[str] = Field(default=None)  # 🟢 FIX: Necesario para AWS SSO / aws-vault
-    AWS_REGION: str
+    AWS_SESSION_TOKEN: Optional[str] = Field(default=None)
+    AWS_REGION: str = Field(..., description="Región principal de AWS (ej. us-east-1)")
     AWS_ENDPOINT_URL: Optional[str] = None
     AWS_S3_ENDPOINT_URL: Optional[str] = None
 
@@ -58,36 +85,33 @@ class Settings(BaseSettings):
     SFC_ENTIDAD_COD: str = "6"
 
     # --- Integración con Smart Supervisión (SFC) ---
-    SFC_URL_BASE: str = Field(
-        description="URL base alias para configuraciones de infraestructura"
-    )
-    SFC_USERNAME: str = Field(
-        description="Usuario de autenticación asignado por la SFC"
-    )
-    SFC_PASSWORD: str = Field(
-        description="Contraseña de autenticación asignada por la SFC"
-    )
+    SFC_URL_BASE: str = Field(..., description="URL base de la plataforma Smart Supervisión de la SFC")
+    SFC_USERNAME: str = Field(..., description="Usuario de autenticación asignado por la SFC")
+    SFC_PASSWORD: str = Field(..., description="Contraseña de autenticación asignada por la SFC")
+    
     SFC_SECRET_KEY: str = Field(
-        default="global66_sfc_secret_key_testing_2026",
-        description="Llave secreta de firma criptográfica HMAC-SHA256"
+        ...,
+        description="Llave secreta de firma criptográfica HMAC-SHA256 (Obligatoria sin defaults)"
     )
     SFC_VERIFY_SIGNATURES: bool = Field(
         default=False,
-        description="Interruptor para activar o desactivar la verificación y generación de firmas HMAC en el cliente"
+        description="Interruptor para activar o desactivar la verificación y generación de firmas HMAC"
     )
     
-    CRM_API_KEY: str = Field(
-        description="API Key requerida para que el CRM consuma los endpoints de despacho e integración"
-    )
-    ADMIN_API_KEY: str = Field(
-        description="API Key administrativa requerida para endpoints de monitoreo e infraestructura (ej. /queue)"
-    )
+    CRM_API_KEY: str = Field(..., description="API Key requerida para consumos del CRM")
+    ADMIN_API_KEY: str = Field(..., description="API Key administrativa requerida para monitoreo")
+
     # --- Configuración de Cola Centralizada con Redis ---
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
     REDIS_PASSWORD: Optional[str] = Field(default=None)
     REDIS_DB: int = Field(default=0)
     REDIS_SSL: bool = Field(default=False)
+    # 🟢 FIX HALLAZGO 51: Declaración formal del campo REDIS_CLUSTER_MODE en Settings
+    REDIS_CLUSTER_MODE: bool = Field(
+        default=False, 
+        description="Activa el modo Redis Cluster para integración con AWS ElastiCache Cluster"
+    )
     REDIS_URL: Optional[str] = Field(default=None)
 
     QUEUE_RETRY_INTERVAL_MINUTES: int = Field(default=5)
@@ -103,7 +127,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = Field(...)
     
     ALERT_NOTIFY_EMAILS: Annotated[
-        List[str], BeforeValidator(parse_email_list)
+        Union[List[str], str], BeforeValidator(parse_email_list)
     ] = Field(..., description="Lista de destinatarios para alertas de infraestructura y DLQ")
     ALERT_EMAILS_ENABLED: bool = Field(default=True)
 
@@ -127,35 +151,70 @@ class Settings(BaseSettings):
     RUN_SCHEDULER: bool = Field(default=False)
 
     @model_validator(mode="after")
-    def validar_secretos_produccion(self):
+    def validar_configuracion_estricta(self):
         """
         🛡️ VALIDACIÓN STRICT FAIL-FAST EN ARRANQUE
-        Impide la ejecución en ambientes productivos/no-locales si no se inyectaron
-        secretos reales desde AWS Secrets Manager / Environment.
+        Aplica validaciones estrictas en entornos desplegables (incluyendo CI, Dev, QA, Staging y Prod)
+        para impedir el arranque con valores inseguros, URLs ficticias o wildcard CORS (*).
         """
         env_lower = (self.ENVIRONMENT or "").strip().lower()
-        ambientes_estrictos = ("production", "prod", "staging", "qa")
+        ambientes_estrictos = ("production", "prod", "staging", "qa", "dev", "ci")
 
         if env_lower in ambientes_estrictos:
+            errores_validacion = []
+
+            # 1. Auditoría de Secretos e API Keys inseguros o de ejemplo
             valores_inseguros_prohibidos = {
-                "CRM_API_KEY": ["g66_sk_test_super_secreto_12345", "test", "12345"],
-                "ADMIN_API_KEY": ["g66_sk_test_admin_secreto_99999", "admin", "12345"],
-                "SFC_SECRET_KEY": ["global66_sfc_secret_key_testing_2026", "secret", "test"],
-                "SFC_PASSWORD": ["123456789", "123456", "admin", "password"]
+                "CRM_API_KEY": ["g66_sk_test_super_secreto_12345", "test", "12345", "secret"],
+                "ADMIN_API_KEY": ["g66_sk_test_admin_secreto_99999", "admin", "12345", "secret"],
+                "SFC_SECRET_KEY": ["global66_sfc_secret_key_testing_2026", "secret", "test", "12345"],
+                "SFC_PASSWORD": ["123456789", "123456", "admin", "password", "test"]
             }
 
-            campos_comprometidos = []
             for campo, valores_inseguros in valores_inseguros_prohibidos.items():
                 valor_actual = getattr(self, campo, None)
                 if not valor_actual or str(valor_actual).strip() in valores_inseguros:
-                    campos_comprometidos.append(campo)
+                    errores_validacion.append(
+                        f"- Campo '{campo}' contiene un valor inseguro o por defecto de prueba."
+                    )
 
-            if campos_comprometidos:
-                lista_campos_str = ", ".join(campos_comprometidos)
+            # 2. Validación de URL Base de la SFC
+            sfc_url = (self.SFC_URL_BASE or "").strip().lower()
+            if not sfc_url.startswith(("http://", "https://")) or "example.com" in sfc_url or "localhost" in sfc_url:
+                errores_validacion.append(
+                    f"- Campo 'SFC_URL_BASE' ('{self.SFC_URL_BASE}') no es una URL de infraestructura válida para {env_lower}."
+                )
+
+            # 3. Prohibición estricta del comodín '*' en CRM_CORS_ORIGINS en ambientes desplegables/CI
+            cors_origins = self.CRM_CORS_ORIGINS if isinstance(self.CRM_CORS_ORIGINS, list) else [self.CRM_CORS_ORIGINS]
+            if any(o.strip() == "*" or "*" in o for o in cors_origins):
+                errores_validacion.append(
+                    f"- Campo 'CRM_CORS_ORIGINS' ({cors_origins}) contiene el comodín '*'. "
+                    f"Se requieren orígenes HTTPS/HTTP explícitos (ej. 'https://crm.global66.com') en ambiente '{env_lower}'."
+                )
+
+            # 4. Validación de URL del Webhook del CRM
+            webhook_url = (self.CRM_WEBHOOK_URL or "").strip().lower()
+            if not webhook_url or not webhook_url.startswith(("http://", "https://")) or "example.com" in webhook_url:
+                errores_validacion.append(
+                    f"- Campo 'CRM_WEBHOOK_URL' ('{self.CRM_WEBHOOK_URL}') es obligatorio y debe ser "
+                    f"una URL HTTPS/HTTP válida en ambiente '{env_lower}'."
+                )
+
+            # 5. Bloquear exposición accidental de Swagger/ReDoc en Producción / Staging
+            if env_lower in ("production", "prod", "staging") and self.ENABLE_DOCS:
+                errores_validacion.append(
+                    f"- Campo 'ENABLE_DOCS' está activado en entorno '{env_lower}'. La documentación interactiva "
+                    "Swagger/ReDoc debe permanecer deshabilitada en ambientes de producción."
+                )
+
+            if errores_validacion:
+                lista_errores_str = "\n".join(errores_validacion)
                 raise ValueError(
-                    f"🚨 [RIESGO CRÍTICO DE SEGURIDAD] El microservicio arrancó en ambiente '{self.ENVIRONMENT}' "
-                    f"pero detectó valores por defecto/inseguros en los campos: [{lista_campos_str}]. "
-                    f"Asegúrese de inyectar los secretos reales desde AWS Secrets Manager antes de desplegar en ECS."
+                    f"🚨 [RIESGO CRÍTICO DE SEGURIDAD EN AMBIENTE '{self.ENVIRONMENT.upper()}']\n"
+                    f"El microservicio canceló su arranque debido a fallos de configuración:\n"
+                    f"{lista_errores_str}\n"
+                    f"Asegúrese de inyectar variables de entorno reales antes de continuar."
                 )
 
         return self

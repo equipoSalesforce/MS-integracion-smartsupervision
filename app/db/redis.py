@@ -38,7 +38,7 @@ def _build_redis_client():
         "retry_on_error": [ConnectionError, TimeoutError, BusyLoadingError]
     }
 
-    use_cluster = getattr(settings, "REDIS_CLUSTER_MODE", False)
+    use_cluster = settings.REDIS_CLUSTER_MODE
 
     if use_cluster:
         if settings.REDIS_URL:

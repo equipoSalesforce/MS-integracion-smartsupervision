@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
+from app.core.constants import SmartStatus
 from app.services.email_service import EmailAlertService
 from app.core.middleware import get_correlation_id
 
@@ -44,6 +45,7 @@ local proximo_reintento_iso = ARGV[7]
 local now_ts = tonumber(ARGV[8])
 local proximo_reintento_ts = tonumber(ARGV[9])
 local correlation_id = ARGV[10]
+local estado_pendiente = ARGV[11]
 
 local existing_id = redis.call("GET", index_key)
 local pendientes_count = redis.call("SCARD", pending_set_key)
@@ -82,7 +84,9 @@ local item_data = {
     smart_code = smart_code,
     tipo_operacion = tipo_operacion,
     payload_json = cjson.decode(payload_json_raw),
-    estado = "PENDIENTE",
+    estado = estado_pendiente,
+    sfc_completado = false,
+    sfc_response = nil,
     intentos = 1,
     max_intentos = max_intentos,
     ultimo_error = error_inicial,
@@ -127,6 +131,40 @@ end
 return cjson.encode({claimed = true})
 """
 
+MARK_SUCCESS_LUA_SCRIPT = """
+local item_key = KEYS[1]
+local pending_set_key = KEYS[2]
+local completed_set_key = KEYS[3]
+local pending_zset_key = KEYS[4]
+local claim_key = KEYS[5]
+
+local item_id = ARGV[1]
+local now_iso = ARGV[2]
+local estado_completed = ARGV[3]
+
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    return cjson.encode({success = false, reason = "item_not_found"})
+end
+
+local data = cjson.decode(raw_item)
+data["estado"] = estado_completed
+data["updated_at"] = now_iso
+
+redis.call("SET", item_key, cjson.encode(data))
+redis.call("SREM", pending_set_key, item_id)
+redis.call("SADD", completed_set_key, item_id)
+redis.call("ZREM", pending_zset_key, item_id)
+redis.call("DEL", claim_key)
+
+if data["smart_code"] and data["smart_code"] ~= "" then
+    local index_key = "{sfc:queue}:index:" .. data["smart_code"]
+    redis.call("DEL", index_key)
+end
+
+return cjson.encode({success = true})
+"""
+
 
 class ColaItemRedis:
     def __init__(self, data: dict):
@@ -134,13 +172,17 @@ class ColaItemRedis:
         self.smart_code = str(data.get("smart_code", ""))
         self.tipo_operacion = str(data.get("tipo_operacion", "AUTO"))
         self.payload_json = data.get("payload_json", {})
-        self.estado = str(data.get("estado", "PENDIENTE"))
+        self.estado = str(data.get("estado", SmartStatus.PENDING.value))
+        self.sfc_completado = bool(data.get("sfc_completado", False))
+        self.sfc_response = data.get("sfc_response")
         self.intentos = int(data.get("intentos", 0))
         self.max_intentos = int(data.get("max_intentos", settings.QUEUE_MAX_RETRIES))
         self.ultimo_error = data.get("ultimo_error")
         self.proximo_reintento_at = data.get("proximo_reintento_at")
         self.created_at = data.get("created_at")
         self.updated_at = data.get("updated_at")
+        # 🟢 FIX HALLAZGO 47: Preservar correlation_id en el modelo duradero de Python
+        self.correlation_id = str(data.get("correlation_id", "N/A"))
         self.es_duplicado = bool(data.get("es_duplicado", False))
 
     def to_dict(self) -> dict:
@@ -150,12 +192,15 @@ class ColaItemRedis:
             "tipo_operacion": self.tipo_operacion,
             "payload_json": self.payload_json,
             "estado": self.estado,
+            "sfc_completado": self.sfc_completado,
+            "sfc_response": self.sfc_response,
             "intentos": self.intentos,
             "max_intentos": self.max_intentos,
             "ultimo_error": self.ultimo_error,
             "proximo_reintento_at": self.proximo_reintento_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "correlation_id": self.correlation_id,  # 🟢 FIX HALLAZGO 47
             "es_duplicado": self.es_duplicado
         }
 
@@ -163,12 +208,14 @@ class ColaItemRedis:
         return {
             "smart_code": self.smart_code,
             "status": self.estado,
+            "sfc_completado": self.sfc_completado,
             "attempts": self.intentos,
             "max_attempts": self.max_intentos,
             "last_error_code": self.ultimo_error or "N/A",
             "proximo_reintento_at": self.proximo_reintento_at,
             "created_at": self.created_at,
-            "updated_at": self.updated_at
+            "updated_at": self.updated_at,
+            "correlation_id": self.correlation_id  # 🟢 FIX HALLAZGO 47
         }
 
 
@@ -177,18 +224,11 @@ class QueueService:
         self.redis = redis_client
 
     def _crear_pipeline_compatible(self):
-        """
-        🟢 FIX COMPATIBILIDAD CLUSTER:
-        Detecta si el cliente es RedisCluster para omitir transaction=True,
-        evitando la excepción 'ClusterPipeline does not support transactions'.
-        """
         if not self.redis:
             return None
         
-        is_cluster = (
-            getattr(settings, "REDIS_CLUSTER_MODE", False) or 
-            "Cluster" in self.redis.__class__.__name__
-        )
+        # 🟢 FIX HALLAZGO 51: Lectura directa de settings.REDIS_CLUSTER_MODE
+        is_cluster = settings.REDIS_CLUSTER_MODE or "Cluster" in self.redis.__class__.__name__
         
         if is_cluster:
             return self.redis.pipeline(transaction=False)
@@ -198,7 +238,7 @@ class QueueService:
         if not self.redis:
             return 0
         try:
-            return await self.redis.scard(f"{QUEUE_PREFIX}:status:PENDIENTE")
+            return await self.redis.scard(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}")
         except Exception as e:
             logger.error(f"Error contando pendientes en Redis: {e}")
             return 0
@@ -219,7 +259,7 @@ class QueueService:
 
         keys = [
             f"{QUEUE_PREFIX}:index:{smart_code}",
-            f"{QUEUE_PREFIX}:status:PENDIENTE",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
             f"{QUEUE_PREFIX}:pending_zset",
             f"{QUEUE_PREFIX}:created_zset",
             f"{QUEUE_PREFIX}:counter"
@@ -235,7 +275,8 @@ class QueueService:
             proximo_reintento.isoformat(),
             str(now_bogota.timestamp()),
             str(proximo_reintento.timestamp()),
-            get_correlation_id() or "N/A"
+            get_correlation_id() or "N/A",
+            SmartStatus.PENDING.value
         ]
 
         try:
@@ -274,6 +315,28 @@ class QueueService:
             logger.error(f"❌ [Cola Redis] Error ejecutando Lua Script de encolado para {smart_code}: {e}")
             raise
 
+    async def marcar_sfc_completado(self, registro_id: int, sfc_response: Optional[Dict[str, Any]] = None):
+        if not self.redis:
+            return
+
+        item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
+        try:
+            raw_item = await self.redis.get(item_key)
+            if not raw_item:
+                return
+
+            data = json.loads(raw_item, strict=False)
+            data["sfc_completado"] = True
+            data["estado"] = SmartStatus.SFC_DONE.value
+            if sfc_response is not None:
+                data["sfc_response"] = sfc_response
+            data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
+
+            await self.redis.set(item_key, json.dumps(data, ensure_ascii=False))
+            logger.info(f"📌 [Cola Redis] Ítem {registro_id} ({data.get('smart_code')}) actualizado a {SmartStatus.SFC_DONE.value}.")
+        except Exception as e:
+            logger.error(f"Error marcando sfc_completado para registro {registro_id} en Redis: {e}")
+
     async def reclamar_item_para_procesamiento(
         self, 
         registro_id: int, 
@@ -284,7 +347,7 @@ class QueueService:
             return False
 
         keys = [
-            f"{QUEUE_PREFIX}:status:PENDIENTE",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
             f"{QUEUE_PREFIX}:claim:{registro_id}"
         ]
         args = [
@@ -313,7 +376,7 @@ class QueueService:
             casos_vencidos = []
 
             for item_id in item_ids:
-                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:PENDIENTE", str(item_id))
+                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
                 if not is_pending:
                     continue
 
@@ -349,7 +412,7 @@ class QueueService:
             pendientes = []
 
             for item_id in item_ids:
-                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:PENDIENTE", str(item_id))
+                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
                 if not is_pending:
                     continue
 
@@ -368,33 +431,41 @@ class QueueService:
 
     async def marcar_exitoso(self, registro_id: int):
         if not self.redis:
-            return
+            logger.error("❌ [Cola Redis] Cliente de Redis no inicializado al intentar marcar éxito.")
+            raise RuntimeError("Cliente de Redis no disponible.")
 
-        item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
-        claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
+        now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        keys = [
+            f"{QUEUE_PREFIX}:item:{registro_id}",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.COMPLETED.value}",
+            f"{QUEUE_PREFIX}:pending_zset",
+            f"{QUEUE_PREFIX}:claim:{registro_id}"
+        ]
+        args = [
+            str(registro_id),
+            now_bogota.isoformat(),
+            SmartStatus.COMPLETED.value
+        ]
+
         try:
-            raw_item = await self.redis.get(item_key)
-            if not raw_item:
-                return
+            raw_res = await self.redis.eval(MARK_SUCCESS_LUA_SCRIPT, len(keys), *keys, *args)
+            res = json.loads(raw_res)
 
-            data = json.loads(raw_item, strict=False)
-            data["estado"] = "EXITOSO"
-            data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-            smart_code = data.get("smart_code")
+            if not res.get("success"):
+                reason = res.get("reason", "error_desconocido")
+                if reason == "item_not_found":
+                    logger.warning(f"⚠️ [Cola Redis] Intentando marcar como exitoso un registro inexistente: {registro_id}")
+                    return
+                raise RuntimeError(
+                    f"Fallo en transición de estado a {SmartStatus.COMPLETED.value} en Redis para el registro {registro_id}. Razón: {reason}"
+                )
 
-            # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
-            async with self._crear_pipeline_compatible() as pipe:
-                pipe.set(item_key, json.dumps(data, ensure_ascii=False))
-                pipe.srem(f"{QUEUE_PREFIX}:status:PENDIENTE", str(registro_id))
-                pipe.sadd(f"{QUEUE_PREFIX}:status:EXITOSO", str(registro_id))
-                pipe.zrem(f"{QUEUE_PREFIX}:pending_zset", str(registro_id))
-                pipe.delete(claim_key)
-                if smart_code:
-                    pipe.delete(f"{QUEUE_PREFIX}:index:{smart_code}")
-                await pipe.execute()
+            logger.info(f"✅ [Cola Redis] Ítem {registro_id} actualizado a {SmartStatus.COMPLETED.value} exitosamente.")
 
         except Exception as e:
-            logger.error(f"Error marcando exitoso registro {registro_id} en Redis: {e}")
+            logger.error(f"❌ [Cola Redis] Excepción al marcar exitoso el registro {registro_id}: {e}")
+            raise
 
     async def registrar_fallo(self, registro_id: int, error_msg: str):
         if not self.redis:
@@ -416,7 +487,7 @@ class QueueService:
             es_definitivo = data["intentos"] >= data.get("max_intentos", settings.QUEUE_MAX_RETRIES)
 
             if es_definitivo:
-                data["estado"] = "FALLIDO_DEFINITIVO"
+                data["estado"] = SmartStatus.FAILED_FINAL.value
                 logger.error(f"❌ [Cola Redis] Caso {smart_code} alcanzó el límite máximo de {data['max_intentos']} reintentos.")
                 await EmailAlertService.notificar_caso_fallido_definitivo(
                     smart_code=smart_code,
@@ -436,14 +507,13 @@ class QueueService:
 
             data["updated_at"] = now_bogota.isoformat()
 
-            # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
             async with self._crear_pipeline_compatible() as pipe:
                 pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                 pipe.delete(claim_key)
                 
                 if es_definitivo:
-                    pipe.srem(f"{QUEUE_PREFIX}:status:PENDIENTE", str(registro_id))
-                    pipe.sadd(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO", str(registro_id))
+                    pipe.srem(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(registro_id))
+                    pipe.sadd(f"{QUEUE_PREFIX}:status:{SmartStatus.FAILED_FINAL.value}", str(registro_id))
                     pipe.zrem(f"{QUEUE_PREFIX}:pending_zset", str(registro_id))
                     if smart_code:
                         pipe.delete(f"{QUEUE_PREFIX}:index:{smart_code}")
@@ -498,7 +568,7 @@ class QueueService:
     async def purgar_registros_antiguos(
         self, 
         dias_retencion: int = settings.QUEUE_RETENTION_DAYS, 
-        dias_retencion_dlq: int = getattr(settings, "QUEUE_RETENTION_DAYS_DLQ", 30)
+        dias_retencion_dlq: int = settings.QUEUE_RETENTION_DAYS_DLQ
     ) -> int:
         if not self.redis:
             return 0
@@ -510,8 +580,8 @@ class QueueService:
         total_purgados = 0
 
         estados_a_evaluar = [
-            (f"{QUEUE_PREFIX}:status:EXITOSO", limite_exitoso),
-            (f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO", limite_dlq)
+            (f"{QUEUE_PREFIX}:status:{SmartStatus.COMPLETED.value}", limite_exitoso),
+            (f"{QUEUE_PREFIX}:status:{SmartStatus.FAILED_FINAL.value}", limite_dlq)
         ]
 
         try:
@@ -542,7 +612,6 @@ class QueueService:
                         a_eliminar.append(str(item_id))
 
                 if a_eliminar or inconsistentes:
-                    # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
                     async with self._crear_pipeline_compatible() as pipe:
                         for item_id in inconsistentes:
                             pipe.srem(set_key, item_id)
@@ -586,7 +655,6 @@ class QueueService:
                 data["updated_at"] = now_bogota.isoformat()
                 data["ultimo_error"] = "Reintento pospuesto automáticamente por caída de plataforma SFC."
 
-                # 🟢 FIX: Uso del pipeline compatible con Cluster Mode
                 async with self._crear_pipeline_compatible() as pipe:
                     pipe.set(item_key, json.dumps(data, ensure_ascii=False))
                     pipe.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(registro_id): proximo_ts})

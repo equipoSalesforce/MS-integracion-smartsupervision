@@ -47,9 +47,6 @@ class SincronizacionService:
         
         for chunk in chunks:
             tareas = [self._procesar_queja_individual(queja) for queja in chunk]
-            
-            # 🟢 FIX: return_exceptions=True evita que la falla de una sola queja
-            # cancele o aborte las demás peticiones en paralelo dentro del mismo chunk.
             resultados_chunk = await asyncio.gather(*tareas, return_exceptions=True)
             
             for res in resultados_chunk:
@@ -74,16 +71,41 @@ class SincronizacionService:
                 response_data = archivos_sfc.get("Response") if "Response" in archivos_sfc else archivos_sfc
                 lista_adjuntos = response_data.get("results", [])
 
-                # 🎯 DELEGACIÓN AL S3 STORAGE SERVICE
-                adjuntos_procesados = await self.s3_service.transferir_lote_sfc_a_s3(
-                    codigo_queja=codigo_queja,
-                    adjuntos_sfc=lista_adjuntos
-                )
+                if lista_adjuntos:
+                    adjuntos_procesados = await self.s3_service.transferir_lote_sfc_a_s3(
+                        codigo_queja=codigo_queja,
+                        adjuntos_sfc=lista_adjuntos
+                    )
+
+                    # 🟢 FIX HALLAZGO 16: Regla All-or-Nothing
+                    # Si la SFC reportaba N adjuntos y no se pudieron transferir TODOS a S3,
+                    # descartamos la queja del lote entregado al CRM.
+                    if len(adjuntos_procesados) < len(lista_adjuntos):
+                        logger.error(
+                            f"❌ [Momento 1 All-or-Nothing] Se esperaban {len(lista_adjuntos)} adjuntos "
+                            f"para la queja {codigo_queja}, pero solo se procesaron {len(adjuntos_procesados)} en S3. "
+                            f"Omite la queja para forzar reintento completo en el siguiente ciclo."
+                        )
+                        return None
             except Exception as e:
-                logger.error(f"Error procesando anexos M1 para {codigo_queja}: {e}")
+                logger.error(
+                    f"❌ [Momento 1 All-or-Nothing] Fallo procesando anexos M1 para {codigo_queja}: {e}. "
+                    f"Omite la queja para evitar entregar información incompleta al CRM."
+                )
+                return None
+
+        adjuntos_limpios = [
+            {
+                "nombre_archivo": adj.get("nombre_archivo"),
+                "s3_key": adj.get("s3_key"),
+                "bucket": adj.get("bucket")
+            }
+            for adj in adjuntos_procesados
+            if isinstance(adj, dict)
+        ]
 
         queja_traducida = SfcSalesforceMapper.sfc_payload_to_db_dict(queja_sfc)
-        queja_traducida["archivos_s3"] = adjuntos_procesados
+        queja_traducida["archivos_s3"] = adjuntos_limpios
         return queja_traducida
 
     async def confirmar_recepcion_ack(self, ids_quejas: List[str]) -> Dict[str, Any]:

@@ -18,13 +18,20 @@ IGNORED_LOG_HEADERS = {
     "x-frame-options", "permissions-policy", "content-security-policy"
 }
 
-# Campos de PII y credenciales en payloads (SFC y CRM)
+# 🟢 FIX HALLAZGO 30: Ampliación de campos de PII, credenciales y texto sensible/reclamos (SFC y CRM)
 SENSITIVE_FIELDS = {
+    # PII e Identificación
     "nombres", "suppliedname", "numero_id_cf", "id_number__c", 
     "correo", "suppliedemail", "telefono", "suppliedphone", 
     "direccion", "direccion__c", "first_name", "last_name", 
-    "email", "phone", "address", "sfc_password", "password", 
-    "secret_key", "sfc_secret_key"
+    "email", "phone", "address", "nombre", "apellido", "apellidos",
+    
+    # Credenciales y Secretos
+    "sfc_password", "password", "secret_key", "sfc_secret_key", "api_key",
+    
+    # 🛡️ Datos Sensibles de Reclamaciones y Contenido de Texto Libre (Hallazgo 30)
+    "description", "texto_queja", "cuerpo_respuesta_final", 
+    "cuerpo_correo", "argumento_replica", "texto_crm"
 }
 
 DANGEROUS_TAGS_RE = re.compile(
@@ -51,22 +58,22 @@ def sanitizar_headers(headers: Any) -> Dict[str, str]:
     """Oculta tokens y firmas de los encabezados HTTP y filtra cabeceras ruidosas."""
     sanitized = {}
     for k, v in headers.items():
-        k_lower = k.lower()
+        k_lower = str(k).lower()
         if k_lower in IGNORED_LOG_HEADERS:
             continue
         if k_lower in SENSITIVE_HEADERS:
-            sanitized[k] = mask_value(v, visible_chars=4)
+            sanitized[k] = mask_value(str(v), visible_chars=4)
         else:
             sanitized[k] = v
     return sanitized
 
 
 def sanitizar_payload(data: Union[Dict, list, str, Any]) -> Any:
-    """Recorre recursivamente un JSON y enmascara los campos declarados como PII."""
+    """Recorre recursivamente un JSON y enmascara los campos declarados como PII o sensibles."""
     if isinstance(data, dict):
         cleaned = {}
         for k, v in data.items():
-            if k.lower() in SENSITIVE_FIELDS and isinstance(v, str):
+            if str(k).lower() in SENSITIVE_FIELDS and isinstance(v, str):
                 cleaned[k] = mask_value(v)
             else:
                 cleaned[k] = sanitizar_payload(v)
@@ -74,6 +81,7 @@ def sanitizar_payload(data: Union[Dict, list, str, Any]) -> Any:
     elif isinstance(data, list):
         return [sanitizar_payload(item) for item in data]
     return data
+
 
 def sanitizar_html_para_pdf(html_raw: str) -> str:
     """

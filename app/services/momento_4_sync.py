@@ -1,3 +1,4 @@
+# app/services/momento_4_sync.py
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
@@ -13,27 +14,26 @@ class UserSync:
     def __init__(self, sfc_client: SfcClient):
         self.sfc_client = sfc_client
 
-    async def sincronizar_usuarios(self) -> List[Dict[str, Any]]:
+    async def sincronizar_usuarios(self) -> Dict[str, Any]:
         """
         Orquesta de forma síncrona en memoria la descarga y traducción de la 
         información actualizada de consumidores financieros (Momento 4).
-        Retorna la lista final de usuarios mapeados SIN enviar el ACK a la SFC.
+        Deduplica usuarios por numero_id_CF y reporta errores parciales en failed_items.
         """
         logger.info("[Momento 4] Iniciando sincronización de datos de usuarios desde la SFC.")
 
-        usuarios_finales_crm = []
+        usuarios_finales_crm: List[Dict[str, Any]] = []
+        failed_items: List[Dict[str, Any]] = []
+        vistos_ids = set()
+        total_procesados = 0
         url_actual = None
 
-        # Consumo paginado de usuarios en la SFC
         while True:
             respuesta = await self.sfc_client.fetch_usuarios_pagina(url=url_actual)
             response_data = respuesta.get("Response") if "Response" in respuesta else respuesta
 
-            # Manejo flexible de la respuesta (Lista vs Diccionario Paginado)
             if isinstance(response_data, dict):
                 lista_usuarios = response_data.get("results", [])
-                
-                # 🎯 CORRECCIÓN: Se usa 'numero_id_CF' en lugar de 'usuario_id'
                 if not lista_usuarios and "numero_id_CF" in response_data:
                     lista_usuarios = [response_data]
             elif isinstance(response_data, list):
@@ -44,17 +44,39 @@ class UserSync:
             if not lista_usuarios:
                 break
 
-            # Mapeo en memoria de la página actual
             for usuario_sfc in lista_usuarios:
-                try:
-                    usuario_traducido = SfcSalesforceMapper.sfc_user_payload_to_db_dict(usuario_sfc)
-                    if usuario_traducido:
-                        usuarios_finales_crm.append(usuario_traducido)
-                except Exception as err_map:
-                    num_id = usuario_sfc.get("numero_id_CF", "DESCONOCIDO")
-                    logger.error(f"❌ Error al mapear usuario {num_id}: {str(err_map)}")
+                total_procesados += 1
+                num_id = "DESCONOCIDO"
+                if isinstance(usuario_sfc, dict):
+                    num_id = str(usuario_sfc.get("numero_id_CF") or usuario_sfc.get("numero_id") or "DESCONOCIDO").strip()
 
-            # Control de paginación (URL 'next')
+                try:
+                    if not isinstance(usuario_sfc, dict):
+                        raise ValueError("El registro de usuario recibido de la SFC no es un diccionario válido.")
+
+                    # 🟢 FIX HALLAZGO 50: Deduplicación explícita de usuarios en lote por numero_id_CF
+                    if num_id != "DESCONOCIDO" and num_id in vistos_ids:
+                        logger.info(f"ℹ️ [Momento 4] Registro duplicado del usuario '{num_id}' omitido.")
+                        continue
+
+                    usuario_traducido = SfcSalesforceMapper.sfc_user_payload_to_db_dict(usuario_sfc)
+                    if not usuario_traducido or "id_number__c" not in usuario_traducido:
+                        raise ValueError(f"Fallo en el mapeo de campos o 'id_number__c' ausente para el usuario {num_id}.")
+
+                    if num_id != "DESCONOCIDO":
+                        vistos_ids.add(num_id)
+
+                    usuarios_finales_crm.append(usuario_traducido)
+
+                except Exception as err_map:
+                    err_msg = str(err_map)
+                    logger.error(f"❌ [Momento 4] Error mapeando usuario '{num_id}': {err_msg}")
+                    failed_items.append({
+                        "numero_id_CF": num_id,
+                        "raw_payload": usuario_sfc,
+                        "error": err_msg
+                    })
+
             if isinstance(response_data, dict):
                 url_actual = response_data.get("next")
             else:
@@ -63,16 +85,27 @@ class UserSync:
             if not url_actual:
                 break
 
+        status = "success" if not failed_items else ("partial" if usuarios_finales_crm else "error")
+
         logger.info(
-            f"[Momento 4] Sincronización completada. Total usuarios procesados para el CRM: {len(usuarios_finales_crm)}"
+            f"📊 [Momento 4] Sincronización finalizada. Status: {status} | "
+            f"Procesados: {total_procesados} | Únicos Exitosos: {len(usuarios_finales_crm)} | Fallidos: {len(failed_items)}"
         )
-        return usuarios_finales_crm
+
+        return {
+            "status": status,
+            "total_procesados": total_procesados,
+            "total_exitosos": len(usuarios_finales_crm),
+            "total_fallidos": len(failed_items),
+            "usuarios": usuarios_finales_crm,
+            "failed_items": failed_items
+        }
 
     async def confirmar_recepcion_ack_usuarios(self, numeros_id_cf: List[str]) -> Dict[str, Any]:
         """
-        Recibe la lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM
-        y transmite la confirmación ACK en lotes de máximo 100 registros hacia la SFC,
-        clasificando los registros confirmados y los que presentaron fallas.
+        Recibe la lista de números de identificación (numero_id_CF) procesados por el CRM,
+        los deduplica preservando el orden original y transmite la confirmación ACK en lotes
+        de máximo 100 registros hacia la SFC.
         """
         if not numeros_id_cf:
             return {
@@ -83,13 +116,31 @@ class UserSync:
                 "ids_error": []
             }
 
-        logger.info(f"[Momento 4 ACK] Iniciando confirmación ACK para {len(numeros_id_cf)} usuarios.")
+        # 🟢 FIX HALLAZGO 50: Deduplicación limpia preservando orden e ignorando cadenas vacías
+        ids_unicos = list(dict.fromkeys(str(x).strip() for x in numeros_id_cf if str(x).strip()))
+
+        if len(ids_unicos) < len(numeros_id_cf):
+            logger.info(
+                f"🧹 [Momento 4 ACK] Se deduplicaron {len(numeros_id_cf) - len(ids_unicos)} IDs repetidos/vacíos "
+                f"en la solicitud. Procesando {len(ids_unicos)} elementos únicos."
+            )
+
+        if not ids_unicos:
+            return {
+                "status": "warning",
+                "message": "Todos los números de identificación proporcionados estaban vacíos tras la limpieza.",
+                "confirmados": 0,
+                "ids_procesados": [],
+                "ids_error": []
+            }
+
+        logger.info(f"[Momento 4 ACK] Iniciando confirmación ACK para {len(ids_unicos)} usuarios únicos.")
 
         TAMANO_LOTE = 100
-        lotes = [numeros_id_cf[i:i + TAMANO_LOTE] for i in range(0, len(numeros_id_cf), TAMANO_LOTE)]
+        lotes = [ids_unicos[i:i + TAMANO_LOTE] for i in range(0, len(ids_unicos), TAMANO_LOTE)]
         
-        ids_exitosos = []
-        ids_con_error = []
+        ids_exitosos: List[str] = []
+        ids_con_error: List[str] = []
 
         for index, lote in enumerate(lotes):
             logger.info(f"[Momento 4 ACK] Enviando lote {index + 1}/{len(lotes)} ({len(lote)} usuarios) a la SFC...")
@@ -111,9 +162,8 @@ class UserSync:
                         ids_exitosos.append(str_id)
 
             except Exception as e:
-                logger.error(f"❌ Error enviando lote {index + 1} de ACK de usuarios: {e}")
+                logger.error(f"❌ [Momento 4 ACK] Error de comunicación en lote {index + 1}: {e}")
                 ids_con_error.extend([str(x).strip() for x in lote])
-                raise
 
         status = "success" if not ids_con_error else ("partial" if ids_exitosos else "error")
 

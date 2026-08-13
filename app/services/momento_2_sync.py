@@ -59,8 +59,15 @@ class Momento2SincronizacionService:
             smart_code = payload.Smart_Code__c
             archivos_s3_raw = payload.archivos_s3
 
+        # 🟢 FIX HALLAZGO 40: Lanza SfcIntegrationException (400) para errores de validación de entrada
         if not smart_code:
-            return {"status": "error", "message": "Falta el campo obligatorio 'Smart_Code__c' en el payload."}
+            raise SfcIntegrationException(
+                status_code=400,
+                error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+                sfc_field="Smart_Code__c",
+                raw_message="Falta el campo obligatorio 'Smart_Code__c' en el payload de la petición.",
+                crm_action="Verifique que el caso contenga un 'Smart_Code__c' válido antes de despachar."
+            )
 
         logger.info(f"[Momento 2] Iniciando transmisión del caso: {smart_code}")
 
@@ -116,5 +123,6 @@ class Momento2SincronizacionService:
             raise net_err
 
         except Exception as e:
-            logger.error(f"Fallo en pipeline del Momento 2 para caso {smart_code}: {str(e)}")
-            return {"status": "error", "message": f"Pipeline interrumpido: {str(e)}"}
+            # 🟢 FIX HALLAZGO 40: Se relanza la excepción no controlada para tratarse como 500
+            logger.error(f"🔥 [Momento 2] Fallo no controlado en pipeline M2 para caso {smart_code}: {str(e)}", exc_info=True)
+            raise e

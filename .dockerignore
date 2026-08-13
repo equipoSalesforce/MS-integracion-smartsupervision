@@ -1,21 +1,58 @@
+# --- Control de Versiones ---
 .git
 .gitignore
-.venv
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+.github
+.gitlab-ci.yml
+
+# --- Entornos Virtuales y Caché de Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.build/
+build/
+dist/
+
+# --- Pruebas Unitarias, Cobertura y Linters ---
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.flake8
+.mypy_cache/
+
+# --- Documentación, Diagramas y Colecciones Postman ---
+docs/
+postman/
+*.postman_collection.json
+*.postman_environment.json
+*.md
+README.md
+
+# --- Recursos Gráficos / Multimedia No Requeridos en Runtime ---
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.drawio
+
+# --- Archivos de Entorno y Secretos Locales ---
 .env
-.env.test
-.env.local
-*.db
-*.sqlite3
-cola_local.db
-coverage
-.pytest_cache
-.vscode
-.idea
-htmlcov
-dist
-build
-extracted_repo
+.env.*
+*.pem
+*.key
+
+# --- Configuración de IDEs y Sistema Operativo ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Orquestación Local y Plantillas de Infraestructura ---
+docker-compose*.yml
+*.tpl

@@ -21,6 +21,7 @@ from app.api.dependencies import _auth_manager_instance
 from app.core.security.signatures import ssl_context
 
 from app.db.redis import init_redis, close_redis
+from app.services.email_service import EmailAlertService
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 
 setup_logging()
@@ -31,19 +32,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Ciclo de vida de la aplicación.
-    Inicializa y destruye ordenadamente los recursos globales del sistema:
-    - Pool HTTP TLS 1.2 (SFC)
-    - Pool HTTP CRM Webhook
-    - Conexiones a Redis
-    - Tareas en segundo plano (APScheduler)
+    Inicializa y destruye ordenadamente los recursos globales del sistema.
     """
     logger.info(
         f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
         f"con Centralizada Redis + APScheduler activos."
     )
 
-    # 🟢 FIX: Se amplía el timeout de lectura (read=15.0) y escritura (write=10.0)
-    # para permitir la subida/descarga fluida de anexos pesados (hasta 30MB) hacia la SFC.
     timeout_sfc = httpx.Timeout(connect=3.0, read=15.0, write=10.0, pool=10.0)
     limits_sfc = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     
@@ -58,17 +53,14 @@ async def lifespan(app: FastAPI):
     )
     logger.info("📡 Pool global HTTP Client (SFC) inicializado con TLS 1.2 y Timeout extendido (read=15s).")
 
-    # 2. Pool HTTP para el CRM Webhook
     get_crm_webhook_client()
 
-    # 3. Inicializar cliente Redis centralizado
     try:
         await init_redis()
         logger.info("Cliente de Redis centralizado inicializado correctamente.")
     except Exception as e:
         logger.error(f"Error crítico al inicializar Redis: {str(e)}")
 
-    # 4. Encender el scheduler de reintentos ÚNICAMENTE si está habilitado explícitamente
     if settings.RUN_SCHEDULER:
         try:
             iniciar_scheduler()
@@ -78,7 +70,6 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ℹ️ Scheduler desactivado para esta instancia Web (Modo Stateless API).")
     
-    # 5. Cargar matriz de errores y catálogos en RAM
     try:
         await SfcErrorTranslator.obtener_matriz_errores()
         await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
@@ -87,9 +78,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ======================================================================
-    # 🛑 CIERRE LIMPIO DE RECURSOS (SHUTDOWN)
-    # ======================================================================
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
     
     try:
@@ -120,21 +108,31 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error al cerrar http_client global: {e}")
 
     logger.info(f"Apagando {settings.PROJECT_NAME} de manera limpia y segura.")
+    
+    await EmailAlertService.shutdown(timeout_segundos=3.0)
 
+    try:
+        detener_scheduler()
+    except Exception as e:
+        logger.error(f"Error al detener scheduler: {e}")
+
+
+# 🟢 FIX HALLAZGO 28: Deshabilitar Swagger UI (/docs), ReDoc (/redoc) y esquema OpenAPI (/openapi.json)
+# fuera de entornos locales de desarrollo a menos que ENABLE_DOCS=True.
+es_entorno_local = settings.ENVIRONMENT.strip().lower() in ("local", "development")
+permitir_docs = settings.ENABLE_DOCS or es_entorno_local
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if permitir_docs else None,
+    docs_url="/docs" if permitir_docs else None,
+    redoc_url="/redoc" if permitir_docs else None,
     lifespan=lifespan
 )
 
 # 🌐 Registramos Middleware de Correlation ID y AWS Trace ID
 app.add_middleware(CorrelationIdMiddleware)
 
-# 🌐 Configuración de CORS
-# 🟢 FIX: se usa CRM_CORS_ORIGINS (obligatorio, sin comodín permitido) como
-# única fuente de verdad. BACKEND_CORS_ORIGINS quedó como código muerto que
-# permitía "*" por default mientras este middleware seguía usándolo.
 origins = [str(origin) for origin in settings.CRM_CORS_ORIGINS]
 
 app.add_middleware(

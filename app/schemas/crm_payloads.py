@@ -1,3 +1,4 @@
+# app/schemas/crm_payloads.py
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, List, Optional
@@ -63,7 +64,7 @@ class QuejaMapeadaCrmResponse(BaseModel):
 class Momento2QuejaCrmInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=26)
+    Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=30)
     Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision", max_length=30)
 
     CreatedDate: Optional[str] = Field(
@@ -103,7 +104,7 @@ class Momento2QuejaCrmInput(BaseModel):
     smart_Producto_nombre__c: Optional[str] = Field(None, description="Nombre del producto digital", max_length=100)
     Categorias_COL__c: str = Field(..., description="Motivo de reclamación", max_length=150)
 
-    archivos_s3: List[ArchivoS3Schema] = Field(default=[], description="Colección de archivos en S3")
+    archivos_s3: List[ArchivoS3Schema] = Field(default=[], max_length=50, description="Colección de archivos en S3")
     Quejas_express__c: Optional[str] = Field("No", description="Indica si es una queja expres")
 
     @field_validator("CreatedDate", mode="after")
@@ -130,7 +131,6 @@ class Momento2QuejaCrmInput(BaseModel):
                     raise ve
         return v
     
-    # 🛡️ SANITIZADOR PREVENTIVO CONTRA STORED XSS
     @field_validator("SuppliedName", "direccion__c", "Description", mode="before")
     @classmethod
     def sanitizar_campos_texto(cls, v: Optional[str]) -> Optional[str]:
@@ -144,23 +144,16 @@ class Momento2QuejaCrmInput(BaseModel):
     @field_validator("archivos_s3", mode="before")
     @classmethod
     def normalizar_archivos_s3(cls, v: Any) -> Any:
-        """
-        Garantiza que si 'archivos_s3' llega como objeto vacío {}, null o un único diccionario,
-        se transforme a una lista [] válida antes de la validación de tipo de Pydantic.
-        """
         if v is None:
             return []
         if isinstance(v, dict):
-            # Si es un diccionario vacío {} -> lista vacía
             if not v:
                 return []
-            # Si es un diccionario con un archivo individual -> envolver en lista
             if "s3_key" in v or "nombre_archivo" in v:
                 return [v]
             return []
         return v
 
-    # 🚫 RESILIENCIA EN DIRECCIÓN: Si la dirección queda vacía por sanitización XSS, asigna un fallback válido
     @field_validator("direccion__c", mode="after")
     @classmethod
     def asegurar_direccion_valida(cls, v: Optional[str]) -> str:
@@ -168,7 +161,6 @@ class Momento2QuejaCrmInput(BaseModel):
             return "Dirección no registrada"
         return v.strip()
 
-    # 🚫 VALIDADOR DE NOMBRE OBLIGATORIO Y NO VACÍO
     @field_validator("SuppliedName", mode="after")
     @classmethod
     def validar_nombre_no_vacio(cls, v: str) -> str:
@@ -185,7 +177,7 @@ class Momento2QuejaCrmInput(BaseModel):
 
         if not self.Smart_Code__c and self.Case_id:
             raw_id = str(self.Case_id).strip()
-            self.Smart_Code__c = f"{prefix}{raw_id}"
+            self.Smart_Code__c = f"{prefix}{raw_id}" if not raw_id.startswith(prefix) else raw_id
 
         elif self.Smart_Code__c:
             clean_sc = str(self.Smart_Code__c).strip()
@@ -193,6 +185,14 @@ class Momento2QuejaCrmInput(BaseModel):
 
         if not self.Case_id:
             self.Case_id = self.Smart_Code__c
+
+        # 🟢 FIX HALLAZGO 21: Re-validar la longitud del Smart_Code__c final tras agregar el prefijo.
+        # Evita que un valor sin prefijo de hasta 30 caracteres supere el límite al anteponer el prefijo.
+        if self.Smart_Code__c and len(self.Smart_Code__c) > 30:
+            raise ValueError(
+                f"El 'Smart_Code__c' final con prefijo ('{self.Smart_Code__c}') tiene {len(self.Smart_Code__c)} "
+                f"caracteres, superando el límite máximo permitido de 30."
+            )
 
         return self
     
@@ -253,7 +253,7 @@ class Momento2QuejaCrmInput(BaseModel):
         "Product__c", "Tutela__c", "smart_escalamiento_DCF__c", "admision_col__c",
         "codigo_pais__c", "producto_digital__c", "Quejas_express__c",
         mode="after",
-        check_fields=False  # 👈 Permite validar campos presentes en subclases derivadas
+        check_fields=False
     )
     @classmethod
     def validar_picklist_contra_mapper(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
@@ -550,6 +550,7 @@ class ConfirmacionAckInput(BaseModel):
     ids_quejas: List[str] = Field(
         ...,
         min_length=1,
+        max_length=500,
         description="Lista de IDs / Smart_Codes persistidos en CRM."
     )
 
@@ -567,5 +568,7 @@ class ConfirmacionAckUsuariosInput(BaseModel):
 
     numeros_id_cf: List[str] = Field(
         ..., 
+        min_length=1,
+        max_length=500,
         description="Lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM."
     )

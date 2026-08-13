@@ -18,22 +18,11 @@ logger = logging.getLogger(__name__)
 REDIS_TOKEN_KEY = "{sfc:auth}:tokens"
 REDIS_LOCK_KEY = "{sfc:auth}:lock"
 
-# Tiempo máximo que se le da a UNA instancia para completar el login/refresh
-# contra la SFC antes de que el lock se autolibere (self-healing si el proceso
-# que tomó el lock muere/cuelga sin liberar).
 LOCK_TTL_MS = 15_000
-
-# Cuánto tiempo (en total) están dispuestas a esperar las demás instancias a
-# que la que ganó el lock termine, antes de intentar renovar por su cuenta.
 LOCK_WAIT_TIMEOUT_SECONDS = 10
 LOCK_POLL_INTERVAL_SECONDS = 0.25
-
-# TTL de retención del registro de tokens en Redis (limpieza automática de
-# credenciales muertas si el servicio deja de operar).
 TOKEN_RECORD_TTL_SECONDS = 7 * 24 * 3600
 
-# 📜 Libera el lock distribuido SOLO si seguimos siendo los dueños (evita que
-# una instancia libere por error el lock tomado por otra tras expirar el TTL).
 RELEASE_LOCK_LUA_SCRIPT = """
 local lock_key = KEYS[1]
 local owner_id = ARGV[1]
@@ -43,9 +32,6 @@ end
 return 0
 """
 
-# 📜 Invalida el registro de tokens en Redis SOLO si el access_token guardado
-# coincide con el que fue rechazado con 401 — evita pisar un token más nuevo
-# que otra instancia ya haya publicado mientras tanto.
 INVALIDATE_IF_MATCHES_LUA_SCRIPT = """
 local token_key = KEYS[1]
 local rejected_access_token = ARGV[1]
@@ -69,17 +55,6 @@ class SfcAuthManager(httpx.Auth):
     """
     Gestor de autenticación contra la SFC con estado de tokens compartido en
     Redis (fuente de verdad única entre todas las tasks ECS).
-
-    Estrategia de 3 niveles para obtener un token válido:
-      1. Fast path LOCAL: cache en RAM del proceso, sin tocar Redis.
-      2. Fast path REDIS: si otra instancia ya renovó el token, lo leemos sin
-         necesidad de hacer login/refresh nosotros mismos.
-      3. LOCK DISTRIBUIDO: si nadie tiene un token válido, una sola instancia
-         en todo el cluster hace el login/refresh contra la SFC (las demás
-         esperan el resultado). Esto evita que N tasks hagan login
-         simultáneo con el mismo SFC_USERNAME, lo cual en sistemas que
-         invalidan sesiones anteriores al hacer un nuevo login generaría una
-         tormenta de 401 entre instancias.
     """
 
     def __init__(self, signature_context: SfcSignatureContext, http_client: Optional[httpx.AsyncClient] = None):
@@ -93,13 +68,9 @@ class SfcAuthManager(httpx.Auth):
         self.refresh_exp: Optional[datetime] = None
 
         # 🔒 Candado LOCAL: sincroniza corrutinas dentro del MISMO proceso
-        # antes de siquiera competir por el lock distribuido en Redis.
         self._local_lock: Optional[asyncio.Lock] = None
-
-        # Identidad única de esta instancia/proceso para el lock distribuido.
         self._owner_id = f"auth-lock:{uuid.uuid4()}"
 
-        # Cliente HTTP interno aislado para evitar recursión asíncrona al firmar login/refresh
         if http_client is not None:
             self.client = http_client
             self._owns_client = False
@@ -108,13 +79,11 @@ class SfcAuthManager(httpx.Auth):
             self._owns_client = True
 
     def _get_local_lock(self) -> asyncio.Lock:
-        """Inicialización perezosa (Lazy) del Lock para asegurar binding al Event Loop activo."""
         if self._local_lock is None:
             self._local_lock = asyncio.Lock()
         return self._local_lock
 
     def _is_access_token_valid(self) -> bool:
-        """Verifica si el access_token actual (cache local) sigue siendo válido."""
         now = datetime.now(timezone.utc)
         return bool(
             self.access_token
@@ -123,7 +92,6 @@ class SfcAuthManager(httpx.Auth):
         )
 
     def _is_refresh_token_valid(self) -> bool:
-        """Verifica si el refresh_token actual (cache local) sigue siendo válido."""
         now = datetime.now(timezone.utc)
         return bool(
             self.refresh_token
@@ -144,11 +112,6 @@ class SfcAuthManager(httpx.Auth):
         self.refresh_exp = datetime.fromisoformat(refresh_exp) if refresh_exp else None
 
     async def _load_from_redis(self) -> bool:
-        """
-        Intenta refrescar el cache local leyendo el registro compartido en Redis.
-        Si Redis no está disponible, simplemente no hay fast-path compartido
-        y cada instancia termina haciendo login por su cuenta (degradado, no roto).
-        """
         redis = get_redis_client()
         if not redis:
             return False
@@ -182,7 +145,6 @@ class SfcAuthManager(httpx.Auth):
             logger.warning(f"[SfcAuthManager] No se pudo persistir el token compartido en Redis: {e}")
 
     async def _invalidar_token_compartido_si_coincide(self, rejected_access_token: Optional[str]):
-        """CAS: borra el registro en Redis SOLO si sigue apuntando al token que fue rechazado con 401."""
         redis = get_redis_client()
         if not redis or not rejected_access_token:
             return
@@ -192,7 +154,7 @@ class SfcAuthManager(httpx.Auth):
             logger.warning(f"[SfcAuthManager] Error invalidando token compartido en Redis: {e}")
 
     # ======================================================================
-    # 🔒 LOCK DISTRIBUIDO (una sola instancia hace login/refresh a la vez)
+    # 🔒 LOCK DISTRIBUIDO
     # ======================================================================
 
     async def _acquire_distributed_lock(self) -> bool:
@@ -216,38 +178,42 @@ class SfcAuthManager(httpx.Auth):
             logger.warning(f"[SfcAuthManager] Error liberando lock distribuido de autenticación: {e}")
 
     # ======================================================================
-    # 🎯 OBTENCIÓN DE TOKEN VÁLIDO
+    # 🎯 OBTENCIÓN DE TOKEN VÁLIDO (MÉTODOS REFACTORIZADOS SIN DEADLOCK)
     # ======================================================================
 
     async def get_valid_token(self) -> str:
-        # 1. FAST PATH LOCAL: si el cache en RAM del proceso sigue vigente, no tocar Redis.
+        """Punto de entrada público protegido por el lock local."""
+        # 1. FAST PATH LOCAL: si el cache en RAM del proceso sigue vigente, no tocar Redis ni el lock.
         if self._is_access_token_valid():
             return self.access_token
 
-        # 2. Sincronizar corrutinas DENTRO de este mismo proceso primero.
         async with self._get_local_lock():
-            if self._is_access_token_valid():
-                return self.access_token
+            return await self._get_valid_token_unlocked()
 
-            # Si Redis no está disponible (ej. tests sin Redis o modo degradado),
-            # no competir por lock distribuido ni esperar timeouts: renovar localmente de inmediato.
-            redis = get_redis_client()
-            if not redis:
-                logger.info("[SfcAuthManager] Redis no disponible. Ejecutando renovación directa en memoria local.")
-                return await self._renovar_token_directo_local()
+    async def _get_valid_token_unlocked(self) -> str:
+        """
+        🟢 LÓGICA INTERNA SIN LOCK:
+        Ejecuta el flujo de obtención/renovación asumiendo que el caller ya posee
+        el `self._get_local_lock()`. Esto previene deadlocks en llamadas recursivas.
+        """
+        # Doble verificación por si otra corrutina renovó el token mientras esperábamos el lock
+        if self._is_access_token_valid():
+            return self.access_token
 
-            # 3. FAST PATH REDIS: quizás otra instancia ECS ya renovó el token.
-            await self._load_from_redis()
-            if self._is_access_token_valid():
-                return self.access_token
+        redis = get_redis_client()
+        if not redis:
+            logger.info("[SfcAuthManager] Redis no disponible. Ejecutando renovación directa en memoria local.")
+            return await self._renovar_token_directo_local()
 
-            # 4. Nadie en el cluster tiene un token válido a mano: competir
-            #    por el lock distribuido para que solo UNA instancia haga
-            #    login/refresh contra la SFC.
-            return await self._renovar_token_coordinado()
-        
+        # FAST PATH REDIS: quizás otra instancia ECS ya renovó el token
+        await self._load_from_redis()
+        if self._is_access_token_valid():
+            return self.access_token
+
+        # Competir por el lock distribuido
+        return await self._renovar_token_coordinado()
+
     async def _renovar_token_directo_local(self) -> str:
-        """Flujo directo de renovación sin coordinación por Redis."""
         if self._is_refresh_token_valid():
             try:
                 await self._refresh_access_token()
@@ -263,15 +229,12 @@ class SfcAuthManager(httpx.Auth):
         deadline = loop.time() + LOCK_WAIT_TIMEOUT_SECONDS
 
         while True:
-            # Si Redis se desconecta en medio del bucle, romper y renovar localmente
             if not get_redis_client():
                 logger.warning("[SfcAuthManager] Conexión a Redis perdida durante la coordinación. Continuando de forma local.")
                 return await self._renovar_token_directo_local()
 
             if await self._acquire_distributed_lock():
                 try:
-                    # Doble verificación: entre que decidimos renovar y que
-                    # conseguimos el lock, otra instancia pudo haber terminado.
                     await self._load_from_redis()
                     if self._is_access_token_valid():
                         return self.access_token
@@ -282,10 +245,7 @@ class SfcAuthManager(httpx.Auth):
                             await self._save_to_redis()
                             return self.access_token
                         except Exception as e:
-                            logger.warning(
-                                f"[SfcAuthManager] Falló el refresh coordinado, "
-                                f"intentando login completo: {e}"
-                            )
+                            logger.warning(f"[SfcAuthManager] Falló refresh coordinado, intentando login completo: {e}")
 
                     await self._login()
                     await self._save_to_redis()
@@ -293,17 +253,12 @@ class SfcAuthManager(httpx.Auth):
                 finally:
                     await self._release_distributed_lock()
 
-            # No se consiguió el lock: otra instancia ya está renovando.
             if loop.time() >= deadline:
-                logger.error(
-                    "[SfcAuthManager] Timeout esperando a que otra instancia complete la renovación "
-                    "del token compartido. Se procede con login propio como último recurso."
-                )
+                logger.error("[SfcAuthManager] Timeout esperando renovación por otra instancia. Procediendo con login propio.")
                 return await self._renovar_token_directo_local()
 
             await asyncio.sleep(LOCK_POLL_INTERVAL_SECONDS)
 
-            # Antes de reintentar el lock, revisar si mientras tanto ya quedó listo.
             await self._load_from_redis()
             if self._is_access_token_valid():
                 return self.access_token
@@ -365,8 +320,6 @@ class SfcAuthManager(httpx.Auth):
         self._save_tokens_local(new_access, new_refresh)
 
     def _save_tokens_local(self, access: str, refresh: str):
-        """Actualiza únicamente el cache en RAM local. La publicación hacia
-        Redis (fuente de verdad compartida) la hace el llamador vía _save_to_redis()."""
         self.access_token = access
         self.refresh_token = refresh
 
@@ -377,7 +330,7 @@ class SfcAuthManager(httpx.Auth):
         self.refresh_exp = datetime.fromtimestamp(refresh_payload["exp"], timezone.utc)
 
     # ======================================================================
-    # INTERCEPTOR DE FLUJO ASÍNCRONO PARA EL CLIENTE HTTPX
+    # 🟢 INTERCEPTOR DE FLUJO ASÍNCRONO DE AUTENTICACIÓN (REFACTORIZADO)
     # ======================================================================
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         path = request.url.path
@@ -401,7 +354,6 @@ class SfcAuthManager(httpx.Auth):
         endpoint_for_sig = path
         payload = None
 
-        # 🟢 FIX 1: Si X-SFC-Signature ya viene calculada (ej. post_adjunto_queja), respetarla
         if "X-SFC-Signature" not in request.headers:
             if request.method == "GET":
                 endpoint_for_sig = str(request.url)
@@ -422,22 +374,27 @@ class SfcAuthManager(httpx.Auth):
 
         response = yield request
 
-        # Recuperación ante 401: Proteger con Lock
+        # 🟢 RECUPERACIÓN ANTE HTTP 401 SIN DEADLOCK
         if response.status_code == 401:
             logger.warning("[SfcAuthManager] SFC rechazó la petición con 401. Iniciando flujo de recuperación sincronizado...")
 
-            async with self._get_local_lock():
+            async with self._get_local_lock(): # 🔒 Candado tomado una sola vez
                 await self._invalidar_token_compartido_si_coincide(token)
 
                 if self.access_token == token:
                     self.access_token = None
 
                 try:
-                    nuevo_token = await self.get_valid_token()
+                    # 🟢 LLAMADA A MÉTODOS UNLOCKED PARA EVITAR ADQUIRIR EL MISMO LOCK
+                    nuevo_token = await self._get_valid_token_unlocked()
                     request.headers["Authorization"] = f"Bearer {nuevo_token}"
 
-                    # Re-firmar solo si era una petición JSON estándar
-                    if "multipart/form-data" not in content_type and "api/storage" not in path:
+                    if "multipart/form-data" in content_type or "api/storage" in path:
+                        # Extraer campos 'codigo_queja' y 'type' si es multipart
+                        fields = self._parse_multipart_fields(request)
+                        nueva_firma = self.signature_context.get_signature("POST", path, fields if fields else None)
+                        request.headers["X-SFC-Signature"] = nueva_firma
+                    else:
                         nueva_firma = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
                         request.headers["X-SFC-Signature"] = nueva_firma
 
@@ -447,27 +404,7 @@ class SfcAuthManager(httpx.Auth):
                 except Exception as e:
                     logger.error(f"[SfcAuthManager] Falló la recuperación automática de credenciales: {str(e)}")
 
-    def _parse_multipart_fields(self, request: httpx.Request) -> Dict[str, Any]:
-        fields = {}
-        content_type = request.headers.get("content-type", "")
-        if "boundary=" in content_type:
-            boundary = content_type.split("boundary=")[-1].strip().strip('"\'')
-            content = request.content
-            parts = content.split(f"--{boundary}".encode("utf-8"))
-
-            for part in parts:
-                if b"Content-Disposition:" in part:
-                    headers_part, _, body_part = part.partition(b"\r\n\r\n")
-                    headers_str = headers_part.decode("utf-8", errors="ignore")
-
-                    if 'name="type"' in headers_str:
-                        fields["type"] = body_part.rstrip(b"\r\n").decode("utf-8", errors="ignore").strip()
-                    elif 'name="codigo_queja"' in headers_str:
-                        fields["codigo_queja"] = body_part.rstrip(b"\r\n").decode("utf-8", errors="ignore").strip()
-        return fields
-
     async def close(self):
-        """Cierra ordenadamente las conexiones TCP del cliente asíncrono interno."""
         if self._owns_client and self.client and not self.client.is_closed:
             await self.client.aclose()
             logger.info("🛑 Cliente HTTP interno de SfcAuthManager cerrado limpiamente.")

@@ -18,11 +18,21 @@ class TestErrorResponsesConsistency(unittest.TestCase):
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
 
+        # 🟢 SIMULACIÓN DE REDIS: Evita que el Fail-Closed bloquee con 503 durante unit tests
+        self.redis_patcher = patch("app.api.routes_quejas.get_redis_client")
+        self.mock_get_redis = self.redis_patcher.start()
+
+        self.mock_redis = AsyncMock()
+        self.mock_redis.get.return_value = None
+        self.mock_redis.set.return_value = True
+        self.mock_get_redis.return_value = self.mock_redis
+
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        self.redis_patcher.stop()
 
     def _assert_canonical_error_structure(self, response_json: dict, expected_status: int):
         """Helper que aserta que la respuesta cumpla con la estructura exigida por Salesforce."""
@@ -111,8 +121,6 @@ class TestErrorResponsesConsistency(unittest.TestCase):
             "Categorias_COL__c": "Transacción no reconocida"
         }
 
-        # 🎯 raise_server_exceptions=False le indica a TestClient que NO relance la excepción
-        # y permita a FastAPI ejecutar su handler global de error 500
         client_no_raise = TestClient(app, raise_server_exceptions=False)
         client_no_raise.headers.update({"X-API-Key": settings.CRM_API_KEY})
 

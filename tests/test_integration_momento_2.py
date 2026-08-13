@@ -1,10 +1,12 @@
+# tests/test_integration_momento_2.py
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.config import settings
 from app.api.dependencies import get_sfc_client, get_s3_client
+
 
 class TestMomento2Integration(unittest.TestCase):
 
@@ -14,7 +16,17 @@ class TestMomento2Integration(unittest.TestCase):
 
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
-        
+
+        # 🟢 SIMULACIÓN DE REDIS: Evita que el Fail-Closed bloquee con 503 durante unit tests
+        self.redis_patcher = patch("app.api.routes_quejas.get_redis_client")
+        self.mock_get_redis = self.redis_patcher.start()
+
+        self.mock_redis = AsyncMock()
+        self.mock_redis.get.return_value = None
+        self.mock_redis.set.return_value = True
+        self.mock_redis.eval.return_value = '{"is_new": true, "pendientes_previos": 0, "data": {"id": 1, "smart_code": "16551509974606", "estado": "PENDING", "intentos": 1, "max_intentos": 10, "es_duplicado": false}}'
+        self.mock_get_redis.return_value = self.mock_redis
+
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
@@ -24,7 +36,6 @@ class TestMomento2Integration(unittest.TestCase):
         self.mock_crm_payload = {
             "Smart_Code__c": self.smart_code_test,
             "CreatedDate": "2026-07-14T12:00:00",
-            "Status": "New",
             "Status": "New",
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",
@@ -56,6 +67,7 @@ class TestMomento2Integration(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        self.redis_patcher.stop()
 
     def test_endpoint_despacho_momento_2_exito(self):
         """Verifica que el despacho unificado enrute exitosamente una queja nueva al Momento 2."""
@@ -68,20 +80,24 @@ class TestMomento2Integration(unittest.TestCase):
         self.sfc_client_mock.post_nueva_queja.assert_called_once()
         
         request_enviado = self.sfc_client_mock.post_nueva_queja.call_args[0][0]
-        self.assertEqual(request_enviado["codigo_queja"], f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.smart_code_test}")
+        self.assertEqual(
+            request_enviado["codigo_queja"], 
+            f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.smart_code_test}"
+        )
         self.assertEqual(request_enviado["canal_cod"], 13)
         self.assertEqual(request_enviado["tipo_persona"], 1)
 
     def test_endpoint_despacho_momento_2_fallo_red(self):
-        """Verifica el control de errores en caso de fallo en la red de la SFC al crear queja."""
-        self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=Exception("Timeout en conexión con SFC"))
+        """Verifica que ante un fallo de red en la SFC, el caso entre en la cola Redis (HTTP 202 Accepted)."""
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=ConnectionError("Timeout en conexión con SFC"))
         self.sfc_client_mock.put_actualizar_queja = AsyncMock()
 
         response = self.client.post("/api/v1/quejas/sync/despacho", json=self.mock_crm_payload)
         
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 202)
         data = response.json()
-        self.assertIn("Timeout en conexión con SFC", data["raw_message"])
+        self.assertEqual(data["status"], "queued")
+        self.assertIn("Timeout en conexión con SFC", data["error_origen"])
 
 
 if __name__ == "__main__":

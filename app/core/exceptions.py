@@ -1,3 +1,4 @@
+# app/core/exceptions.py
 import asyncio
 import json
 import logging
@@ -35,15 +36,22 @@ class SfcErrorTranslator:
     MATRIZ_ERRORES_TEXTO: List[Dict[str, str]] = []
     ULTIMA_ACTUALIZACION: float = 0
     CACHE_TTL_SEGUNDOS: int = 600  # 10 Minutos en RAM
+    MAX_STALE_TTL_SEGUNDOS: int = 86400  # 🟢 FIX HALLAZGO 49: Umbral máximo de obsolescencia (24 Horas)
+
+    # 🟢 FIX HALLAZGO 48: Candado de refresco Single-Flight para evitar estampidas contra Google Sheets API
+    _REFRESH_LOCK: Optional[asyncio.Lock] = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        if cls._REFRESH_LOCK is None:
+            cls._REFRESH_LOCK = asyncio.Lock()
+        return cls._REFRESH_LOCK
 
     @classmethod
     async def _obtener_google_access_token(cls) -> Optional[str]:
-        """
-        Intercambia el Refresh Token por un Access Token válido de Google.
-        """
-        client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
-        client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
-        refresh_token = getattr(settings, "GOOGLE_REFRESH_TOKEN", None)
+        client_id = settings.GOOGLE_CLIENT_ID
+        client_secret = settings.GOOGLE_CLIENT_SECRET
+        refresh_token = settings.GOOGLE_REFRESH_TOKEN
 
         if not all([client_id, client_secret, refresh_token]):
             logger.warning(
@@ -80,70 +88,97 @@ class SfcErrorTranslator:
         """
         Retorna la matriz en RAM. Si la caché expiró o está vacía, realiza una
         petición HTTP GET a la API v4 de Google Sheets usando OAuth 2.0.
+        Implementa el patrón Single-Flight para evitar estampidas de peticiones concurrentes.
         """
         ahora = time.time()
 
-        # 1. Si ya está cargada en RAM y no ha vencido el TTL (10 min), usar RAM
+        # 1. Fast Path: Si ya está cargada en RAM y no ha vencido el TTL (10 min), usar RAM sin bloqueo
         if cls.MATRIZ_ERRORES_TEXTO and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
             return cls.MATRIZ_ERRORES_TEXTO
 
-        spreadsheet_id = getattr(settings, "GOOGLE_SPREADSHEET_ID", None)
-        sheet_range = getattr(settings, "GOOGLE_SHEET_RANGE", "Hoja1!A:C")
+        # 2. Bloqueo Single-Flight: Solo una petición concurrente refresca la matriz
+        async with cls._get_lock():
+            ahora = time.time()
+            # Double-check locking
+            if cls.MATRIZ_ERRORES_TEXTO and cls.ULTIMA_ACTUALIZACION > 0 and (ahora - cls.ULTIMA_ACTUALIZACION) < cls.CACHE_TTL_SEGUNDOS:
+                return cls.MATRIZ_ERRORES_TEXTO
 
-        # 2. Consultar la API oficial v4 de Google Sheets
-        if spreadsheet_id:
-            try:
-                logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz mediante Google Sheets API v4...")
+            spreadsheet_id = settings.GOOGLE_SPREADSHEET_ID
+            sheet_range = settings.GOOGLE_SHEET_RANGE
 
-                access_token = await cls._obtener_google_access_token()
-                if not access_token:
-                    raise ValueError("No se pudo obtener el Access Token de Google OAuth.")
+            if spreadsheet_id:
+                try:
+                    logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz mediante Google Sheets API v4...")
 
-                headers = {"Authorization": f"Bearer {access_token}"}
-                url_api_v4 = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{sheet_range}"
+                    access_token = await cls._obtener_google_access_token()
+                    if not access_token:
+                        raise ValueError("No se pudo obtener el Access Token de Google OAuth.")
 
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    response = await client.get(url_api_v4, headers=headers)
+                    headers = {"Authorization": f"Bearer {access_token}"}
+                    url_api_v4 = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{sheet_range}"
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        rows = data.get("values", [])
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        response = await client.get(url_api_v4, headers=headers)
 
-                        reglas = []
-                        for row in rows[1:]:
-                            if not row or not row[0]:
-                                continue
-                            reglas.append({
-                                "subcadena": str(row[0]).strip(),
-                                "tipo": str(row[1]).strip() if len(row) > 1 else "UNKNOWN_SFC_ERROR",
-                                "accion": str(row[2]).strip() if len(row) > 2 else "Revisar logs del payload."
-                            })
+                        if response.status_code == 200:
+                            data = response.json()
+                            rows = data.get("values", [])
 
-                        if reglas:
-                            cls.MATRIZ_ERRORES_TEXTO = reglas
-                            cls.ULTIMA_ACTUALIZACION = ahora
-                            logger.info(
-                                f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
-                                f"{len(reglas)} reglas cargadas."
+                            reglas = []
+                            for row in rows[1:]:
+                                if not row or not row[0]:
+                                    continue
+                                reglas.append({
+                                    "subcadena": str(row[0]).strip(),
+                                    "tipo": str(row[1]).strip() if len(row) > 1 else "UNKNOWN_SFC_ERROR",
+                                    "accion": str(row[2]).strip() if len(row) > 2 else "Revisar logs del payload."
+                                })
+
+                            if reglas:
+                                cls.MATRIZ_ERRORES_TEXTO = reglas
+                                cls.ULTIMA_ACTUALIZACION = ahora
+                                logger.info(
+                                    f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
+                                    f"{len(reglas)} reglas cargadas."
+                                )
+                                return cls.MATRIZ_ERRORES_TEXTO
+                        else:
+                            logger.warning(
+                                f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
                             )
-                            return cls.MATRIZ_ERRORES_TEXTO
-                    else:
-                        logger.warning(
-                            f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
+                except Exception as e:
+                    # 🟢 FIX HALLAZGO 49: Registro estructurado de edad de la matriz en RAM y alerta por obsolescencia
+                    edad_segundos = (ahora - cls.ULTIMA_ACTUALIZACION) if cls.ULTIMA_ACTUALIZACION > 0 else 0
+                    edad_horas = edad_segundos / 3600.0
+
+                    logger.warning(
+                        f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. "
+                        f"Antigüedad de la matriz en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
+                    )
+
+                    if cls.ULTIMA_ACTUALIZACION > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+                        logger.critical(
+                            f"🚨 [SfcErrorTranslator] ALERTA CRÍTICA: La matriz de errores en RAM tiene {edad_horas:.1f}h "
+                            f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
                         )
-            except Exception as e:
-                logger.warning(
-                    f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. Usando datos vigentes/local."
-                )
+                        try:
+                            from app.services.email_service import EmailAlertService
+                            asyncio.create_task(
+                                EmailAlertService.notificar_catalogo_stale(
+                                    nombre_componente="SfcErrorTranslator (Matriz de Errores)",
+                                    edad_horas=edad_horas,
+                                    error_msg=str(e)
+                                )
+                            )
+                        except Exception as alert_err:
+                            logger.warning(f"No se pudo disparar la alerta por matriz stale: {alert_err}")
 
-        # 3. Fallback: Cargar JSON local si la RAM está totalmente vacía
-        if not cls.MATRIZ_ERRORES_TEXTO:
-            cls.cargar_matriz_local()
+            if not cls.MATRIZ_ERRORES_TEXTO:
+                cls.cargar_matriz_local()
 
-        # 🟢 ACTUALIZAR TTL: Refrescar marca de tiempo tras fallback para no reintentar Google Sheets en cada petición
-        cls.ULTIMA_ACTUALIZACION = ahora
+            cls.ULTIMA_ACTUALIZACION = ahora
 
-        return cls.MATRIZ_ERRORES_TEXTO
+            return cls.MATRIZ_ERRORES_TEXTO
 
     @classmethod
     def cargar_matriz_local(cls) -> None:
@@ -162,7 +197,6 @@ class SfcErrorTranslator:
 
     @classmethod
     def _extraer_informacion_error(cls, response_text: str) -> Tuple[Optional[str], str]:
-        """Extrae los campos (sfc_field) y los mensajes legibles (raw_message) del JSON de respuesta."""
         sfc_field = None
         raw_message = response_text
 
@@ -210,7 +244,6 @@ class SfcErrorTranslator:
     def _notificar_desconocido_async(
         cls, status_code: int, raw_message: str, sfc_field: Optional[str]
     ) -> None:
-        """Dispara la notificación por correo de forma segura sin romper la ejecución si no hay Event Loop."""
         try:
             from app.services.email_service import EmailAlertService
 
@@ -232,17 +265,12 @@ class SfcErrorTranslator:
 
     @classmethod
     async def procesar_y_lanzar(cls, status_code: int, response_text: str) -> None:
-        """Analiza el body devuelto por la SFC y lanza SfcIntegrationException con el error traducido."""
-        # 🎯 1. Cargar matriz (de Google Sheets con fallback local)
         matriz = await cls.obtener_matriz_errores()
-
-        # 2. Extraer campo y mensaje relevante
         sfc_field, raw_message = cls._extraer_informacion_error(response_text)
 
         error_type = "UNKNOWN_SFC_ERROR"
         crm_action = "Error no mapeado por la SFC. Por favor revisar los logs del payload."
 
-        # 3. Búsqueda de coincidencia en la matriz en RAM
         response_text_lower = response_text.lower()
         raw_message_lower = raw_message.lower()
         sfc_field_lower = (sfc_field or "").lower()
@@ -263,11 +291,9 @@ class SfcErrorTranslator:
                 encontrado = True
                 break
 
-        # 4. Notificar si no se halló en la matriz
         if not encontrado or error_type == "UNKNOWN_SFC_ERROR":
             cls._notificar_desconocido_async(status_code, raw_message, sfc_field)
 
-        # 5. Lanzar la excepción controlada
         raise SfcIntegrationException(
             status_code=status_code,
             error_type=error_type,

@@ -45,9 +45,12 @@ class CrmWebhookService:
         webhook_url = settings.CRM_WEBHOOK_URL
         api_key = settings.CRM_WEBHOOK_API_KEY
 
-        if not webhook_url:
-            logger.info("ℹ️ [CRM Webhook] CRM_WEBHOOK_URL no configurada. Omitiendo notificación.")
-            return True
+        if not webhook_url or not str(webhook_url).strip():
+            logger.error(
+                "❌ [CRM Webhook] Fallo de configuración: 'CRM_WEBHOOK_URL' no está definida en las "
+                "variables de entorno. No se puede notificar la resolución al CRM."
+            )
+            return False
 
         cid = get_correlation_id()
 
@@ -67,7 +70,6 @@ class CrmWebhookService:
         headers_clean = sanitizar_headers(headers)
         body_clean = sanitizar_payload(payload)
 
-        # 🟢 FIX: Auditoría HTTP estructurada en JSON sin saltos de línea \n
         logger.debug("AUDIT_HTTP_OUTGOING_REQUEST_CRM_WEBHOOK", extra={
             "extra_data": {
                 "direction": "OUTGOING_REQUEST",
@@ -84,11 +86,18 @@ class CrmWebhookService:
             response = await client.post(webhook_url, json=payload, headers=headers, timeout=10.0)
 
             res_headers_clean = sanitizar_headers(dict(response.headers))
-            raw_json = {}
-            try:
-                raw_json = response.json() if response.text else {}
-                res_body_clean = sanitizar_payload(raw_json)
-            except Exception:
+            content_type = response.headers.get("content-type", "").lower()
+            
+            raw_json = None
+            res_body_clean = None
+
+            if "application/json" in content_type:
+                try:
+                    raw_json = response.json()
+                    res_body_clean = sanitizar_payload(raw_json)
+                except Exception:
+                    res_body_clean = response.text or None
+            else:
                 res_body_clean = response.text or None
 
             logger.debug("AUDIT_HTTP_INCOMING_RESPONSE_CRM_WEBHOOK", extra={
@@ -103,28 +112,55 @@ class CrmWebhookService:
             })
 
             if response.status_code in (200, 201, 202):
-                is_success = raw_json.get("success", True) if isinstance(raw_json, dict) else True
-                
-                if is_success:
-                    crm_case_id = raw_json.get("case_id", "N/A")
-                    crm_case_number = raw_json.get("case_number", case_id_crm)
-                    is_idempotent = raw_json.get("idempotent", False)
-                    is_reconciled = raw_json.get("reconciled", False)
-
-                    logger.info(
-                        f"✅ [CRM Webhook] Confirmación recibida por el CRM con éxito. "
-                        f"Case Number: {crm_case_number} | Case ID: {crm_case_id} | "
-                        f"Idempotent: {is_idempotent} | Reconciled: {is_reconciled}"
-                    )
-                    return True
-                else:
+                # 🟢 FIX HALLAZGO 14: Validación estricta de Content-Type JSON
+                if "application/json" not in content_type:
                     logger.warning(
-                        f"⚠️ [CRM Webhook] El CRM respondió HTTP {response.status_code} pero indicó 'success': false."
+                        f"⚠️ [CRM Webhook] El CRM respondió HTTP {response.status_code} pero el "
+                        f"Content-Type no es 'application/json' (recibido: '{content_type}'). "
+                        "Rechazando respuesta por posible interceptación de Proxy, WAF o página HTML."
                     )
                     return False
+
+                # 🟢 FIX HALLAZGO 14: Validación de parseo estricto de estructura JSON
+                if raw_json is None:
+                    try:
+                        raw_json = response.json()
+                    except Exception as json_err:
+                        logger.warning(
+                            f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero falló "
+                            f"la decodificación del JSON: {json_err}"
+                        )
+                        return False
+
+                if not isinstance(raw_json, dict):
+                    logger.warning(
+                        f"⚠️ [CRM Webhook] La respuesta JSON del CRM no es un objeto válido "
+                        f"(recibido tipo: {type(raw_json).__name__})."
+                    )
+                    return False
+
+                # 🟢 FIX HALLAZGO 14: Validación de contrato funcional de respuesta
+                if raw_json.get("success") is False:
+                    logger.warning(
+                        f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero la "
+                        "bandera 'success' indica explícitamente false."
+                    )
+                    return False
+
+                crm_case_id = raw_json.get("case_id", "N/A")
+                crm_case_number = raw_json.get("case_number", case_id_crm)
+                is_idempotent = raw_json.get("idempotent", False)
+                is_reconciled = raw_json.get("reconciled", False)
+
+                logger.info(
+                    f"✅ [CRM Webhook] Confirmación recibida con éxito y contrato JSON validado. "
+                    f"Case Number: {crm_case_number} | Case ID: {crm_case_id} | "
+                    f"Idempotent: {is_idempotent} | Reconciled: {is_reconciled}"
+                )
+                return True
             else:
                 logger.warning(
-                    f"⚠️ [CRM Webhook] El CRM respondió con código {response.status_code}."
+                    f"⚠️ [CRM Webhook] El CRM respondió con código HTTP de error {response.status_code}."
                 )
                 return False
 

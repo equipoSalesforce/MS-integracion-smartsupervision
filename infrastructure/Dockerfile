@@ -45,16 +45,17 @@ USER appuser
 # ======================================================================
 # FASE 3a: Target API (FastAPI/Gunicorn - expone HTTP en :8000)
 # ======================================================================
+# infrastructure/Dockerfile (Fragmento FASE 3a: Target API)
 FROM base AS final-api
 
 EXPOSE 8000
 
-# 🚦 HEALTHCHECK nativo con Python (evita instalar curl/wget)
+# 🚦 HEALTHCHECK nativo con Python
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
 
-# 🟢 Forma "shell" para que WEB_CONCURRENCY sí se expanda en runtime
-CMD gunicorn app.main:app -k uvicorn.workers.UvicornWorker \
+# 🟢 FIX HALLAZGO 55: Migración a la clase uvicorn_worker.UvicornWorker del paquete uvicorn-worker
+CMD gunicorn app.main:app -k uvicorn_worker.UvicornWorker \
     --bind 0.0.0.0:8000 \
     --workers "${WEB_CONCURRENCY:-2}" \
     --timeout 120 \

@@ -1,3 +1,4 @@
+# tests/test_momento_1.py
 import unittest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,17 +13,13 @@ from app.services.s3_service import S3StorageService
 class TestMomento1Integration(unittest.TestCase):
 
     def setUp(self):
-        # Mock del cliente SFC y S3
         self.sfc_client_mock = MagicMock(spec=SfcClient)
         self.s3_client_mock = MagicMock()
 
-        # Sobrescribimos las dependencias en FastAPI
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock
         
         self.client = TestClient(app)
-        
-        # 🎯 INYECCIÓN DE API KEY
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
     def tearDown(self):
@@ -36,16 +33,16 @@ class TestMomento1Integration(unittest.TestCase):
         las quejas perfectamente traducidas al CRM en el HTTP Response Body, 
         Garantizando que NO se envíe el ACK de manera automática (ACK diferido).
         """
-        # 🎯 S3StorageService.transferir_lote_sfc_a_s3 retorna una LISTA de adjuntos procesados
+        # 🟢 FIX: Se incluye "codigo_queja" para que SincronizacionService relacione el adjunto a la queja
         mock_descarga_s3.return_value = [
             {
+                "codigo_queja": "11111111111",
                 "nombre_archivo": "soporte.pdf",
                 "s3_key": "quejas/11111111111/soporte_pdf",
                 "bucket": "mi-bucket-smartsupervision"
             }
         ]
 
-        # JSON de respuesta con estructura nativa de la SFC (2 registros)
         mock_quejas_response = {
             "Response": {
                 "count": 2,
@@ -63,18 +60,18 @@ class TestMomento1Integration(unittest.TestCase):
                         "numero_id_CF": "1040011014",
                         "telefono": "3000000000",
                         "correo": "camila@test.com",
-                        "tipo_persona": 2, # Jurídica
-                        "sexo": 1,         # Femenino
+                        "tipo_persona": 2,
+                        "sexo": 1,
                         "lgbtiq": False,
-                        "canal_cod": 13,   # Internet
-                        "condicion_especial": 8, # Mujer embarazada
+                        "canal_cod": 13,
+                        "condicion_especial": 8,
                         "producto_cod": 209,
                         "producto_nombre": "Ahorro",
                         "macro_motivo_cod": 209,
                         "texto_queja": "Texto largo 1",
-                        "anexo_queja": True, # Forzar anexos
+                        "anexo_queja": True,
                         "tutela": False,
-                        "ente_control": 1, # Procuraduría
+                        "ente_control": 1,
                         "escalamiento_DCF": False,
                         "replica": False,
                         "argumento_replica": None,
@@ -95,18 +92,18 @@ class TestMomento1Integration(unittest.TestCase):
                         "numero_id_CF": "203002202",
                         "telefono": "3111111111",
                         "correo": "juan@test.com",
-                        "tipo_persona": 1, # Natural
-                        "sexo": 2,         # Masculino
+                        "tipo_persona": 1,
+                        "sexo": 2,
                         "lgbtiq": False,
-                        "canal_cod": 14,   # Oficinas
-                        "condicion_especial": 1, # Adulto mayor
+                        "canal_cod": 14,
+                        "condicion_especial": 1,
                         "producto_cod": 110,
                         "producto_nombre": "TC",
                         "macro_motivo_cod": 110,
                         "texto_queja": "Texto largo 2",
-                        "anexo_queja": False, # Sin anexos
+                        "anexo_queja": False,
                         "tutela": False,
-                        "ente_control": 2, # Contraloría
+                        "ente_control": 2,
                         "escalamiento_DCF": False,
                         "replica": False,
                         "argumento_replica": None,
@@ -118,7 +115,6 @@ class TestMomento1Integration(unittest.TestCase):
             }
         }
 
-        # Simulación de respuesta de adjuntos
         mock_adjuntos_response = {
             "Response": {
                 "count": 1,

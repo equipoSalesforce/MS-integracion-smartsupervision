@@ -1,4 +1,3 @@
-# app/services/s3_service.py
 import asyncio
 import io
 import logging
@@ -6,7 +5,7 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, BotoCoreError
 import httpx
 
 from app.core.config import settings
@@ -25,7 +24,7 @@ class S3StorageService:
 
     def __init__(self, s3_client=None, http_client: Optional[httpx.AsyncClient] = None):
         self.s3_client = s3_client
-        self.default_bucket = getattr(settings, "AWS_S3_BUCKET", "global66-sfc-bucket-local")
+        self.default_bucket = settings.AWS_S3_BUCKET
         self.is_local = settings.ENVIRONMENT in ("development", "local")
         self.http_client = http_client
 
@@ -149,7 +148,7 @@ class S3StorageService:
         max_size_mb: int = 30
     ) -> tempfile.SpooledTemporaryFile:
         s3_key_clean = self._limpiar_key(s3_key)
-        target_bucket = bucket or self.default_bucket
+        target_bucket = self.default_bucket #Retirado bucket opcional para evitar inyecciones
         file_name = s3_key_clean.split("/")[-1] if "/" in s3_key_clean else s3_key_clean
 
         tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
@@ -185,8 +184,9 @@ class S3StorageService:
                     Key=s3_key_clean
                 )
             except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "")
-                if error_code in ("404", "403", "NoSuchKey", "NotFound"):
+                error_code = str(e.response.get("Error", {}).get("Code", ""))
+                # 🟢 FIX HALLAZGO 15: Se separa 403 (AccessDenied) de los errores 404 (NotFound)
+                if error_code in ("404", "NoSuchKey", "NotFound"):
                     logger.error(f"❌ [S3 Error] Archivo '{file_name}' no encontrado (Key: '{s3_key_clean}').")
                     raise SfcIntegrationException(
                         status_code=404,
@@ -195,7 +195,22 @@ class S3StorageService:
                         raw_message=f"El archivo '{file_name}' (Key: '{s3_key_clean}') no existe en S3.",
                         crm_action="Verifique que el archivo haya sido cargado correctamente en S3."
                     )
-                raise
+                elif error_code in ("403", "AccessDenied"):
+                    logger.error(f"🚨 [S3 Error] Acceso denegado a Key '{s3_key_clean}' en bucket '{target_bucket}'.")
+                    raise SfcIntegrationException(
+                        status_code=500,
+                        error_type="S3_ACCESS_DENIED",
+                        sfc_field="archivos_s3",
+                        raw_message=f"Acceso denegado al leer el archivo en S3 (Key: '{s3_key_clean}').",
+                        crm_action="Verifique los permisos IAM del rol ECS sobre la política del bucket S3."
+                    )
+                raise SfcIntegrationException(
+                    status_code=500,
+                    error_type="S3_INFRASTRUCTURE_ERROR",
+                    sfc_field="archivos_s3",
+                    raw_message=f"Fallo de infraestructura en S3 ({error_code}): {str(e)}",
+                    crm_action="Revisar conectividad y estado del servicio de AWS S3."
+                )
 
             file_size = metadata.get("ContentLength", 0)
             
@@ -219,10 +234,8 @@ class S3StorageService:
                 )
 
             def _descargar():
-                # 🟢 Transmisión principal desde S3 (Permite la propagación directa de excepciones)
                 self.s3_client.download_fileobj(Bucket=target_bucket, Key=s3_key_clean, Fileobj=tmp_file)
 
-                # 🟢 Fallback exclusivo para Mocks de Boto3 en tests unitarios que usan get_object
                 if tmp_file.tell() == 0 and hasattr(self.s3_client, "get_object"):
                     try:
                         res = self.s3_client.get_object(Bucket=target_bucket, Key=s3_key_clean)
@@ -241,7 +254,6 @@ class S3StorageService:
             return tmp_file
 
         except Exception as e:
-            # 🟢 Cierre garantizado del archivo temporal ante cualquier excepción
             tmp_file.close()
             raise e
 
@@ -385,9 +397,33 @@ class S3StorageService:
 
         try:
             return await asyncio.to_thread(_listar)
+        except ClientError as e:
+            error_code = str(e.response.get("Error", {}).get("Code", ""))
+            
+            # 🟢 FIX HALLAZGO 15: Diferenciar inactividad de directorio (404) vs fallos de permisos / red (500)
+            if error_code in ("NoSuchBucket", "NoSuchKey", "NotFound", "404"):
+                logger.warning(f"⚠️ [S3 Storage] Directorio/Bucket no encontrado para prefix '{prefix_clean}': {error_code}")
+                return []
+            
+            logger.error(f"❌ [S3 Storage] Fallo de permisos/infraestructura S3 listando prefix '{prefix_clean}' ({error_code}): {e}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="S3_LIST_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"Error de infraestructura/permisos S3 al listar '{prefix_clean}': {error_code} - {str(e)}",
+                crm_action="Verificar conectividad S3 y permisos IAM (s3:ListBucket) sobre el bucket."
+            )
+        except SfcIntegrationException:
+            raise
         except Exception as e:
-            logger.error(f"❌ [S3 Storage] Error listando prefix '{prefix_clean}': {e}")
-            return []
+            logger.error(f"❌ [S3 Storage] Error inesperado listando prefix '{prefix_clean}': {e}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="S3_LIST_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"Error inesperado de almacenamiento S3 al listar '{prefix_clean}': {str(e)}",
+                crm_action="Revisar conectividad y logs de infraestructura S3."
+            )
 
     async def transferir_lote_sfc_a_s3(
         self, 

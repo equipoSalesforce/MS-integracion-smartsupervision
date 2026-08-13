@@ -87,7 +87,6 @@ class Momento3SincronizacionService:
         try:
             pdf_generado_exito = False
             if generar_pdf_cierre and cuerpo_correo:
-                # 🟢 FIX: Se envían tanto el case_id para S3 como sfc_code para la transmisión SFC
                 await self._generar_y_enviar_pdf_respuesta_final(
                     case_id=case_id_crm,
                     sfc_code=sfc_id_largo,
@@ -161,9 +160,9 @@ class Momento3SincronizacionService:
             raise net_err
 
         except Exception as e:
-            logger.error(f"Fallo en pipeline de M3 para {smart_code}: {str(e)}")
-            return {"status": "error", "message": f"Pipeline M3 interrumpido: {str(e)}"}
-
+            # 🟢 FIX HALLAZGO 40: Se relanza la excepción no controlada para tratarse como 500
+            logger.error(f"🔥 [Momento 3] Fallo no controlado en pipeline M3 para caso {smart_code}: {str(e)}", exc_info=True)
+            raise e
 
     async def _generar_y_enviar_pdf_respuesta_final(
         self,
@@ -182,13 +181,11 @@ class Momento3SincronizacionService:
                 texto_crm=texto_limpio
             )
 
-        # Renderizado seguro fuera del event loop (CPU-bound)
         file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
         
         final_pdf_name = f"Respuesta_Final_{case_id}_RESP_FINAL_SFC.pdf"
         s3_key = f"caso/{case_id}/{final_pdf_name}"
 
-        # Subida directa a S3 usando la ruta del CRM
         try:
             await self.s3_service.subir_bytes_archivo(
                 s3_key=s3_key,
@@ -198,7 +195,6 @@ class Momento3SincronizacionService:
         except Exception as s3_err:
             logger.error(f"⚠️ [Momento 3] No se pudo guardar la copia del PDF en S3: {s3_err}")
 
-        # Transmitir a la SFC usando el código regulatorio sfc_code
         await self.s3_service.transferir_lote_s3_a_sfc(
             sfc_client=self.sfc_client,
             sfc_codigo_queja=sfc_code,

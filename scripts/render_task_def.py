@@ -1,9 +1,9 @@
-# scripts/render_task_def.py
 import json
 import os
+import re
 import sys
 
-def render_task_definition(service_type: str, environment: str):
+def render_task_definition(service_type: str, environment: str) -> dict:
     is_prod = environment.lower() in ("prod", "production")
     
     # 1. Configuración de dimensiones según ambiente
@@ -11,13 +11,38 @@ def render_task_definition(service_type: str, environment: str):
     memory = "1024" if is_prod else "512"
     log_level = "INFO" if is_prod else "DEBUG"
     web_concurrency = "4" if is_prod else "2"
+
+    # 🟢 FIX HALLAZGO 10: Validación Fail-Fast para AWS_ACCOUNT_ID (Sin fallback ficticio)
+    aws_account_id = os.getenv("AWS_ACCOUNT_ID")
+    if not aws_account_id or aws_account_id.strip() in ("", "123456789012"):
+        raise ValueError(
+            "🚨 [FAIL-FAST] La variable de entorno 'AWS_ACCOUNT_ID' es obligatoria y no puede "
+            "estar vacía ni usar valores por defecto ficticios (123456789012)."
+        )
+
+    # 🟢 FIX HALLAZGO 11: Validación Fail-Fast para SECRET_SUFFIX (Sin fallback '??????')
+    secret_suffix = os.getenv("SECRET_SUFFIX")
+    if not secret_suffix or secret_suffix.strip() in ("", "??????"):
+        raise ValueError(
+            "🚨 [FAIL-FAST] La variable de entorno 'SECRET_SUFFIX' es obligatoria para resolver "
+            "los ARNs de Secrets Manager en la Task Definition y no puede ser '??????' ni estar vacía."
+        )
+
+    # 🟢 FIX HALLAZGO 45: Validación Fail-Fast para IMAGE_TAG inmutable (Sin fallback a 'latest')
+    image_tag = os.getenv("IMAGE_TAG")
+    if not image_tag or image_tag.strip().lower() in ("", "latest"):
+        raise ValueError(
+            "🚨 [FAIL-FAST] La variable de entorno 'IMAGE_TAG' es obligatoria y debe ser un "
+            "etiquetado inmutable (ej. Git Commit SHA 'a1b2c3d' o versión semántica 'v1.0.0'). "
+            "Se prohíbe el uso de 'latest' como tag de despliegue para garantizar trazabilidad y rollbacks."
+        )
     
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
         run_scheduler = "False"
         container_command = json.dumps([
             "gunicorn", "app.main:app",
-            "-k", "uvicorn.workers.UvicornWorker",
+            "-k", "uvicorn_worker.UvicornWorker",
             "--bind", "0.0.0.0:8000",
             "--workers", web_concurrency,
             "--timeout", "120",
@@ -42,8 +67,6 @@ def render_task_definition(service_type: str, environment: str):
         content = f.read()
 
     # 4. Mapeo de valores a reemplazar
-    secret_suffix = os.getenv("SECRET_SUFFIX", "??????")
-
     replacements = {
         "${SERVICE_TYPE}": service_type.lower(),
         "${ENVIRONMENT}": environment.lower(),
@@ -54,12 +77,13 @@ def render_task_definition(service_type: str, environment: str):
         "${RUN_SCHEDULER}": run_scheduler,
         "${CONTAINER_COMMAND}": container_command,
         "${PORT_MAPPINGS}": port_mappings,
-        "${HEALTHCHECK_CMD}": healthcheck_cmd,
-        "${AWS_ACCOUNT_ID}": os.getenv("AWS_ACCOUNT_ID", "123456789012"),
+        "${HEALTHCHECK_CMD}": json.dumps(healthcheck_cmd)[1:-1],
+        "${AWS_ACCOUNT_ID}": aws_account_id.strip(),
         "${AWS_REGION}": os.getenv("AWS_REGION", "us-east-1"),
-        "${IMAGE_TAG}": os.getenv("IMAGE_TAG", "latest"),
+        "${IMAGE_TAG}": image_tag.strip(),
         "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", f"{environment.lower()}-global66-smartsupervision-attachments"),
         "${SFC_URL_BASE}": os.getenv("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co"),
+        "${CRM_CORS_ORIGINS}": os.getenv("CRM_CORS_ORIGINS", "https://crm.global66.com"),
         "${REDIS_HOST}": os.getenv("REDIS_HOST", f"{environment.lower()}-smartsupervision-redis.cache.amazonaws.com"),
         "${REDIS_SSL}": os.getenv("REDIS_SSL", "True"),
         "${GOOGLE_SPREADSHEET_ID}": os.getenv("GOOGLE_SPREADSHEET_ID", "1a2b3c4d5e6f7g8h9i0j"),
@@ -69,11 +93,25 @@ def render_task_definition(service_type: str, environment: str):
     for key, value in replacements.items():
         content = content.replace(key, value)
 
-    # Si en CI/CD se pasa un SECRET_SUFFIX específico de 6 caracteres, reemplaza ??????? por dicho sufijo
-    if secret_suffix != "??????":
-        content = content.replace("??????", secret_suffix)
+    # Reemplazar sufijo de secreto
+    content = content.replace("??????", secret_suffix.strip())
 
-    # 5. Validar que el resultado sea un JSON válido antes de guardar
+    # 🟢 FIX HALLAZGO 9: Verificación estricta post-renderizado de cualquier placeholder ${...} no resuelto
+    unrendered_placeholders = set(re.findall(r"\$\{[A-Za-z0-9_]+\}", content))
+    if unrendered_placeholders:
+        raise ValueError(
+            f"🚨 [RENDER ERROR] Se detectaron placeholders sin reemplazar en la Task Definition: "
+            f"{sorted(list(unrendered_placeholders))}"
+        )
+
+    # 🟢 FIX HALLAZGO 11: Verificación estricta post-renderizado de '??????' no resuelto
+    if "??????" in content:
+        raise ValueError(
+            "🚨 [RENDER ERROR] La Task Definition renderizada aún contiene el marcador "
+            "de sufijo de secreto '??????' no resuelto."
+        )
+
+    # 5. Validar y parsear estrictamente que el resultado sea un JSON válido
     output_json = json.loads(content)
     output_filename = f"ecs-task-def-{service_type.lower()}-{environment.lower()}.json"
     
@@ -81,6 +119,7 @@ def render_task_definition(service_type: str, environment: str):
         json.dump(output_json, f, indent=2)
 
     print(f"✅ Renderizada exitosamente la Task Definition: {output_filename}")
+    return output_json
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

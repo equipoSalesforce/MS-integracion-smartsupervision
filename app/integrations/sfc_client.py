@@ -3,6 +3,7 @@ import asyncio
 import functools
 import os
 import ssl
+from urllib.parse import urlparse
 import httpx
 import json
 import logging
@@ -32,8 +33,6 @@ async def log_request(request: httpx.Request):
     if aws_trace and aws_trace != "N/A":
         request.headers["X-Amzn-Trace-Id"] = aws_trace
 
-    # 🟢 FIX: Si la petición involucra archivos/multipart, retornar INMEDIATAMENTE
-    # para evitar tocar request.content sobre peticiones en streaming
     is_file_request = (
         SfcEndpoints.STORAGE.value in str(request.url) 
         or "multipart/form-data" in request.headers.get("content-type", "")
@@ -62,6 +61,7 @@ async def log_request(request: httpx.Request):
         }
     })
 
+
 async def log_response(response: httpx.Response):
     """Hook para registrar respuestas HTTP entrantes desde la SFC en formato JSON estructurado."""
     content_type = response.headers.get("content-type", "").lower()
@@ -75,7 +75,7 @@ async def log_response(response: httpx.Response):
         or (response.request and "multipart/form-data" in response.request.headers.get("content-type", ""))
     )
     
-    if is_file_response and not getattr(settings, "ENABLE_FILE_LOGS", False):
+    if is_file_response and not settings.ENABLE_FILE_LOGS:
         logger.info("AUDIT_HTTP_INCOMING_RESPONSE", extra={
             "extra_data": {
                 "direction": "INCOMING_RESPONSE",
@@ -113,11 +113,15 @@ async def log_response(response: httpx.Response):
 
 
 def handle_sfc_throttling(func):
+    """
+    🟢 FIX HALLAZGO 39: Clasificación estricta de Throttling / Rate Limiting (429)
+    separada de fallas de infraestructura (5xx, Timeouts, DNS o errores de aplicación).
+    """
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         attempts = 0
-        max_retries = getattr(settings, "SFC_MINI_RETRY_ATTEMPTS", settings.SFC_MINI_RETRY_ATTEMPTS)
-        delay = getattr(settings, "SFC_MINI_RETRY_DELAY_SECONDS", settings.SFC_MINI_RETRY_DELAY_SECONDS)
+        max_retries = settings.SFC_MINI_RETRY_ATTEMPTS
+        delay = settings.SFC_MINI_RETRY_DELAY_SECONDS
 
         while True:
             try:
@@ -126,9 +130,10 @@ def handle_sfc_throttling(func):
                 raw_msg_lower = str(getattr(exc, "raw_message", "") or "").lower()
                 error_type_str = str(getattr(exc, "error_type", "") or "").upper()
                 
+                # 🟢 Solo respuestas de regulación de cuota o Rate Limit 429
                 is_throttled = (
                     exc.status_code == 429 or 
-                    error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR", "INFRASTRUCTURE_ERROR") or
+                    error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR") or
                     "throttled" in raw_msg_lower or
                     "quota" in raw_msg_lower or
                     "resource_exhausted" in raw_msg_lower
@@ -137,11 +142,13 @@ def handle_sfc_throttling(func):
                 if is_throttled and attempts < max_retries:
                     attempts += 1
                     logger.warning(
-                        f"⏳ [SfcClient] Solicitud regulada / cuota superada por la SFC (429 Throttled/Quota). "
+                        f"⏳ [SfcClient] Solicitud regulada / cuota superada por la SFC (HTTP 429 Throttled/Quota). "
                         f"Ejecutando mini-delay de {delay}s antes del reintento {attempts}/{max_retries}..."
                     )
                     await asyncio.sleep(delay)
                     continue
+                
+                # Errores de infraestructura (500, 502, 503, timeouts, DNS) o de negocio se elevan directamente
                 raise
 
     return wrapper
@@ -168,9 +175,39 @@ class SfcClient:
                 }
             )
 
+    def _sanitizar_y_validar_next_url(self, raw_url: Optional[str]) -> Optional[str]:
+        if not raw_url or not str(raw_url).strip():
+            return None
+
+        url_str = str(raw_url).strip()
+        parsed = urlparse(url_str)
+        base_parsed = urlparse(self.base_url)
+
+        if parsed.netloc:
+            if parsed.netloc.lower() != base_parsed.netloc.lower():
+                logger.error(
+                    f"🚨 [SSRF Protection] Se detectó una URL 'next' con un host no autorizado: '{parsed.netloc}'. "
+                    f"Host esperado: '{base_parsed.netloc}'."
+                )
+                raise SfcIntegrationException(
+                    status_code=400,
+                    error_type="SSRF_PROTECTION_ERROR",
+                    sfc_field="url_next",
+                    raw_message=f"La URL de paginación devuelta por el servidor ('{parsed.netloc}') no coincide con la URL base de la SFC.",
+                    crm_action="Contacte al equipo de soporte de la SFC para reportar la inconsistencia en los enlaces de paginación."
+                )
+
+        path_and_query = parsed.path
+        if parsed.query:
+            path_and_query += f"?{parsed.query}"
+
+        return path_and_query
+
     @handle_sfc_throttling
     async def fetch_quejas_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
-        target_url = url if url else f"{self.base_url}{SfcEndpoints.QUEJA.value}"
+        endpoint_relativo = self._sanitizar_y_validar_next_url(url) or SfcEndpoints.QUEJA.value
+        target_url = f"{self.base_url}{endpoint_relativo}" if endpoint_relativo.startswith("/") else f"{self.base_url}/{endpoint_relativo}"
+
         try:
             response = await self.client.get(target_url, auth=self.interceptor)
             if response.status_code not in (200, 201):
@@ -247,16 +284,14 @@ class SfcClient:
             "type": file_type
         }
 
-        # 1. Obtener token válido y calcular la firma específica de transferencia de archivos
         token = await self.interceptor.get_valid_token()
         signature = self.interceptor.signature_context.get_signature(
             method="POST",
             url=endpoint,
             payload=data,
-            is_file_upload=True  # 🟢 FIX: Garantiza el uso de FileTransferSignatureStrategy
+            is_file_upload=True
         )
         
-        # 2. Construir cabeceras HTTP con la firma calculada
         headers = {
             "Authorization": f"Bearer {token}",
             "Cache-Control": "no-cache",
@@ -275,7 +310,6 @@ class SfcClient:
         logger.info(f"Transmitiendo archivo adjunto ({file_name}) para la queja SFC: {sfc_codigo_queja}")
         
         try:
-            # 🟢 FIX: Pasar headers=headers explícitamente en la solicitud POST
             response = await self.client.post(url, data=data, files=files, headers=headers)
             
             if response.status_code not in (200, 201):
@@ -306,7 +340,9 @@ class SfcClient:
     
     @handle_sfc_throttling
     async def fetch_usuarios_pagina(self, url: Optional[str] = None) -> Dict[str, Any]:
-        target_url = url if url else f"{self.base_url}{SfcEndpoints.USUARIOS.value}"
+        endpoint_relativo = self._sanitizar_y_validar_next_url(url) or SfcEndpoints.USUARIOS.value
+        target_url = f"{self.base_url}{endpoint_relativo}" if endpoint_relativo.startswith("/") else f"{self.base_url}/{endpoint_relativo}"
+
         try:
             response = await self.client.get(target_url, auth=self.interceptor)
             if response.status_code not in (200, 201):

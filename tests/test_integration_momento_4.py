@@ -1,5 +1,6 @@
+# tests/test_integration_momento_4.py
 import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -14,18 +15,16 @@ class TestMomento4Integration(unittest.TestCase):
         self.client = TestClient(app)
         self.mock_sfc_client = AsyncMock()
 
-        # Sobrescribimos dependencias de FastAPI
         app.dependency_overrides[get_sfc_client] = lambda: self.mock_sfc_client
         app.dependency_overrides[verificar_api_key_crm] = lambda: True
 
-        # 💡 Ajusta esta BASE_URL según el prefix de tu router en main.py o router.py
         self.base_url = f"{settings.API_V1_STR}/quejas"
 
     def tearDown(self):
         app.dependency_overrides.clear()
 
     def test_endpoint_get_sync_momento_4_exitoso(self):
-        """Prueba HTTP GET /sync/momento-4 retornando lista de usuarios mapeados."""
+        """Prueba HTTP GET /sync/momento-4 retornando diccionario estructurado con usuarios mapeados."""
         mock_response = {
             "Response": {
                 "results": [
@@ -45,9 +44,13 @@ class TestMomento4Integration(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertIsInstance(data, list)
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["id_number__c"], "987654321")
+        
+        # 🟢 FIX: Se aserta sobre la estructura de diccionario de Momento 4
+        self.assertIsInstance(data, dict)
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["total_exitosos"], 1)
+        self.assertEqual(len(data["usuarios"]), 1)
+        self.assertEqual(data["usuarios"][0]["id_number__c"], "987654321")
 
     def test_endpoint_post_sync_momento_4_ack_exitoso(self):
         """Prueba HTTP POST /sync/momento-4/ack confirmando el recibido de usuarios."""

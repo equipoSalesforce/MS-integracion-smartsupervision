@@ -1,4 +1,3 @@
-# app/worker.py
 import asyncio
 import logging
 import signal
@@ -6,7 +5,7 @@ import sys
 import time
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.db.redis import init_redis, close_redis
+from app.db.redis import init_redis, close_redis, get_redis_client
 from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 from app.core.exceptions import SfcErrorTranslator
 from app.core.mapping import SfcSalesforceMapper
@@ -17,12 +16,12 @@ setup_logging()
 logger = logging.getLogger("worker_process")
 
 HEARTBEAT_FILE = "/tmp/worker_heartbeat"
-HEARTBEAT_INTERVAL_SECONDS = 30  # 🟢 Intervalo reducido a 30s para mayor margen en Healthcheck
+HEARTBEAT_INTERVAL_SECONDS = 30  # Intervalo de verificación
 
 
 def _touch_heartbeat():
     """Escribe el timestamp actual para que el HEALTHCHECK del contenedor
-    pueda verificar que el event loop del worker sigue vivo."""
+    pueda verificar que el event loop del worker sigue vivo y operativo."""
     try:
         with open(HEARTBEAT_FILE, "w") as f:
             f.write(str(time.time()))
@@ -30,11 +29,42 @@ def _touch_heartbeat():
         logger.warning(f"No se pudo escribir el heartbeat file: {e}")
 
 
+async def _check_redis_health() -> bool:
+    """
+    🟢 FIX HALLAZGO 38: Prueba activa de conectividad y operación real con Redis.
+    Ejecuta un comando PING contra el cliente de Redis centralizado.
+    """
+    try:
+        redis = get_redis_client()
+        if not redis:
+            logger.error("❌ [Worker Healthcheck] Cliente Redis es None.")
+            return False
+        
+        # Ejecuta PING directo con timeout corto
+        res = await asyncio.wait_for(redis.ping(), timeout=5.0)
+        return res is True or str(res).upper() == "PONG" or res == b"PONG"
+    except Exception as e:
+        logger.error(f"❌ [Worker Healthcheck] Fallo de conectividad/operación con Redis: {e}")
+        return False
+
+
 async def _heartbeat_loop(stop_event: asyncio.Event):
-    """🟢 Tarea asíncrona en segundo plano que escribe el heartbeat cada 30s
-    sin depender de la ejecución del bucle principal de reintentos."""
+    """
+    🟢 FIX HALLAZGO 38: Tarea asíncrona en segundo plano que valida Redis
+    antes de actualizar la frescura del archivo de heartbeat.
+    """
     while not stop_event.is_set():
-        _touch_heartbeat()
+        is_redis_ok = await _check_redis_health()
+        
+        if is_redis_ok:
+            _touch_heartbeat()
+            logger.debug("💚 [Worker Heartbeat] Heartbeat actualizado exitosamente (Redis OK).")
+        else:
+            logger.warning(
+                "⚠️ [Worker Heartbeat] Redis inalcanzable o degradado. "
+                "Omitiendo actualización de heartbeat para que ECS detecte la degradación."
+            )
+
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
         except asyncio.TimeoutError:
@@ -61,7 +91,6 @@ async def run_worker_process():
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
-    # 🟢 FIX MANEJO SIGTERM/SIGINT: Captura señales de parada enviadas por AWS ECS Fargate
     def _stop_handler():
         logger.info("🛑 Recibida señal de apagado (SIGTERM/SIGINT). Iniciando cierre seguro...")
         stop_event.set()
@@ -70,15 +99,16 @@ async def run_worker_process():
         try:
             loop.add_signal_handler(sig, _stop_handler)
         except (NotImplementedError, AttributeError):
-            # Fallback para entornos donde add_signal_handler no esté soportado (ej. Windows)
             pass
 
-    _touch_heartbeat()
+    # Primera verificación de arranque
+    if await _check_redis_health():
+        _touch_heartbeat()
+
     heartbeat_task = asyncio.create_task(_heartbeat_loop(stop_event))
     logger.info("🟢 Worker activo y escuchando eventos/reintentos de la cola Redis...")
 
     try:
-        # Bloquea hasta que se reciba SIGTERM/SIGINT
         await stop_event.wait()
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Interrupción por teclado/sistema recibida.")

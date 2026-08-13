@@ -1,0 +1,21 @@
+# tests/__init__.py
+import os
+
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("PROJECT_NAME", "MS-integracion-smartsupervision")
+os.environ.setdefault("CRM_CORS_ORIGINS", "*")
+os.environ.setdefault("AWS_S3_BUCKET", "test-smartsupervision-attachments")
+os.environ.setdefault("AWS_REGION", "us-east-1")
+os.environ.setdefault("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co")
+os.environ.setdefault("SFC_USERNAME", "test_sfc_user")
+os.environ.setdefault("SFC_PASSWORD", "test_sfc_password")
+os.environ.setdefault("SFC_SECRET_KEY", "test_sfc_secret_key_12345")
+os.environ.setdefault("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
+os.environ.setdefault("ADMIN_API_KEY", "g66_sk_test_admin_secreto_99999")
+os.environ.setdefault("REDIS_HOST", "localhost")
+os.environ.setdefault("REDIS_PORT", "6379")
+os.environ.setdefault("SMTP_USER", "test@example.com")
+os.environ.setdefault("SMTP_PASSWORD", "test_password")
+os.environ.setdefault("ALERT_NOTIFY_EMAILS", "test@example.com")
+os.environ.setdefault("CRM_WEBHOOK_API_KEY", "test_crm_webhook_key")
+os.environ.setdefault("CRM_WEBHOOK_URL", "https://localhost/test-webhook")

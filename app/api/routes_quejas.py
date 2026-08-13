@@ -168,13 +168,15 @@ async def despachar_queja_crm(
     body_str = json.dumps(body_clean, ensure_ascii=False)
 
     logger.info(
-        "\n==================== [AUDIT HTTP INCOMING REQUEST (FROM CRM)] ====================\n"
-        f"Correlation-ID : {cid}\n"
-        f"Method         : {request.method} {request.url.path}\n"
-        f"Headers :\n{headers_formatted}\n"
-        f"Body           :\n{body_str}\n"
-        "=========================================================================="
-    )
+    "AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM",
+    extra={
+        "direction": "INCOMING_REQUEST",
+        "method": request.method,
+        "path": request.url.path,
+        "headers": headers_clean,
+        "body": body_clean
+    }
+)
     
     # 1. 🛡️ VERIFICACIÓN EN IDEMPOTENCY STORE
     es_hit, respuesta_idempotente = await idempotency_service.verificar_o_iniciar_operacion(
@@ -184,6 +186,19 @@ async def despachar_queja_crm(
     
     if es_hit:
         status_hit = respuesta_idempotente.get("status")
+        
+        # 🚨 CASE CRÍTICO: Caída de Redis (Fail-Closed)
+        if status_hit == "redis_unavailable":
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status_code": 503,
+                    "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
+                    "sfc_field": None,
+                    "raw_message": respuesta_idempotente.get("message"),
+                    "crm_action_friendly": "El almacén de idempotencia no está disponible. Reintente en unos minutos."
+                }
+            )
         
         # 🎯 CASE A: Happy Path duplicado (Respuesta 200 OK previa)
         if status_hit == "success":
@@ -202,8 +217,12 @@ async def despachar_queja_crm(
 
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
 
+    # 🟢 Bandera de control para evitar liberar idempotencia si la operación culmina o se encola correctamente
+    operacion_exitosa_o_encolada = False
+
     # 🛠️ Helper Interno para Manejo de Contingencia y Protección de Doble Falla (SFC + Redis)
     async def _intentar_encolar_y_responder(error_origen_titulo: str, error_detalle: str):
+        nonlocal operacion_exitosa_o_encolada
         logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
         
         try:
@@ -221,6 +240,7 @@ async def despachar_queja_crm(
                 payload_dict=raw_payload,
                 error_msg=error_detalle
             )
+            operacion_exitosa_o_encolada = True
             
             if getattr(item_encolado, "es_duplicado", False):
                 return JSONResponse(
@@ -284,6 +304,7 @@ async def despachar_queja_crm(
             payload_dict=raw_payload,
             sfc_response=resultado
         )
+        operacion_exitosa_o_encolada = True
 
         return resultado
 
@@ -312,11 +333,22 @@ async def despachar_queja_crm(
             error_detalle=str(net_err)
         )
 
+    finally:
+        # 🛡️ GARANTÍA DE LIBERACIÓN: Si la operación no se completó exitosamente ni fue encolada
+        # (por un error 400 de validación de la SFC o cualquier excepción de Pydantic/Python),
+        # libera la llave de idempotencia en Redis inmediatamente.
+        if not operacion_exitosa_o_encolada:
+            await idempotency_service.liberar_operacion_por_error(
+                smart_code=payload.Smart_Code__c,
+                payload_dict=raw_payload
+            )
+
+
 @router.get(
     "/queue",
     status_code=status.HTTP_200_OK,
     summary="Consultar el estado de la cola de reintentos centralizada (Redis)",
-    dependencies=[Depends(verificar_api_key_crm)]
+    dependencies=[Depends(verificar_api_key_admin)]
 )
 async def consultar_cola_local(
     estado: Optional[str] = None
@@ -335,6 +367,7 @@ async def consultar_cola_local(
     "/sync/momento-4",
     status_code=status.HTTP_200_OK,
     summary="Obtener información actualizada de usuarios desde la SFC",
+    dependencies=[Depends(verificar_api_key_crm)]
 )
 async def actualizar_usuarios(
     sfc_client: SfcClient = Depends(get_sfc_client),
@@ -346,7 +379,8 @@ async def actualizar_usuarios(
 @router.post(
     "/sync/momento-4/ack",
     status_code=status.HTTP_200_OK,
-    summary="Confirmar recepción exitosa de datos de usuarios (ACK) a la SFC"
+    summary="Confirmar recepción exitosa de datos de usuarios (ACK) a la SFC",
+    dependencies=[Depends(verificar_api_key_crm)]
 )
 async def confirmar_ack_momento_4(
     payload: ConfirmacionAckUsuariosInput,

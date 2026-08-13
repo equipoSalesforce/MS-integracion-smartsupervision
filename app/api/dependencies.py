@@ -61,7 +61,7 @@ def get_s3_client():
         try:
             
             endpoint_url = (
-                getattr(settings, "AWS_ENDPOINT_URL", None) or 
+                settings.AWS_S3_ENDPOINT_URL or 
                 getattr(settings, "AWS_S3_ENDPOINT_URL", None) or 
                 os.getenv("AWS_S3_ENDPOINT_URL")
             )
@@ -75,7 +75,7 @@ def get_s3_client():
                 }
                 
                 # 🟢 FIX: Si existen credenciales temporales (ASIA...), inyecta el token de sesión
-                session_token = getattr(settings, "AWS_SESSION_TOKEN", None) or os.getenv("AWS_SESSION_TOKEN")
+                session_token = settings.AWS_SESSION_TOKEN
                 if session_token:
                     kwargs["aws_session_token"] = session_token
 

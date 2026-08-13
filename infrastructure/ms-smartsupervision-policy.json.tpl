@@ -17,8 +17,7 @@
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
-        "s3:ListBucket",
-        "s3:HeadObject"
+        "s3:ListBucket"
       ],
       "Resource": [
         "arn:aws:s3:::${ENVIRONMENT}-global66-smartsupervision-attachments",

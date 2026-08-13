@@ -17,7 +17,14 @@ class SmartStatus(str, Enum):
     SEND_UPDATE_SMART_ERROR = "SendUpdateSmart-Error"   # Error al actualizar información a la SFC
     FINAL_DOCUMENT_UPLOAD_OK = "FinalDocumentUpload-OK" # Éxito al subir documento de cierre
     FINAL_DOCUMENT_UPLOAD_ERROR = "FinalDocumentUpload-Error" # Error al subir documento de cierre
-    
+
+    # --- ESTADOS INTERNOS DE COLA & MÁQUINA DE ESTADOS (REDIS / CONTINGENCIA) ---
+    PENDING = "PENDIENTE"                               # Encolado inicial o reintento pendiente
+    PROCESSING = "PROCESSING"                           # Reclamado por un worker / En ejecución
+    SFC_DONE = "SFC_DONE"                               # Fase 1: SFC transmitido exitosamente (Pendiente Webhook CRM)
+    COMPLETED = "EXITOSO"                               # Fase 2: Transmisión completa (SFC + CRM Webhook OK)
+    FAILED_FINAL = "FALLIDO_DEFINITIVO"                 # Agotó máximo de reintentos (DLQ)
+
 
 class SfcEndpoints(str, Enum):
     QUEJA = "/api/queja/"
