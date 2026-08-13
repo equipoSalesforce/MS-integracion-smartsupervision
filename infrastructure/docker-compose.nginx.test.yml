@@ -22,7 +22,7 @@ services:
     env_file:
       - .env.test
     environment:
-      - ENVIRONMENT=dev
+      - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - AWS_ACCESS_KEY_ID                      
@@ -46,7 +46,7 @@ services:
     env_file:
       - .env.test
     environment:
-      - ENVIRONMENT=dev
+      - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - AWS_ACCESS_KEY_ID                      
