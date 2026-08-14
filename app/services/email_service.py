@@ -78,9 +78,13 @@ class EmailAlertService:
             return
 
         try:
+            # 🟢 FIX P1-08: remitente separado de la credencial de autenticación SMTP —
+            # en SES, SMTP_USER es un ID IAM generado, no una dirección entregable.
+            remitente = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
+
             msg = MIMEMultipart("alternative")
             msg["Subject"] = _limpiar_asunto(asunto)
-            msg["From"] = settings.SMTP_USER
+            msg["From"] = remitente
             msg["To"] = ", ".join(destinatarios)
 
             msg.attach(MIMEText(cuerpo_html, "html"))
@@ -88,7 +92,7 @@ class EmailAlertService:
             with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
                 server.starttls()
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.sendmail(settings.SMTP_USER, destinatarios, msg.as_string())
+                server.sendmail(remitente, destinatarios, msg.as_string())
 
             logger.info(f"📧 [Email Alert] Alerta enviada a: {destinatarios}")
         except Exception as e:

@@ -123,12 +123,20 @@ class Settings(BaseSettings):
     QUEUE_ENABLED: bool = Field(default=True)
     QUEUE_RETENTION_DAYS: int = Field(default=7)
     QUEUE_RETENTION_DAYS_DLQ: int = Field(default=30)
-    
+
     # --- Configuración SMTP Alertas ---
     SMTP_HOST: str = Field(default="smtp.gmail.com")
     SMTP_PORT: int = Field(default=587)
     SMTP_USER: str = Field(...)
     SMTP_PASSWORD: str = Field(...)
+    # 🟢 FIX P1-08: en SES, SMTP_USER es una credencial IAM generada, no una dirección de
+    # correo entregable — reutilizarla como remitente puede fallar la entrega/DMARC. Se
+    # separa el remitente visible; por defecto usa SMTP_USER para no romper entornos que
+    # ya usan un proveedor (ej. Gmail) donde el usuario SÍ es una dirección válida.
+    SMTP_FROM_EMAIL: Optional[str] = Field(
+        default=None,
+        description="Dirección 'From' para alertas por correo. Si no se define, usa SMTP_USER (válido para Gmail; en SES debe configurarse explícitamente con una identidad verificada)."
+    )
     
     ALERT_NOTIFY_EMAILS: Annotated[
         Union[List[str], str], BeforeValidator(parse_email_list)

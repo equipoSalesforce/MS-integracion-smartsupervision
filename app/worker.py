@@ -10,6 +10,7 @@ from app.workers.scheduler import iniciar_scheduler, detener_scheduler
 from app.core.exceptions import SfcErrorTranslator
 from app.core.mapping import SfcSalesforceMapper
 from app.services.crm_webhook_service import close_crm_webhook_client
+from app.services.email_service import EmailAlertService
 from app.api.dependencies import _auth_manager_instance
 
 setup_logging()
@@ -48,22 +49,56 @@ async def _check_redis_health() -> bool:
         return False
 
 
+# 🟢 FIX P1-14: nº de fallos consecutivos de Redis tras los cuales se alerta por
+# correo (además de loguear). A 30s por ciclo, 10 fallos ~= 5 minutos degradado.
+REDIS_FALLOS_CONSECUTIVOS_PARA_ALERTAR = 10
+
+
 async def _heartbeat_loop(stop_event: asyncio.Event):
     """
-    🟢 FIX HALLAZGO 38: Tarea asíncrona en segundo plano que valida Redis
-    antes de actualizar la frescura del archivo de heartbeat.
+    🟢 FIX HALLAZGO 38 / P1-14: el heartbeat de liveness del proceso (que Docker/ECS
+    usa para decidir si reiniciar el contenedor) y la salud de Redis son señales
+    DISTINTAS. Antes, este loop omitía tocar el archivo de heartbeat si Redis estaba
+    caído — eso hacía que una caída/mantenimiento de Redis (que afecta a TODAS las
+    réplicas del worker por igual) marcara TODOS los contenedores como unhealthy al
+    mismo tiempo, y ECS los reiniciaba en masa sin que eso resolviera nada (Redis
+    seguía caído para los contenedores nuevos también). Ahora el heartbeat siempre
+    se actualiza mientras el event loop esté vivo y respondiendo (la verdadera
+    señal de liveness); la salud de Redis se rastrea aparte y sólo genera una
+    alerta operativa tras varios fallos consecutivos sostenidos, sin disparar
+    reinicios de contenedor.
     """
+    fallos_consecutivos_redis = 0
+    degradado_notificado = False
+
     while not stop_event.is_set():
         is_redis_ok = await _check_redis_health()
-        
+        _touch_heartbeat()
+
         if is_redis_ok:
-            _touch_heartbeat()
-            logger.debug("💚 [Worker Heartbeat] Heartbeat actualizado exitosamente (Redis OK).")
+            if degradado_notificado:
+                logger.info("💚 [Worker Heartbeat] Redis se recuperó tras estar degradado.")
+            fallos_consecutivos_redis = 0
+            degradado_notificado = False
+            logger.debug("💚 [Worker Heartbeat] Heartbeat actualizado (Redis OK).")
         else:
+            fallos_consecutivos_redis += 1
             logger.warning(
-                "⚠️ [Worker Heartbeat] Redis inalcanzable o degradado. "
-                "Omitiendo actualización de heartbeat para que ECS detecte la degradación."
+                f"⚠️ [Worker Heartbeat] Redis inalcanzable o degradado (fallo consecutivo "
+                f"#{fallos_consecutivos_redis}). El heartbeat de liveness se mantiene activo "
+                f"para no forzar reinicios de contenedor por una dependencia externa caída."
             )
+            if fallos_consecutivos_redis >= REDIS_FALLOS_CONSECUTIVOS_PARA_ALERTAR and not degradado_notificado:
+                degradado_notificado = True
+                await EmailAlertService.notificar_falla_infraestructura(
+                    smart_code="WORKER_REDIS_HEALTHCHECK",
+                    error_msg=(
+                        f"El worker lleva {fallos_consecutivos_redis} verificaciones consecutivas "
+                        f"({fallos_consecutivos_redis * HEARTBEAT_INTERVAL_SECONDS}s aprox.) sin poder "
+                        f"conectarse a Redis. El proceso sigue vivo; requiere revisión de la "
+                        f"disponibilidad de Redis/ElastiCache."
+                    )
+                )
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
@@ -101,9 +136,13 @@ async def run_worker_process():
         except (NotImplementedError, AttributeError):
             pass
 
-    # Primera verificación de arranque
-    if await _check_redis_health():
-        _touch_heartbeat()
+    # 🟢 FIX P1-14: se toca el heartbeat de arranque incondicionalmente — el proceso
+    # ya está vivo y con su event loop corriendo en este punto, independientemente de
+    # si Redis responde. Antes, si Redis estaba caído justo al arrancar (p.ej. un
+    # despliegue durante un mantenimiento/failover de ElastiCache), el archivo de
+    # heartbeat nunca se creaba y el contenedor podía marcarse unhealthy antes de que
+    # Redis tuviera oportunidad de recuperarse.
+    _touch_heartbeat()
 
     heartbeat_task = asyncio.create_task(_heartbeat_loop(stop_event))
     logger.info("🟢 Worker activo y escuchando eventos/reintentos de la cola Redis...")
@@ -122,6 +161,10 @@ async def run_worker_process():
             pass
 
         detener_scheduler()
+        # 🟢 FIX P1-07: el worker no esperaba las alertas de correo en vuelo antes de
+        # cerrar — a diferencia de app/main.py, que sí lo hace en su lifespan. Un
+        # SIGTERM de ECS (deploy/scale-in) podía perder alertas ya programadas.
+        await EmailAlertService.shutdown(timeout_segundos=3.0)
         await close_redis()
         await close_crm_webhook_client()
         await _auth_manager_instance.close()

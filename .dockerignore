@@ -41,6 +41,12 @@ README.md
 *.svg
 *.drawio
 
+# --- PDFs generados en desarrollo/testing (P1-09): sólo la plantilla base es de
+# runtime; cualquier PDF de caso específico (ej. respuestas finales generadas
+# localmente) no debe terminar dentro de la imagen.
+*.pdf
+!app/resources/plantilla_respuesta_final.pdf
+
 # --- Archivos de Entorno y Secretos Locales ---
 .env
 .env.*
