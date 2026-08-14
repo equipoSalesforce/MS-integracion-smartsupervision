@@ -258,8 +258,8 @@ async def reintentar_despachos_pendientes_job():
             ):
                 try:
                     payload_actual = item.payload_json
-                    sfc_ya_completado = payload_actual.get("_sfc_completado", False)
-                    resultado = payload_actual.get("_sfc_resultado", {})
+                    sfc_ya_completado = item.sfc_completado or payload_actual.get("_sfc_completado", False)
+                    resultado = item.sfc_response or payload_actual.get("_sfc_resultado", {})
 
                     # PASO 1: Procesamiento en SFC (solo si no fue completado previamente)
                     if not sfc_ya_completado:
@@ -276,8 +276,8 @@ async def reintentar_despachos_pendientes_job():
                             payload_dict=payload_actual,
                             sfc_response=resultado
                         )
-                        payload_actual["_sfc_completado"] = True
-                        payload_actual["_sfc_resultado"] = resultado
+                        await queue_service.marcar_sfc_completado(item.id, sfc_response=resultado)
+                        sfc_ya_completado = True
 
                     # PASO 2: Notificación al CRM Webhook (utiliza automáticamente get_correlation_id())
                     case_id_crm = payload_actual.get("Case_id") or item.smart_code
