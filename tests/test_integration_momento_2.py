@@ -1,5 +1,7 @@
 # tests/test_integration_momento_2.py
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
@@ -32,10 +34,15 @@ class TestMomento2Integration(unittest.TestCase):
 
         self.smart_code_test = "16551509974606"
 
+        # Fecha reciente relativa a "hoy" para no depender de cuándo corra el test.
+        fecha_creacion_reciente = (
+            datetime.now(ZoneInfo("America/Bogota")) - timedelta(days=5)
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+
         # 📄 Payload representativo de CREACIÓN PURA M2 (Campos de M3 en None)
         self.mock_crm_payload = {
             "Smart_Code__c": self.smart_code_test,
-            "CreatedDate": "2026-07-14T12:00:00",
+            "CreatedDate": fecha_creacion_reciente,
             "Status": "New",
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",

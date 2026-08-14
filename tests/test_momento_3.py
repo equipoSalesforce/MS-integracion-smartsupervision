@@ -1,7 +1,8 @@
 # tests/test_momento_3.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from fastapi import status
 from fastapi.testclient import TestClient
 
@@ -48,10 +49,16 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
             "macro_motivo_cod": 940,   # "Transacción no reconocida" -> 940
         }
 
+        # Fechas relativas a "hoy" para que las validaciones de ventana de 30 días
+        # (CreatedDate/ClosedDate) no dependan de cuándo corra el test.
+        hoy_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        fecha_creacion_reciente = (hoy_bogota - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S")
+        self.fecha_cierre_reciente = (hoy_bogota - timedelta(days=1)).strftime("%Y-%m-%d")
+
         # 📦 Base de datos obligatoria para construir payloads válidos con QuejaUnificadaCrmInput
         self.base_crm_payload = {
             "Smart_Code__c": self.smart_code_test,
-            "CreatedDate": "2026-07-14T12:00:00",
+            "CreatedDate": fecha_creacion_reciente,
             "Status": "In Progress",
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",
@@ -152,7 +159,7 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         payload_dict = self.base_crm_payload.copy()
         payload_dict.update({
             "Status": "Closed",
-            "ClosedDate": "2026-07-16",
+            "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "Favorable",
             "a_favor_de__c": "1",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",

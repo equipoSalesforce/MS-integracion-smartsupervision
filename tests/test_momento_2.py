@@ -1,5 +1,7 @@
 # tests/test_momento_2.py
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import ValidationError
 
@@ -15,13 +17,19 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         # Mocks de dependencias
         self.sfc_client_mock = MagicMock(spec=SfcClient)
         self.s3_client_mock = MagicMock()
-        
+
         self.smart_code = "16551509974606"
-        
+
+        # Fecha reciente relativa a "hoy": CreatedDate debe caer dentro de la ventana
+        # de 30 días que valida Momento2QuejaCrmInput, sin importar cuándo corra el test.
+        fecha_creacion_reciente = (
+            datetime.now(ZoneInfo("America/Bogota")) - timedelta(days=5)
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+
         # Diccionario simulado de payload del CRM
         self.mock_datos_consolidados = {
             "Smart_Code__c": self.smart_code,
-            "CreatedDate": "2026-07-14T12:00:00",
+            "CreatedDate": fecha_creacion_reciente,
             
             "SuppliedName": "Camila Salas",
             "SC_id_type__c": "CC",
