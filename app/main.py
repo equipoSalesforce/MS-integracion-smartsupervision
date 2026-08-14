@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.api.routes_quejas import router as quejas_router
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.logging_config import setup_logging
-from app.core.middleware import CorrelationIdMiddleware
+from app.core.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware
 from app.core.mapping import SfcSalesforceMapper
 from app.integrations.sfc_client import log_request, log_response
 from app.services.crm_webhook_service import get_crm_webhook_client, close_crm_webhook_client
@@ -119,16 +119,27 @@ async def lifespan(app: FastAPI):
 
 # 🟢 FIX HALLAZGO 28: Deshabilitar Swagger UI (/docs), ReDoc (/redoc) y esquema OpenAPI (/openapi.json)
 # fuera de entornos locales de desarrollo a menos que ENABLE_DOCS=True.
-es_entorno_local = settings.ENVIRONMENT.strip().lower() in ("local", "development")
-permitir_docs = settings.ENABLE_DOCS or es_entorno_local
+def _construir_app_fastapi(cfg=None) -> FastAPI:
+    """
+    Aísla el cómputo de docs_url/redoc_url/openapi_url en una función para que se pueda
+    reconstruir con un `Settings` distinto en tests, sin depender del objeto `app` ya
+    cacheado por `sys.modules` (docs_url se fija una sola vez al construir FastAPI(), así
+    que parchear `settings` después de que otro módulo ya importó `app.main` no lo cambia).
+    """
+    cfg = cfg or settings
+    es_entorno_local = cfg.ENVIRONMENT.strip().lower() in ("local", "development")
+    permitir_docs = cfg.ENABLE_DOCS or es_entorno_local
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json" if permitir_docs else None,
-    docs_url="/docs" if permitir_docs else None,
-    redoc_url="/redoc" if permitir_docs else None,
-    lifespan=lifespan
-)
+    return FastAPI(
+        title=cfg.PROJECT_NAME,
+        openapi_url=f"{cfg.API_V1_STR}/openapi.json" if permitir_docs else None,
+        docs_url="/docs" if permitir_docs else None,
+        redoc_url="/redoc" if permitir_docs else None,
+        lifespan=lifespan
+    )
+
+
+app = _construir_app_fastapi()
 
 # 🌐 Registramos Middleware de Correlation ID y AWS Trace ID
 app.add_middleware(CorrelationIdMiddleware)
@@ -142,6 +153,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*", "X-API-Key", "X-Correlation-ID"],
 )
+
+# 🟢 FIX HALLAZGO 41: se registra al final para que quede como capa MÁS externa
+# (Starlette envuelve con el último middleware agregado por fuera de los anteriores),
+# rechazando requests demasiado grandes antes de que CORS/Correlation-ID hagan trabajo.
+app.add_middleware(MaxBodySizeMiddleware, max_body_size=settings.MAX_REQUEST_BODY_SIZE_BYTES)
 
 # ======================================================================
 # 🛡️ EXCEPTION HANDLERS

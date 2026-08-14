@@ -1,6 +1,5 @@
 # tests/test_swagger_disabled.py
 import unittest
-from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.core.config import Settings
 
@@ -31,17 +30,22 @@ class TestSwaggerDisabledInNonLocalEnvironments(unittest.TestCase):
             ALERT_NOTIFY_EMAILS="alert@g66.com"
         )
 
-        with patch("app.main.settings", cfg_prod):
-            from app.main import app
-            client = TestClient(app)
+        # 🟢 No reutilizar `app.main.app`: si otro módulo de test ya importó `app.main`
+        # antes (import cacheado por sys.modules), su docs_url/openapi_url quedaron fijados
+        # en ese primer import y parchear `settings` después no los cambia. En su lugar,
+        # se reconstruye una instancia de FastAPI aislada con el `Settings` de producción.
+        from app.main import _construir_app_fastapi
 
-            res_docs = client.get("/docs")
-            res_redoc = client.get("/redoc")
-            res_openapi = client.get("/api/v1/openapi.json")
+        app_prod = _construir_app_fastapi(cfg_prod)
+        client = TestClient(app_prod)
 
-            self.assertEqual(res_docs.status_code, 404)
-            self.assertEqual(res_redoc.status_code, 404)
-            self.assertEqual(res_openapi.status_code, 404)
+        res_docs = client.get("/docs")
+        res_redoc = client.get("/redoc")
+        res_openapi = client.get("/api/v1/openapi.json")
+
+        self.assertEqual(res_docs.status_code, 404)
+        self.assertEqual(res_redoc.status_code, 404)
+        self.assertEqual(res_openapi.status_code, 404)
 
 
 if __name__ == "__main__":
