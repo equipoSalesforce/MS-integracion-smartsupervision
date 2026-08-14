@@ -126,11 +126,15 @@ class S3StorageService:
             if sfc_base_host and (hostname == sfc_base_host or hostname.endswith("." + sfc_base_host)):
                 return True
 
+            # 🟢 FIX HALLAZGO 34: allowlist reducida a los dominios que la SFC realmente usa
+            # para servir adjuntos (confirmado operativamente: Google Cloud Storage). Antes
+            # se permitían familias enteras de dominio ("amazonaws.com", "cloud.goog") que
+            # no corresponden a infraestructura real de la SFC y ampliaban innecesariamente
+            # la superficie de SSRF (cualquier bucket S3/recurso de cualquier cuenta de AWS
+            # habría calificado).
             allowed_domains = (
                 "superfinanciera.gov.co",
                 "storage.googleapis.com",
-                "amazonaws.com",
-                "cloud.goog"
             )
             if any(hostname == domain or hostname.endswith("." + domain) for domain in allowed_domains):
                 return True
