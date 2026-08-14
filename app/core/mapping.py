@@ -30,7 +30,14 @@ class SfcSalesforceMapper:
     MAPPING_MOMENTO_1_SFC_TO_CRM: Dict[str, str] = {}
     MAPPING_MOMENTO_4_SFC_TO_CRM: Dict[str, str] = {}
 
+    # ULTIMA_ACTUALIZACION marca el último INTENTO de refresh (éxito o fallo) — se usa
+    # para el backoff/TTL del fast-path, así un fallo no provoca reintentos inmediatos
+    # contra Google Sheets. ULTIMO_EXITO_TIMESTAMP marca el último ÉXITO real — se usa
+    # exclusivamente para calcular la antigüedad de la caché y la alerta de 24h
+    # (🟢 FIX P1-04: antes ambos propósitos compartían una sola variable, que se
+    # reescribía también en cada fallo, y la alerta de stale nunca llegaba a dispararse).
     ULTIMA_ACTUALIZACION: float = 0
+    ULTIMO_EXITO_TIMESTAMP: float = 0
     CACHE_TTL_SEGUNDOS: int = 600
     MAX_STALE_TTL_SEGUNDOS: int = 86400  # 🟢 FIX HALLAZGO 49: Umbral máximo de obsolescencia (24 Horas)
 
@@ -216,14 +223,19 @@ class SfcSalesforceMapper:
                                 cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
                                 cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
                                 cls.ULTIMA_ACTUALIZACION = ahora
+                                cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
                                 logger.info(
                                     f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
                                     f"cargados desde pestañas de Google Sheets."
                                 )
                                 return
                 except Exception as e:
-                    # 🟢 FIX HALLAZGO 49: Registro estructurado de edad de la caché y alerta por obsolescencia
-                    edad_segundos = (ahora - cls.ULTIMA_ACTUALIZACION) if cls.ULTIMA_ACTUALIZACION > 0 else 0
+                    # 🟢 FIX P1-04: la antigüedad se calcula sobre ULTIMO_EXITO_TIMESTAMP (el
+                    # último éxito real), no sobre ULTIMA_ACTUALIZACION (que se actualiza en
+                    # cada intento, exitoso o no, para el backoff del fast-path). Antes ambos
+                    # propósitos compartían la misma variable y la alerta de 24h nunca podía
+                    # dispararse: cada fallo "rejuvenecía" la antigüedad reportada.
+                    edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
                     edad_horas = edad_segundos / 3600.0
 
                     logger.warning(
@@ -231,7 +243,7 @@ class SfcSalesforceMapper:
                         f"Antigüedad de la caché en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
                     )
 
-                    if cls.ULTIMA_ACTUALIZACION > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+                    if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
                         logger.critical(
                             f"🚨 [SfcSalesforceMapper] ALERTA CRÍTICA: La caché de catálogos en RAM tiene {edad_horas:.1f}h "
                             f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
@@ -253,6 +265,10 @@ class SfcSalesforceMapper:
             if not cls.CATALOGOS:
                 cls.cargar_catalogos_local()
 
+            # ULTIMA_ACTUALIZACION se actualiza siempre (éxito o fallo): es la marca de
+            # "último intento", usada para el backoff del fast-path de arriba. La
+            # antigüedad real (ULTIMO_EXITO_TIMESTAMP) sólo se tocó arriba en el punto de
+            # éxito genuino.
             cls.ULTIMA_ACTUALIZACION = ahora
 
     @classmethod

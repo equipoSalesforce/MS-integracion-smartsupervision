@@ -34,7 +34,12 @@ class SfcIntegrationException(Exception):
 class SfcErrorTranslator:
     # Matriz cargada dinámicamente en RAM desde Google Sheets con fallback a errores_sfc.json
     MATRIZ_ERRORES_TEXTO: List[Dict[str, str]] = []
+    # ULTIMA_ACTUALIZACION marca el último INTENTO (éxito o fallo) — usada para el
+    # backoff/TTL del fast-path. ULTIMO_EXITO_TIMESTAMP marca el último ÉXITO real —
+    # usada sólo para la antigüedad/alerta de 24h (🟢 FIX P1-04, mismo patrón que
+    # SfcSalesforceMapper).
     ULTIMA_ACTUALIZACION: float = 0
+    ULTIMO_EXITO_TIMESTAMP: float = 0
     CACHE_TTL_SEGUNDOS: int = 600  # 10 Minutos en RAM
     MAX_STALE_TTL_SEGUNDOS: int = 86400  # 🟢 FIX HALLAZGO 49: Umbral máximo de obsolescencia (24 Horas)
 
@@ -137,6 +142,7 @@ class SfcErrorTranslator:
                             if reglas:
                                 cls.MATRIZ_ERRORES_TEXTO = reglas
                                 cls.ULTIMA_ACTUALIZACION = ahora
+                                cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
                                 logger.info(
                                     f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
                                     f"{len(reglas)} reglas cargadas."
@@ -147,8 +153,11 @@ class SfcErrorTranslator:
                                 f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
                             )
                 except Exception as e:
-                    # 🟢 FIX HALLAZGO 49: Registro estructurado de edad de la matriz en RAM y alerta por obsolescencia
-                    edad_segundos = (ahora - cls.ULTIMA_ACTUALIZACION) if cls.ULTIMA_ACTUALIZACION > 0 else 0
+                    # 🟢 FIX P1-04: antigüedad calculada sobre ULTIMO_EXITO_TIMESTAMP (último
+                    # éxito real), no sobre ULTIMA_ACTUALIZACION (que avanza en cada intento,
+                    # exitoso o no, para el backoff). Antes compartían variable y la alerta de
+                    # 24h nunca podía dispararse.
+                    edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
                     edad_horas = edad_segundos / 3600.0
 
                     logger.warning(
@@ -156,7 +165,7 @@ class SfcErrorTranslator:
                         f"Antigüedad de la matriz en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
                     )
 
-                    if cls.ULTIMA_ACTUALIZACION > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+                    if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
                         logger.critical(
                             f"🚨 [SfcErrorTranslator] ALERTA CRÍTICA: La matriz de errores en RAM tiene {edad_horas:.1f}h "
                             f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
@@ -176,6 +185,9 @@ class SfcErrorTranslator:
             if not cls.MATRIZ_ERRORES_TEXTO:
                 cls.cargar_matriz_local()
 
+            # ULTIMA_ACTUALIZACION se actualiza siempre (éxito o fallo) para el backoff
+            # del fast-path; ULTIMO_EXITO_TIMESTAMP (antigüedad real) sólo se tocó arriba
+            # en el punto de éxito genuino.
             cls.ULTIMA_ACTUALIZACION = ahora
 
             return cls.MATRIZ_ERRORES_TEXTO
