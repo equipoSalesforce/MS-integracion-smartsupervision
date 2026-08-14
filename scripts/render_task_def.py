@@ -66,8 +66,15 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     with open(template_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 4. Mapeo de valores a reemplazar
-    replacements = {
+    # 🟢 FIX HALLAZGO 7 (ampliado): cualquier valor insertado dentro de una posición de
+    # string JSON ("${...}") debe escaparse igual que HEALTHCHECK_CMD, no sólo ese caso.
+    # Variables como CRM_CORS_ORIGINS pueden traer comillas embebidas (ej. un valor con
+    # forma de array JSON) y romper el render si se sustituyen como texto plano.
+    def _esc(value: str) -> str:
+        return json.dumps(value)[1:-1]
+
+    # 4. Mapeo de valores a reemplazar dentro de posiciones de string ("${...}")
+    escaped_replacements = {
         "${SERVICE_TYPE}": service_type.lower(),
         "${ENVIRONMENT}": environment.lower(),
         "${TASK_CPU}": cpu,
@@ -75,9 +82,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${LOG_LEVEL}": log_level,
         "${WEB_CONCURRENCY}": web_concurrency,
         "${RUN_SCHEDULER}": run_scheduler,
-        "${CONTAINER_COMMAND}": container_command,
-        "${PORT_MAPPINGS}": port_mappings,
-        "${HEALTHCHECK_CMD}": json.dumps(healthcheck_cmd)[1:-1],
+        "${HEALTHCHECK_CMD}": healthcheck_cmd,
         "${AWS_ACCOUNT_ID}": aws_account_id.strip(),
         "${AWS_REGION}": os.getenv("AWS_REGION", "us-east-1"),
         "${IMAGE_TAG}": image_tag.strip(),
@@ -90,11 +95,20 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a")
     }
 
-    for key, value in replacements.items():
+    # ${CONTAINER_COMMAND} y ${PORT_MAPPINGS} ya son fragmentos JSON completos (arrays) y
+    # se insertan SIN comillas circundantes en la plantilla, por lo que NO deben re-escaparse.
+    raw_json_replacements = {
+        "${CONTAINER_COMMAND}": container_command,
+        "${PORT_MAPPINGS}": port_mappings,
+    }
+
+    for key, value in escaped_replacements.items():
+        content = content.replace(key, _esc(value))
+    for key, value in raw_json_replacements.items():
         content = content.replace(key, value)
 
-    # Reemplazar sufijo de secreto
-    content = content.replace("??????", secret_suffix.strip())
+    # Reemplazar sufijo de secreto (también dentro de posiciones de string JSON)
+    content = content.replace("??????", _esc(secret_suffix.strip()))
 
     # 🟢 FIX HALLAZGO 9: Verificación estricta post-renderizado de cualquier placeholder ${...} no resuelto
     unrendered_placeholders = set(re.findall(r"\$\{[A-Za-z0-9_]+\}", content))
@@ -118,7 +132,9 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     with open(output_filename, "w", encoding="utf-8") as f:
         json.dump(output_json, f, indent=2)
 
-    print(f"✅ Renderizada exitosamente la Task Definition: {output_filename}")
+    # Sin emoji: algunas consolas/runners de CI en Windows usan una code page (ej. cp1252)
+    # que no puede codificar caracteres Unicode como ✅ y hacía fallar el script aquí mismo.
+    print(f"[OK] Renderizada exitosamente la Task Definition: {output_filename}")
     return output_json
 
 if __name__ == "__main__":
