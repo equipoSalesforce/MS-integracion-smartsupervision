@@ -330,6 +330,39 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await self.orquestador.procesar_despacho(payload)
 
+    # ======================================================================
+    # 🟢 CASO 10 (P0-01 / auditoría 2026-08-13): Status=New con producto_digital__c
+    # PRESENTE no debe clasificarse como M2 puro.
+    # ======================================================================
+    async def test_10_status_new_con_producto_digital_presente_no_es_m2_puro(self):
+        """
+        producto_digital__c ya no tiene default de negocio "Si" (ver
+        crm_payloads.py) — su default real es None. Este test fija en el
+        classifier del orquestador que, si el CRM SÍ envía un valor explícito
+        para producto_digital__c junto con Status=New, el caso se trata como
+        M3 (trámite/producto digital), no como alta M2 pura; y que, cuando el
+        campo se omite/null, sigue clasificando como M2 puro (caso ya cubierto
+        por test_1, aquí se re-afirma explícitamente el contraste).
+        """
+        # Variante A: producto_digital__c presente -> M3 (actualización de trámite)
+        con_producto_dict = self.base_payload_dict.copy()
+        con_producto_dict["producto_digital__c"] = "Si"
+        payload_con_producto = QuejaUnificadaCrmInput.model_validate(con_producto_dict)
+
+        await self.orquestador.procesar_despacho(payload_con_producto)
+
+        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_not_called()
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite.assert_called_once()
+
+        # Variante B (control): producto_digital__c ausente/None -> M2 puro
+        sin_producto_dict = self.base_payload_dict.copy()
+        sin_producto_dict["producto_digital__c"] = None
+        payload_sin_producto = QuejaUnificadaCrmInput.model_validate(sin_producto_dict)
+
+        await self.orquestador.procesar_despacho(payload_sin_producto)
+
+        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

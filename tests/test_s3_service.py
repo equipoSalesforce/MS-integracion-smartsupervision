@@ -70,6 +70,38 @@ class TestS3ServiceErrorHandling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(exc.status_code, 500)
         self.assertEqual(exc.error_type, "S3_ACCESS_DENIED")
 
+    async def test_s3_key_de_otro_caso_es_rechazada(self):
+        """
+        Auditoría 2026-08-13, item 19 / P1-10: intentar leer una s3_key que no
+        pertenece al case_id que se está procesando debe rechazarse (403), sin
+        siquiera llegar a consultar S3 (protección de ownership antes del I/O).
+        """
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.service.obtener_stream_archivo(
+                s3_key="quejas/OTRO-CASO-999/doc.pdf",
+                case_id_esperado="CASO-ESPERADO-123"
+            )
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 403)
+        self.assertEqual(exc.error_type, "S3_KEY_OWNERSHIP_MISMATCH")
+        self.mock_boto_client.head_object.assert_not_called()
+
+    async def test_s3_key_del_caso_correcto_no_se_rechaza_por_ownership(self):
+        """Control: una key que SÍ contiene el case_id esperado no debe activar el rechazo."""
+        self.mock_boto_client.head_object.return_value = {"ContentLength": 1024}
+        mock_body = MagicMock()
+        mock_body.read = MagicMock(return_value=b"%PDF-1.4 contenido")
+        self.mock_boto_client.get_object.return_value = {"Body": mock_body}
+
+        # No debe lanzar SfcIntegrationException por ownership.
+        await self.service.obtener_stream_archivo(
+            s3_key="quejas/CASO-ESPERADO-123/doc.pdf",
+            case_id_esperado="CASO-ESPERADO-123"
+        )
+
+        self.mock_boto_client.head_object.assert_called_once()
+
 
 class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
     """🟢 FIX P0-10: un reintento del lote no debe volver a subir archivos ya

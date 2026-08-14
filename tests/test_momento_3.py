@@ -14,6 +14,26 @@ from app.core.exceptions import SfcIntegrationException
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
 
 
+class _StubRedisHash:
+    """Emula únicamente las operaciones de HASH usadas por el checkpoint de idempotencia
+    (HSET/HKEYS/EXPIRE/DELETE) para probar P0-10 sin depender de un Redis real."""
+
+    def __init__(self):
+        self.hashes = {}
+
+    async def hset(self, key, field, value):
+        self.hashes.setdefault(key, {})[field] = value
+
+    async def hkeys(self, key):
+        return list(self.hashes.get(key, {}).keys())
+
+    async def expire(self, key, ttl):
+        pass
+
+    async def delete(self, key):
+        self.hashes.pop(key, None)
+
+
 class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
@@ -184,9 +204,74 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.put_actualizar_queja.assert_called_once()
         payload_formulario_sfc = self.sfc_client_mock.put_actualizar_queja.call_args[1]["payload"]
         
-        self.assertEqual(payload_formulario_sfc["estado_cod"], 4) 
+        self.assertEqual(payload_formulario_sfc["estado_cod"], 4)
         self.assertEqual(payload_formulario_sfc["fecha_cierre"], "2026-07-16")
         self.assertTrue(payload_formulario_sfc["anexo_queja"])
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_cierre_pdf_ok_patch_falla_retry_no_duplica_el_documento(self, mock_mapper):
+        """
+        Auditoría 2026-08-13, item 11: PDF de cierre enviado con éxito a la SFC pero
+        el PATCH de cierre falla. Un reintento posterior del cierre completo NO debe
+        volver a subir el mismo PDF a la SFC — el checkpoint por archivo (P0-10) debe
+        reconocerlo por su s3_key determinística (función del case_id, no del
+        instante) y omitirlo, reanudando sólo el PATCH.
+        """
+        sfc_mock = self.mock_mapper_response.copy()
+        sfc_mock["estado_cod"] = 4
+        sfc_mock["fecha_cierre"] = "2026-07-16"
+        mock_mapper.return_value = sfc_mock
+
+        # Checkpoint compartido "durable" entre los dos intentos, simulando que
+        # sobrevive a un reinicio del proceso (vive en Redis, no en memoria del worker).
+        checkpoint_compartido = _StubRedisHash()
+
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 99})
+
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "Favorable",
+            "a_favor_de__c": "1",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "Rectificacion__c": "No",
+            "Prorroga__c": 1,
+            "cuerpo_respuesta_final": "<p>Estimado cliente, su reclamación ha sido resuelta a favor.</p>",
+            "archivos_s3": []
+        })
+        input_pydantic = QuejaUnificadaCrmInput(**payload_dict)
+
+        with patch("app.services.s3_service.get_redis_client", return_value=checkpoint_compartido):
+            # Intento 1: el PDF se sube con éxito a la SFC, pero el PATCH de cierre falla.
+            self.sfc_client_mock.put_actualizar_queja = AsyncMock(
+                side_effect=SfcIntegrationException(
+                    status_code=500, error_type="SERVER_ERROR", sfc_field=None,
+                    raw_message="Timeout interno", crm_action="Reintente."
+                )
+            )
+            servicio_1 = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+            with self.assertRaises(SfcIntegrationException):
+                await servicio_1.ejecutar_cierre_definitivo(payload=input_pydantic)
+
+            self.sfc_client_mock.post_adjunto_queja.assert_called_once()
+            nombre_pdf_intento_1 = self.sfc_client_mock.post_adjunto_queja.call_args[1]["file_name"]
+
+            # Intento 2 (retry): el PATCH ahora sí funciona. El PDF regenerado usa la
+            # MISMA s3_key/nombre determinística (función del case_id) que el intento 1,
+            # así que el checkpoint compartido debe reconocerlo como ya confirmado.
+            self.sfc_client_mock.post_adjunto_queja.reset_mock()
+            self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "closed"})
+            servicio_2 = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+            resultado = await servicio_2.ejecutar_cierre_definitivo(payload=input_pydantic)
+
+        self.assertEqual(resultado["status"], "success")
+        # El PDF NO debe reenviarse a la SFC en el segundo intento: ya estaba
+        # checkpointeado bajo la misma key determinística.
+        self.sfc_client_mock.post_adjunto_queja.assert_not_called()
+        self.sfc_client_mock.put_actualizar_queja.assert_called_once()
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
     async def test_servicio_aislamiento_de_fallas_sfc_exception(self, mock_mapper):

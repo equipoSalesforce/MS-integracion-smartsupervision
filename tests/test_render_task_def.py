@@ -26,7 +26,7 @@ class TestRenderTaskDefinition(unittest.TestCase):
     def tearDown(self):
         # 🧹 Limpieza de archivos JSON temporales generados durante las pruebas
         for srv in ["api", "worker"]:
-            for env in ["dev", "qa", "prod"]:
+            for env in ["dev", "qa", "prod", "ci"]:
                 fname = f"ecs-task-def-{srv}-{env}.json"
                 if os.path.exists(fname):
                     try:
@@ -46,6 +46,24 @@ class TestRenderTaskDefinition(unittest.TestCase):
                     crm_secret = result["containerDefinitions"][0]["secrets"][0]["valueFrom"]
                     self.assertNotIn("??????", crm_secret)
                     self.assertIn("a1b2c3", crm_secret)
+
+    def test_crm_cors_origins_formato_lista_json_real_no_rompe_el_render(self):
+        """
+        Auditoría 2026-08-13 (P0-03): CRM_CORS_ORIGINS en el formato de lista JSON que
+        .env.example documenta (comillas embebidas) debía producir un JSONDecodeError
+        antes de este fix. Reproduce exactamente el repro de la auditoría para API y
+        worker, y verifica que el valor sobreviva íntegro en el JSON final.
+        """
+        valor_real = '["https://crm.global66.com", "http://localhost:3000"]'
+        with patch.dict(os.environ, {"CRM_CORS_ORIGINS": valor_real}):
+            for service_type in ["api", "worker"]:
+                with self.subTest(service_type=service_type):
+                    result = render_task_definition(service_type, "ci")
+                    env_vars = {
+                        e["name"]: e["value"]
+                        for e in result["containerDefinitions"][0]["environment"]
+                    }
+                    self.assertEqual(env_vars["CRM_CORS_ORIGINS"], valor_real)
 
     def test_missing_aws_account_id_fails_fast(self):
         """Verifica que se lance un ValueError si AWS_ACCOUNT_ID no existe o es ficticia."""

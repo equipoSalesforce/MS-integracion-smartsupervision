@@ -123,9 +123,10 @@ class TestErrorResponsesConsistency(unittest.TestCase):
     def _mockear_encolamiento(self):
         """
         Aísla la ruta de contingencia (encolar + registrar idempotencia QUEUED) de sus
-        detalles internos de Redis/Lua, que ya se prueban aparte en test_cola_redis.py.
-        Aquí sólo interesa: ¿el endpoint clasifica el error como contingencia y responde
-        202, o lo deja propagar como si fuera un fallo de negocio del CRM?
+        detalles internos de Redis/Lua, que ya se prueban aparte en
+        test_queue_race_protection.py. Aquí sólo interesa: ¿el endpoint clasifica el
+        error como contingencia y responde 202, o lo deja propagar como si fuera un
+        fallo de negocio del CRM?
         """
         item_encolado_mock = MagicMock()
         item_encolado_mock.id = 1
