@@ -2226,7 +2226,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Case_id\": \"ATEST-ALL-FIELDS-SSV-12728\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"María Alejandra Bermúdez\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"10274304156\",\n  \"sc_genero__c\": \"Femenino\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_LGBTIQ__c\": \"No\",\n  \"sc_Condicion_especial__c\": \"No aplica\",\n  \"SuppliedPhone\": \"3109876543\",\n  \"SuppliedEmail\": \"maria.bermudez@test.com\",\n  \"direccion__c\": \"Calle 53 # 70-12 Apto 402\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Internet\",\n  \"punto_recepcion\": \"Web\",\n  \"Instancia_de_recepcion__c\": \"Entidad vigilada\",\n  \"admision_col__c\": \"No Aplica\",\n  \"Description\": \"Prueba completa con todos los campos del formulario cargados simultáneamente para verificación de esquema.\",\n  \"smart_anexo_queja__c\": true,\n  \"Tutela__c\": \"No\",\n  \"Ente_de_control__c\": \"Otros\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"marcacion__c\": \"Revisión técnica\",\n  \"Product__c\": \"Tarjeta Digital\",\n  \"smart_Producto_nombre__c\": \"Global Card Digital\",\n  \"Categorias_COL__c\": \"Transacción no reconocida\",\n  \"archivos_s3\": [],\n  \"producto_digital__c\": \"Si\",\n  \"tipo_fraude__c\": \"Externo\",\n  \"modalidad_fraude__c\": \"Suplantación de identidad\",\n  \"card_amount__c\": 1500000.0,\n  \"Total_Devuelto_por_Desconocimiento__c\": 1500000.0,\n  \"nombre_archivo_fraude\": \"informe_fraude.pdf\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"a_favor_de__c\": \"1\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Rectificacion__c\": \"Queja o reclamo rectificada por la entidad vigilada antes de la decisión del DCF\",\n  \"Prorroga__c\": 1,\n  \"cuerpo_respuesta_final\": \"<html><body><p>Estimada María,</p><p>Le informamos que tras la investigación realizada por el equipo de seguridad, confirmamos que su solicitud ha sido resuelta de forma <strong>FAVORABLE</strong> con el reembolso total de los fondos.</p><p>Atentamente,<br>Global66 Colombia</p></body></html>\",\n  \"directorio_s3\": \"caso/TEST-ALL-FIELDS-SSV-999/\"\n}",
+                  "raw": "{\n  \"Case_id\": \"CASO-TEST-EXPRESS-1209\",\n  \"Status\": \"Closed\",\n  \"SuppliedName\": \"Guillermo León Ramírez\",\n  \"SC_id_type__c\": \"CC\",\n  \"id_number__c\": \"14209988\",\n  \"tipo_de_persona__c\": \"B2C\",\n  \"sc_genero__c\": \"Masculino\",\n  \"sc_Condicion_especial__c\": \"Pensionado\",\n  \"direccion__c\": \"Avenida 19 # 102-15\",\n  \"Departamento__c\": \"Bogotá D.C.\",\n  \"SC_municipio__c\": \"Bogotá D.C.\",\n  \"canal__c\": \"Corresponsales digitales propios\",\n  \"punto_recepcion\": \"Manual\",\n  \"Description\": \"Cierre de queja express por aclaración de condiciones de publicidad.\",\n  \"Product__c\": \"Transactions\",\n  \"Categorias_COL__c\": \"Publicidad engañosa\",\n  \"Favorabilidad__c\": \"Favorable\",\n  \"Aceptacion__c\": \"Respuesta final a favor del consumidor financiero aceptadas por la entidad\",\n  \"Quejas_express__c\": \"Si\",\n  \"smart_escalamiento_DCF__c\": \"No\",\n  \"archivos_s3\": [],\n  \"directorio_s3\": \"caso/TEST-ALL-FIELDS-SSV-999/\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3236,7 +3236,7 @@
                 },
                 {
                   "key": "date",
-                  "value": "Thu, 06 Aug 2026 14:06:34 GMT"
+                  "value": "Thu, 13 Aug 2026 20:29:10 GMT"
                 },
                 {
                   "key": "content-type",
@@ -3244,7 +3244,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "774"
+                  "value": "1239"
                 },
                 {
                   "key": "connection",
@@ -3252,11 +3252,11 @@
                 },
                 {
                   "key": "x-correlation-id",
-                  "value": "b2b08c15-ae01-4daa-9f3e-8cfcc621869d"
+                  "value": "2e1b6fd3-cd4c-4c22-bed0-57a87b0ff8c1"
                 }
               ],
               "cookie": [],
-              "body": "[\n  {\n    \"id_number__c\": \"1020779357\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Erika\",\n    \"LastName\": \"Ardila Greiff\",\n    \"fecha_nacimiento__c\": \"1993-03-10T00:00:00\",\n    \"SuppliedEmail\": \"erika.ardila@global66.com\",\n    \"SuppliedPhone\": \"3173642766\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Carrera 18 #134 60\",\n    \"Departamento__c\": \"Bogotá D.C.\",\n    \"SC_municipio__c\": \"Bogotá D.C.\",\n    \"SuppliedName\": \"Erika Ardila Greiff\"\n  },\n  {\n    \"id_number__c\": \"100132448\",\n    \"SC_id_type__c\": \"CC\",\n    \"FirstName\": \"Pepito\",\n    \"LastName\": \"Perez\",\n    \"fecha_nacimiento__c\": \"2001-02-20T00:00:00\",\n    \"SuppliedEmail\": \"sebas.qa22@gmail.com\",\n    \"SuppliedPhone\": \"30087323232\",\n    \"company_name__c\": \"\",\n    \"direccion__c\": \"Calle 56-87 sur\",\n    \"Departamento__c\": \"Archipiélago De San Andrés, Providencia Y Santa Catalina\",\n    \"SC_municipio__c\": \"Providencia\",\n    \"SuppliedName\": \"Pepito Perez\"\n  }\n]"
+              "body": "{\n  \"status\": \"success\",\n  \"total_procesados\": 3,\n  \"total_exitosos\": 3,\n  \"total_fallidos\": 0,\n  \"usuarios\": [\n    {\n      \"id_number__c\": \"1020779357\",\n      \"SC_id_type__c\": \"CC\",\n      \"FirstName\": \"Erika\",\n      \"LastName\": \"Ardila Greiff\",\n      \"fecha_nacimiento__c\": \"1993-03-10T00:00:00\",\n      \"SuppliedEmail\": \"erika.ardila@global66.com\",\n      \"SuppliedPhone\": \"3173642766\",\n      \"company_name__c\": null,\n      \"direccion__c\": \"Carrera 18 #134 60\",\n      \"Departamento__c\": \"Bogotá D.C.\",\n      \"SC_municipio__c\": \"Bogotá D.C.\",\n      \"SuppliedName\": \"Erika Ardila Greiff\"\n    },\n    {\n      \"id_number__c\": \"100132448\",\n      \"SC_id_type__c\": \"CC\",\n      \"FirstName\": \"Pepito\",\n      \"LastName\": \"Perez\",\n      \"fecha_nacimiento__c\": \"2001-02-20T00:00:00\",\n      \"SuppliedEmail\": \"sebas.qa22@gmail.com\",\n      \"SuppliedPhone\": \"30087323232\",\n      \"company_name__c\": null,\n      \"direccion__c\": \"Calle 56-87 sur\",\n      \"Departamento__c\": \"Archipiélago De San Andrés, Providencia Y Santa Catalina\",\n      \"SC_municipio__c\": \"Providencia\",\n      \"SuppliedName\": \"Pepito Perez\"\n    },\n    {\n      \"id_number__c\": \"1000024622\",\n      \"SC_id_type__c\": \"CC\",\n      \"FirstName\": \"Consumidor otra vez\",\n      \"LastName\": \"Global\",\n      \"fecha_nacimiento__c\": \"2000-08-06T00:00:00\",\n      \"SuppliedEmail\": \"juan.camargo@global66.com\",\n      \"SuppliedPhone\": \"998765432\",\n      \"company_name__c\": null,\n      \"Departamento__c\": \"Atlántico\",\n      \"SC_municipio__c\": \"Barranquilla\",\n      \"SuppliedName\": \"Consumidor otra vez Global\"\n    }\n  ],\n  \"failed_items\": []\n}"
             }
           ]
         },
@@ -3380,7 +3380,7 @@
         "header": [
           {
             "key": "x-api-key",
-            "value": "{{api_key}}"
+            "value": "{{api_key_administrativa}}"
           }
         ],
         "url": {
