@@ -25,9 +25,17 @@ services:
       - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AWS_ACCESS_KEY_ID                      
-      - AWS_SECRET_ACCESS_KEY                  
-      - AWS_SESSION_TOKEN
+      # 🟢 MinIO local: se fijan explícitamente en vez de heredar del host (antes
+      # `- AWS_ACCESS_KEY_ID` sin valor tomaba lo que hubiera en el shell del
+      # desarrollador — si tenía credenciales reales de AWS exportadas, ej. por `aws
+      # configure`/SSO, el contenedor terminaba intentando hablar con el S3 real en
+      # vez de con este MinIO local). AWS_S3_ENDPOINT_URL tampoco estaba seteado en
+      # ningún lado: sin él, boto3 apunta a AWS real por defecto.
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_S3_BUCKET=global66-sfc-bucket-local
+      - AWS_REGION=us-east-1
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       redis:
@@ -49,9 +57,12 @@ services:
       - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AWS_ACCESS_KEY_ID                      
-      - AWS_SECRET_ACCESS_KEY                  
-      - AWS_SESSION_TOKEN                      
+      # 🟢 Mismo motivo que en el servicio 'app': apuntar explícitamente a MinIO.
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_S3_BUCKET=global66-sfc-bucket-local
+      - AWS_REGION=us-east-1
     command: ["python", "-m", "app.worker"]
     depends_on:
       redis:

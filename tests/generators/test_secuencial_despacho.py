@@ -3,7 +3,8 @@ import json
 import random
 import string
 import time
-from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Tuple
 import boto3
 import httpx
 from dotenv import load_dotenv
@@ -21,17 +22,23 @@ API_KEY = os.getenv("CRM_API_KEY", "g66_sk_test_super_secreto_12345")
 OUTPUT_LOG_FILE = "test_secuencial_results.json"
 
 # 🎯 PARÁMETROS CONFIGURABLES
-TOTAL_PETICIONES = 180   # Peticiones para cubrir los 90 escenarios base + fuzzing
-COOLDOWN_SECONDS = 0.0   # Pausa entre peticiones
+TOTAL_PETICIONES = 182   # Peticiones para cubrir los 92 escenarios base + fuzzing
+# 🟢 SFC_URL_BASE apunta al sandbox QA real de la SFC (no un mock local) — ese
+# ambiente tiene cuotas de tasa reales (se observó "RESOURCE_EXHAUSTED: Quota
+# exceeded for quota metric 'Read Requests'" en una corrida a 0.0s de cooldown).
+# Un cooldown pequeño evita que el propio test se autothrottlee contra el sandbox.
+COOLDOWN_SECONDS = 0.4   # Pausa entre peticiones
 
-# 🎯 CONFIGURACIÓN ÚNICA DE S3 / MINIO
-DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/"
+# 🎯 CONFIGURACIÓN DE S3 / MINIO
+# 🟢 P1-10: la s3_key se valida contra el Case_id del propio caso — ya no se puede
+# usar un directorio/archivo FIJO y compartido entre todos los escenarios (como antes:
+# DEFAULT_DIRECTORIO_S3 = "caso/STRESS_TEST_DEFAULT/" para todos). Cada caso genera y
+# precarga sus propios archivos bajo "caso/{Case_id}/", calculados en generar_caso().
 FIXED_FILE_NAME = "soporte_prueba.pdf"
-FIXED_S3_KEY = f"{DEFAULT_DIRECTORIO_S3}{FIXED_FILE_NAME}"
 FIXED_BUCKET = os.getenv("AWS_S3_BUCKET", "global66-sfc-bucket-local")
 
-# 🎯 Total de escenarios base ampliado (0 al 89 = 90 escenarios base)
-NUM_ESCENARIOS_BASE = 90
+# 🎯 Total de escenarios base ampliado (0 al 91 = 92 escenarios base)
+NUM_ESCENARIOS_BASE = 92
 
 # ==============================================================================
 # 📋 CATÁLOGOS Y SEMILLAS
@@ -45,18 +52,18 @@ CHANNELS = [
 
 FRAUD_CATEGORY = "Transacción no reconocida"
 NON_FRAUD_CATEGORIES = [
-    "Remesas", 
+    "Remesas",
     "Dificultad en el acceso a la información",
-    "Incumplimiento de los términos del contrato", 
+    "Incumplimiento de los términos del contrato",
     "Inconformidades relacionadas con el proceso de cobranza",
-    "Cobro por operaciones fallidas en cajeros electrónicos", 
+    "Cobro por operaciones fallidas en cajeros electrónicos",
     "Inconsistencia en el cobro de comisiones - Descuentos injustificados"
 ]
 
 PUNTOS_RECEPCION = ["Web", "WhatsApp", "Email", "Manual"]
 
 UNICODE_EMOJI_SEEDS = [
-    "Renée-Ángel 🦙 ñandú", "Иван 🤖 Смирнов", "佐藤 🐉 健", 
+    "Renée-Ángel 🦙 ñandú", "Иван 🤖 Смирнов", "佐藤 🐉 健",
     "María 🚀 Ñuñez", "Jöhn 💥 Døe"
 ]
 
@@ -77,6 +84,38 @@ SQL_XSS_INJECTIONS = [
 ]
 
 # ==============================================================================
+# 📄 PDF GENÉRICO PARA PRECARGA EN S3/MINIO
+# ==============================================================================
+def _cargar_pdf_generico() -> bytes:
+    """
+    Usa la plantilla real de respuesta final (app/resources/plantilla_respuesta_final.pdf)
+    si está disponible; si no, arma en memoria un PDF mínimo pero válido (magic bytes
+    '%PDF-' correctos, que es lo único que valida validar_integridad_archivo en la app).
+    """
+    ruta_plantilla = os.path.join(
+        os.path.dirname(__file__), "..", "..", "app", "resources", "plantilla_respuesta_final.pdf"
+    )
+    try:
+        with open(ruta_plantilla, "rb") as f:
+            contenido = f.read()
+            print(f"📄 Usando plantilla real como PDF genérico de pruebas: '{ruta_plantilla}'\n")
+            return contenido
+    except OSError:
+        print(f"⚠️ No se encontró la plantilla PDF en '{ruta_plantilla}'; se usará un PDF mínimo generado en memoria.\n")
+        return (
+            b"%PDF-1.4\n"
+            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+            b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
+            b"trailer<</Size 4/Root 1 0 R>>\n"
+            b"%%EOF"
+        )
+
+
+PDF_GENERICO_BYTES = _cargar_pdf_generico()
+CONTENIDO_CORRUPTO = b"Este texto plano no es un PDF valido y fallara en magic bytes."
+
+# ==============================================================================
 # 🎲 HELPER FUNCTIONS
 # ==============================================================================
 def _generar_ids(secuencia: int) -> tuple[str, str]:
@@ -87,17 +126,37 @@ def _generar_ids(secuencia: int) -> tuple[str, str]:
     return case_id, doc_number
 
 
-def _obtener_anexos_sin_fraude() -> Dict[str, Any]:
-    """Decide al azar si incluir directorio_s3 o dejar vacío."""
+def _anexo_estandar_por_caso(cid: str) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    """
+    Decide al azar si incluir un directorio_s3 (con un PDF genérico precargado bajo
+    'caso/{cid}/', para que la validación de ownership P1-10 lo acepte) o dejarlo vacío.
+    """
     if random.choice([True, False]):
-        return {
-            "smart_anexo_queja__c": True,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
-        }
-    return {
-        "smart_anexo_queja__c": False,
-        "archivos_s3": []
-    }
+        directorio = f"caso/{cid}/"
+        s3_key = f"{directorio}{FIXED_FILE_NAME}"
+        return (
+            {"smart_anexo_queja__c": True, "directorio_s3": directorio},
+            [(s3_key, PDF_GENERICO_BYTES)]
+        )
+    return ({"smart_anexo_queja__c": False, "archivos_s3": []}, [])
+
+
+def _anexo_fraude_directorio_por_caso(cid: str) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    """directorio_s3 propio del caso, con un PDF genérico ya precargado en esa ruta."""
+    directorio = f"caso/{cid}/"
+    s3_key = f"{directorio}{FIXED_FILE_NAME}"
+    return ({"directorio_s3": directorio}, [(s3_key, PDF_GENERICO_BYTES)])
+
+
+def _anexo_fraude_archivo_fijo_por_caso(
+    cid: str, nombre: str = FIXED_FILE_NAME
+) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    """archivos_s3 con una única entrada fija, apuntando al directorio del propio caso."""
+    s3_key = f"caso/{cid}/{nombre}"
+    return (
+        {"archivos_s3": [{"nombre_archivo": nombre, "s3_key": s3_key, "bucket": FIXED_BUCKET}]},
+        [(s3_key, PDF_GENERICO_BYTES)]
+    )
 
 
 def _obtener_cuerpo_respuesta_azar(case_id: str) -> Optional[str]:
@@ -111,51 +170,52 @@ def _obtener_cuerpo_respuesta_azar(case_id: str) -> Optional[str]:
         )
     return None
 
-def preparar_archivos_prueba_s3():
-    """Crea en S3/MinIO los archivos especiales requeridos para las pruebas de integridad."""
-    # 1. Obtener y limpiar comillas/espacios del endpoint
-    raw_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:9000")
+
+def construir_cliente_s3():
+    """Construye el cliente boto3 apuntando a MinIO/S3 según variables de entorno."""
+    raw_endpoint = os.getenv("AWS_S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL") or "http://localhost:9000"
     endpoint = raw_endpoint.strip('"').strip("'").strip()
 
-    # 2. Traducir el hostname 'minio' a 'localhost' si el script se ejecuta en la máquina host fuera de Docker
+    # Traducir el hostname 'minio' a 'localhost' si el script se ejecuta en la máquina
+    # host fuera de Docker (dentro de la red de docker-compose, 'minio' sí resuelve).
     if "minio" in endpoint:
         endpoint = endpoint.replace("minio", "localhost")
 
-    # 3. Limpiar variables restantes del .env
     bucket = os.getenv("AWS_S3_BUCKET", "global66-sfc-bucket-local").strip('"').strip("'").strip()
     access_key = (os.getenv("AWS_ACCESS_KEY_ID") or "minioadmin").strip('"').strip("'").strip()
     secret_key = (os.getenv("AWS_SECRET_ACCESS_KEY") or "minioadmin").strip('"').strip("'").strip()
     region = (os.getenv("AWS_REGION") or "us-east-1").strip('"').strip("'").strip()
 
-    try:
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
         # 🎯 Forzar addressing_style = 'path' para compatibilidad total con MinIO local
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region,
-            config=Config(s3={"addressing_style": "path"})
-        )
+        config=Config(s3={"addressing_style": "path"})
+    )
+    return s3_client, bucket, endpoint
 
-        # 1. Crear el archivo de 0 bytes
-        s3_client.put_object(
-            Bucket=bucket,
-            Key="caso/STRESS_TEST_VACIO/archivo_vacio.pdf",
-            Body=b""  # 👈 0 Bytes de contenido
-        )
 
-        # 2. Crear el archivo corrupto
-        s3_client.put_object(
-            Bucket=bucket,
-            Key="caso/STRESS_TEST_VACIO/soporte_corrupto.pdf",
-            Body=b"Este texto plano no es un PDF valido y fallara en magic bytes."
-        )
+def asegurar_bucket(s3_client, bucket: str):
+    """Crea el bucket de pruebas en MinIO si todavía no existe (idempotente)."""
+    try:
+        s3_client.head_bucket(Bucket=bucket)
+    except Exception:
+        try:
+            s3_client.create_bucket(Bucket=bucket)
+            print(f"🪣 Bucket '{bucket}' creado en MinIO.\n")
+        except Exception as err:
+            print(f"⚠️ [Advertencia S3] No se pudo verificar/crear el bucket '{bucket}': {err}\n")
 
-        print(f"📄 Archivos de prueba (0 bytes y corrupto) cargados exitosamente en MinIO/S3 ({endpoint}).\n")
+
+def subir_archivo_s3(s3_client, bucket: str, s3_key: str, contenido: bytes):
+    """Sube (o sobreescribe) un objeto en MinIO/S3. No detiene la ejecución si falla."""
+    try:
+        s3_client.put_object(Bucket=bucket, Key=s3_key, Body=contenido)
     except Exception as err:
-        print(f"⚠️ [Advertencia S3] No se pudieron pre-cargar los archivos en MinIO ({err}).")
-        print(f"   Endpoint intentado: {endpoint}\n")
+        print(f"⚠️ [Advertencia S3] No se pudo precargar '{s3_key}': {err}")
 
 
 def _base_mandatory_payload(case_id: str, doc_number: str, secuencia: int) -> Dict[str, Any]:
@@ -180,6 +240,7 @@ def _base_mandatory_payload(case_id: str, doc_number: str, secuencia: int) -> Di
 def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     cid, doc = _generar_ids(secuencia)
     payload = _base_mandatory_payload(cid, doc, secuencia)
+    precargar: List[Tuple[str, bytes]] = []
 
     # --------------------------------------------------------------------------
     # 🟢 CASOS ESTÁNDAR VÁLIDOS (0 a 7)
@@ -200,7 +261,9 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
             "Tutela__c": "No",
             "Ente_de_control__c": "Otros",
         })
-        payload.update(_obtener_anexos_sin_fraude())
+        anexo, pre = _anexo_estandar_por_caso(cid)
+        payload.update(anexo)
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 1:
@@ -212,38 +275,40 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
             "Departamento__c": "Antioquia",
             "SC_municipio__c": "Medellín",
         })
-        payload.update(_obtener_anexos_sin_fraude())
+        anexo, pre = _anexo_estandar_por_caso(cid)
+        payload.update(anexo)
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 2:
         nombre = "M3 Reporte de Fraude (Uso de directorio_s3)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
         monto = float(random.randint(100000, 5000000))
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": random.choice(["Phishing", "Suplantación de identidad", "Smishing"]),
             "card_amount__c": monto,
             "Total_Devuelto_por_Desconocimiento__c": monto if random.choice([True, False]) else 0.0,
             "smart_anexo_queja__c": True,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 3:
         nombre = "M3 Reporte de Fraude (Uso de archivos_s3 fijado)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_archivo_fijo_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Interno",
             "modalidad_fraude__c": "Sim Swapping",
             "card_amount__c": float(random.randint(200000, 3000000)),
             "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "smart_anexo_queja__c": True,
-            "archivos_s3": [{
-                "nombre_archivo": FIXED_FILE_NAME,
-                "s3_key": FIXED_S3_KEY,
-                "bucket": FIXED_BUCKET
-            }]
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 4:
@@ -256,7 +321,9 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         cuerpo = _obtener_cuerpo_respuesta_azar(cid)
         if cuerpo:
             payload["cuerpo_respuesta_final"] = cuerpo
-        payload.update(_obtener_anexos_sin_fraude())
+        anexo, pre = _anexo_estandar_por_caso(cid)
+        payload.update(anexo)
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 5:
@@ -269,13 +336,16 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         cuerpo = _obtener_cuerpo_respuesta_azar(cid)
         if cuerpo:
             payload["cuerpo_respuesta_final"] = cuerpo
-        payload.update(_obtener_anexos_sin_fraude())
+        anexo, pre = _anexo_estandar_por_caso(cid)
+        payload.update(anexo)
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 6:
         nombre = "M3 Flujo Unificado (Fraude + Cierre)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
         monto = float(random.randint(500000, 2000000))
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "Status": "Closed",
             "tipo_fraude__c": "Externo",
@@ -284,8 +354,9 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
             "Total_Devuelto_por_Desconocimiento__c": monto,
             "Favorabilidad__c": "Favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         cuerpo = _obtener_cuerpo_respuesta_azar(cid)
         if cuerpo:
             payload["cuerpo_respuesta_final"] = cuerpo
@@ -371,11 +442,15 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 18:
         nombre = "Error Límite: Monto de Fraude Negativo"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
-        payload["tipo_fraude__c"] = "Externo"
-        payload["modalidad_fraude__c"] = "Phishing"
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         monto_negativo = float(-1 * random.randint(1000, 999999))
-        payload["card_amount__c"] = monto_negativo
-        payload["directorio_s3"] = DEFAULT_DIRECTORIO_S3
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": monto_negativo,
+            **anexo
+        })
+        precargar.extend(pre)
         espera_exito = False
 
     elif tipo_escenario == 19:
@@ -442,27 +517,36 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 28:
         nombre = "Error Extremo: Fraude con Múltiples Archivos S3 sin 'nombre_archivo_fraude'"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        s3_key_1 = f"caso/{cid}/soporte1.pdf"
+        s3_key_2 = f"caso/{cid}/soporte2.pdf"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "archivos_s3": [
-                {"nombre_archivo": "soporte1.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET},
-                {"nombre_archivo": "soporte2.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+                {"nombre_archivo": "soporte1.pdf", "s3_key": s3_key_1, "bucket": FIXED_BUCKET},
+                {"nombre_archivo": "soporte2.pdf", "s3_key": s3_key_2, "bucket": FIXED_BUCKET}
             ]
         })
+        precargar.extend([(s3_key_1, PDF_GENERICO_BYTES), (s3_key_2, PDF_GENERICO_BYTES)])
         espera_exito = False
 
     elif tipo_escenario == 29:
         nombre = "Error Extremo: Fraude con 'nombre_archivo_fraude' Inexistente en la Lista S3"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        s3_key_real = f"caso/{cid}/soporte_real.pdf"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "nombre_archivo_fraude": "archivo_fantasma.pdf",
             "archivos_s3": [
-                {"nombre_archivo": "soporte_real.pdf", "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+                {"nombre_archivo": "soporte_real.pdf", "s3_key": s3_key_real, "bucket": FIXED_BUCKET}
             ]
         })
+        precargar.append((s3_key_real, PDF_GENERICO_BYTES))
         espera_exito = False
 
     elif tipo_escenario == 30:
@@ -532,13 +616,15 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 39:
         nombre = "Error Extremo: Total_Devuelto_por_Desconocimiento__c Negativo"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 500000.0,
             "Total_Devuelto_por_Desconocimiento__c": -100.0,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = False
 
     elif tipo_escenario == 40:
@@ -683,6 +769,8 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "archivos_s3": [
                 {"nombre_archivo": "soporte.pdf", "s3_key": "", "bucket": FIXED_BUCKET}
             ]
@@ -690,16 +778,26 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = False
 
     elif tipo_escenario == 63:
-        nombre = "Error Extremo: Objeto de Archivo S3 con Bucket Vacío"
+        nombre = "Prueba Límite: Bucket del payload es ignorado server-side (sólo importa la s3_key propia)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        # 🟢 Descubierto al validar en vivo: s3_service.py IGNORA por completo el campo
+        # "bucket" recibido en el payload — siempre usa self.default_bucket, precisamente
+        # para blindarse contra inyección de bucket (ver comentario "Retirado bucket
+        # opcional para evitar inyecciones" en obtener_stream_archivo). Un bucket vacío o
+        # inválido en el payload es entonces inofensivo: la solicitud debe tener éxito
+        # igual, ya que sólo la s3_key (validada contra el Case_id) determina el archivo.
+        s3_key_propia = f"caso/{cid}/soporte.pdf"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "archivos_s3": [
-                {"nombre_archivo": "soporte.pdf", "s3_key": FIXED_S3_KEY, "bucket": "   "}
+                {"nombre_archivo": "soporte.pdf", "s3_key": s3_key_propia, "bucket": "   "}
             ]
         })
-        espera_exito = False
+        precargar.append((s3_key_propia, PDF_GENERICO_BYTES))
+        espera_exito = True
 
     elif tipo_escenario == 64:
         nombre = "Prueba Límite: Unificación de Genero 'No binario' y LGBTIQ 'Si' (Exitoso)"
@@ -784,34 +882,43 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
     elif tipo_escenario == 74:
         nombre = "Prueba Límite: Monto Reclamado en Fraude de Valor Cero (card_amount__c = 0.0 Exitoso)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 0.0,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 75:
         nombre = "Prueba Límite: Total Devuelto en Fraude de Valor Cero (Total_Devuelto = 0.0 Exitoso)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 100000.0,
             "Total_Devuelto_por_Desconocimiento__c": 0.0,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 76:
         nombre = "Prueba Límite: directorio_s3 con Espacios en Extremos (Trim y Éxito)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        directorio = f"caso/{cid}/"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
-            "directorio_s3": f"   {DEFAULT_DIRECTORIO_S3}   "
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "directorio_s3": f"   {directorio}   "
         })
+        precargar.append((f"{directorio}{FIXED_FILE_NAME}", PDF_GENERICO_BYTES))
         espera_exito = True
 
     elif tipo_escenario == 77:
@@ -830,7 +937,7 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = False
 
     # --------------------------------------------------------------------------
-    # 🌍 ESCENARIOS INTERNACIONALES, S3 INTEGRITY & ALIASES (80 a 89) [NUEVO]
+    # 🌍 ESCENARIOS INTERNACIONALES, S3 INTEGRITY & ALIASES (80 a 89)
     # --------------------------------------------------------------------------
     elif tipo_escenario == 80:
         nombre = "Prueba Internacional: Reclamante de Chile (CHL) sin Departamento ni Municipio (Exitoso)"
@@ -851,29 +958,34 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         espera_exito = False
 
     elif tipo_escenario == 82:
-        directorio = "caso/STRESS_TEST_VACIO/"
         nombre = "Error Extremo: Archivo S3 de 0 Bytes (FILE_EMPTY_ERROR)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        s3_key_vacio = f"caso/{cid}/archivo_vacio.pdf"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "archivos_s3": [
-                {"nombre_archivo": "archivo_vacio.pdf", "s3_key": f"{directorio}archivo_vacio.pdf", "bucket": FIXED_BUCKET}
+                {"nombre_archivo": "archivo_vacio.pdf", "s3_key": s3_key_vacio, "bucket": FIXED_BUCKET}
             ]
         })
+        # 🟢 P1-10: el archivo se precarga bajo el directorio del PROPIO caso (para que
+        # pase ownership) pero con 0 bytes reales, para seguir probando específicamente
+        # la validación de integridad (FILE_EMPTY_ERROR), no la de ownership.
+        precargar.append((s3_key_vacio, b""))
         espera_exito = False
 
     elif tipo_escenario == 83:
-        directorio = "caso/STRESS_TEST_VACIO/"
         nombre = "Error Extremo: Archivo S3 Corrupto / Magic Bytes Inválidos (CORRUPTED_OR_INVALID_FILE)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        s3_key_corrupto = f"caso/{cid}/soporte_corrupto.pdf"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "archivos_s3": [
-                {"nombre_archivo": "soporte_corrupto.pdf", "s3_key": f"{directorio}soporte_corrupto.pdf", "bucket": FIXED_BUCKET}
+                {"nombre_archivo": "soporte_corrupto.pdf", "s3_key": s3_key_corrupto, "bucket": FIXED_BUCKET}
             ]
         })
+        precargar.append((s3_key_corrupto, CONTENIDO_CORRUPTO))
         espera_exito = False
 
     elif tipo_escenario == 84:
@@ -883,54 +995,71 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
 
     elif tipo_escenario == 85:
         nombre = "Prueba Límite: ClosedDate enviada como Datetime ISO completo YYYY-MM-DDThh:mm:ss (Exitoso)"
+        # 🟢 Antes CreatedDate quedaba en auto-relleno (hoy) y ClosedDate hardcodeada a una
+        # fecha absoluta pasada ("2026-08-05T14:20:00"): con el paso del tiempo, ClosedDate
+        # terminó ANTERIOR a CreatedDate, violando esa regla del lado de la SFC por causas
+        # ajenas a lo que el escenario realmente quería probar (formato datetime ISO
+        # completo). Se fijan ambas fechas relativas a "ahora": CreatedDate unos días atrás
+        # (dentro de la ventana de 30 días) y ClosedDate hoy — combinación siempre válida.
+        hoy = datetime.now()
         payload.update({
+            "CreatedDate": (hoy - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S"),
             "Status": "Closed",
             "Favorabilidad__c": "Favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
-            "ClosedDate": "2026-08-05T14:20:00"
+            "ClosedDate": hoy.strftime("%Y-%m-%dT%H:%M:%S")
         })
         espera_exito = True
 
     elif tipo_escenario == 86:
         nombre = "Prueba Límite: Reembolso en Fraude Mayor al Monto Reclamado (Exitoso)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 100000.0,
             "Total_Devuelto_por_Desconocimiento__c": 500000.0,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 87:
         nombre = "Prueba Límite: Monto de Fraude con Decimales Elevados (Redondeo Exitoso)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_directorio_por_caso(cid)
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 150000.789,
             "Total_Devuelto_por_Desconocimiento__c": 150000.789,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3
+            **anexo
         })
+        precargar.extend(pre)
         espera_exito = True
 
     elif tipo_escenario == 88:
         nombre = "Prueba Límite: Coexistencia de 'archivos_s3' y 'directorio_s3' Simultáneamente (Exitoso)"
         payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        directorio = f"caso/{cid}/"
+        s3_key = f"{directorio}{FIXED_FILE_NAME}"
         payload.update({
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
             "card_amount__c": 200000.0,
             "Total_Devuelto_por_Desconocimiento__c": 200000.0,
-            "directorio_s3": DEFAULT_DIRECTORIO_S3,
+            # directorio_s3 coexiste pero el orquestador lo ignora porque archivos_s3
+            # ya viene poblado explícitamente — sólo el archivo referenciado ahí importa.
+            "directorio_s3": directorio,
             "archivos_s3": [
-                {"nombre_archivo": FIXED_FILE_NAME, "s3_key": FIXED_S3_KEY, "bucket": FIXED_BUCKET}
+                {"nombre_archivo": FIXED_FILE_NAME, "s3_key": s3_key, "bucket": FIXED_BUCKET}
             ]
         })
+        precargar.append((s3_key, PDF_GENERICO_BYTES))
         espera_exito = True
 
-    else:
+    elif tipo_escenario == 89:
         nombre = "Prueba Límite: Alias de Tipo de Documento 'PASAPORTE' -> 'PASS' (Exitoso)"
         payload.update({
             "SC_id_type__c": "PASS",
@@ -938,11 +1067,54 @@ def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
         })
         espera_exito = True
 
+    # --------------------------------------------------------------------------
+    # 🔒 REGRESIÓN DE OWNERSHIP DE S3 (P1-10, auditoría 2026-08-13) (90 a 91)
+    # --------------------------------------------------------------------------
+    elif tipo_escenario == 90:
+        nombre = "🔒 P1-10: S3 key de OTRO caso (archivo real, existente) debe ser rechazada (403 S3_KEY_OWNERSHIP_MISMATCH)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        otro_case_id = f"CASO_AJENO_{random.randint(100000, 999999)}"
+        s3_key_ajena = f"caso/{otro_case_id}/{FIXED_FILE_NAME}"
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": float(random.randint(100000, 500000)),
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "smart_anexo_queja__c": True,
+            "archivos_s3": [
+                {"nombre_archivo": FIXED_FILE_NAME, "s3_key": s3_key_ajena, "bucket": FIXED_BUCKET}
+            ]
+        })
+        # El archivo SÍ existe realmente en S3 (para descartar un falso "no encontrado"),
+        # pero bajo el directorio de OTRO caso — la API debe rechazarlo por ownership.
+        precargar.append((s3_key_ajena, PDF_GENERICO_BYTES))
+        espera_exito = False
+
+    elif tipo_escenario == 91:
+        nombre = "🔒 P1-10: S3 key propia del caso (mismo Case_id) debe aceptarse (Control positivo de ownership)"
+        payload["Categorias_COL__c"] = FRAUD_CATEGORY
+        anexo, pre = _anexo_fraude_archivo_fijo_por_caso(cid)
+        payload.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": float(random.randint(100000, 500000)),
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "smart_anexo_queja__c": True,
+            **anexo
+        })
+        precargar.extend(pre)
+        espera_exito = True
+
+    else:
+        nombre = "Fallback: repite Campos Mínimos Obligatorios (fuera de rango)"
+        espera_exito = True
+
     return {
         "id": secuencia,
         "nombre": nombre,
         "espera_exito": espera_exito,
-        "payload": payload
+        "payload": payload,
+        "archivos_a_precargar": precargar
     }
 
 
@@ -950,7 +1122,7 @@ def construir_banco_de_pruebas(total_peticiones: int) -> List[Dict[str, Any]]:
     casos = []
     for i in range(1, total_peticiones + 1):
         if i <= NUM_ESCENARIOS_BASE:
-            # Cobertura inicial garantizada (Casos 0 al 89)
+            # Cobertura inicial garantizada (Casos 0 al NUM_ESCENARIOS_BASE - 1)
             tipo_escenario = i - 1
         else:
             # Elección aleatoria de escenarios para peticiones posteriores
@@ -970,8 +1142,7 @@ def ejecutar_pruebas_secuenciales():
     print(f"🎯 URL Destino: {TARGET_URL}")
     print(f"📦 Total Peticiones Solicitadas: {TOTAL_PETICIONES}")
     print(f"📌 Cobertura Base: {NUM_ESCENARIOS_BASE} escenarios configurados")
-    print(f"📁 Directorio S3 Default: {DEFAULT_DIRECTORIO_S3}")
-    print(f"📄 Archivo Fijo: {FIXED_S3_KEY}")
+    print("📁 Directorio S3: por caso ('caso/{Case_id}/'), precargado bajo demanda")
     print("=" * 85 + "\n")
 
     banco_casos = construir_banco_de_pruebas(TOTAL_PETICIONES)
@@ -979,13 +1150,15 @@ def ejecutar_pruebas_secuenciales():
     resultados_log = []
     pasados = 0
     fallados = 0
-    
-    preparar_archivos_prueba_s3()
+
+    s3_client, bucket, endpoint = construir_cliente_s3()
+    print(f"🪣 MinIO/S3 destino: {endpoint} (bucket '{bucket}')")
+    asegurar_bucket(s3_client, bucket)
 
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": API_KEY,
-        "User-Agent": "SequentialFuzzTesterExtreme/6.0"
+        "User-Agent": "SequentialFuzzTesterExtreme/7.0"
     }
 
     with httpx.Client(timeout=35.0) as client:
@@ -995,6 +1168,12 @@ def ejecutar_pruebas_secuenciales():
             espera_exito = caso["espera_exito"]
             payload = caso["payload"]
             case_id = payload.get("Case_id", "SIN_CASE_ID")
+
+            # 🟢 Precarga en MinIO/S3 (bajo la key propia del caso) justo antes de
+            # despachar la petición, para que la validación de ownership P1-10
+            # encuentre el archivo real donde el payload dice que está.
+            for s3_key, contenido in caso.get("archivos_a_precargar", []):
+                subir_archivo_s3(s3_client, bucket, s3_key, contenido)
 
             fase = "COBERTURA BASE" if case_num <= NUM_ESCENARIOS_BASE else "FUZZING ALEATORIO"
             print(f"▶️ [{case_num:03d}/{total_casos:03d}] ({fase}) Probando: {nombre} (Case_id: {case_id})...")
@@ -1013,7 +1192,9 @@ def ejecutar_pruebas_secuenciales():
                 if espera_exito:
                     cumplio = status_code in (200, 201, 202)
                 else:
-                    cumplio = status_code in (400, 422)
+                    # 🟢 P1-10: 403 es una respuesta de error legítima cuando la
+                    # validación de ownership de S3 rechaza la petición.
+                    cumplio = status_code in (400, 403, 422)
 
                 if cumplio:
                     pasados += 1
@@ -1043,7 +1224,7 @@ def ejecutar_pruebas_secuenciales():
                 "respuesta": res_body,
                 "payload_enviado": payload
             })
-            
+
             if case_num < total_casos and COOLDOWN_SECONDS > 0:
                 time.sleep(COOLDOWN_SECONDS)
 
