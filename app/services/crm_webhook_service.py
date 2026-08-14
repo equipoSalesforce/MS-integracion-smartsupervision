@@ -139,16 +139,31 @@ class CrmWebhookService:
                     )
                     return False
 
-                # 🟢 FIX HALLAZGO 14: Validación de contrato funcional de respuesta
-                if raw_json.get("success") is False:
+                # 🟢 FIX HALLAZGO 14 / P0-07: Se exige éxito EXPLÍCITO (success === true), no
+                # sólo "no es false". Un {}, un {"error": "..."} o cualquier JSON sin el campo
+                # 'success' ya no se aceptan como éxito (antes pasaban porque `.get(...) is
+                # False` es False para None).
+                if raw_json.get("success") is not True:
                     logger.warning(
                         f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero la "
-                        "bandera 'success' indica explícitamente false."
+                        f"respuesta no cumple el contrato esperado (se requiere 'success': true "
+                        f"explícito; recibido: {raw_json.get('success')!r})."
+                    )
+                    return False
+
+                # 🟢 FIX P0-07: Correlación de caso — la confirmación debe corresponder al MISMO
+                # caso notificado (el mismo 'case_number' que se envió), no sólo cualquier
+                # success=true. Evita aceptar como éxito una respuesta cruzada de otro caso.
+                crm_case_number = raw_json.get("case_number")
+                if crm_case_number != case_id_crm:
+                    logger.warning(
+                        f"⚠️ [CRM Webhook] El CRM confirmó éxito pero para un caso distinto al "
+                        f"notificado (enviado: {case_id_crm!r}, confirmado: {crm_case_number!r}). "
+                        "Rechazando por falta de correlación."
                     )
                     return False
 
                 crm_case_id = raw_json.get("case_id", "N/A")
-                crm_case_number = raw_json.get("case_number", case_id_crm)
                 is_idempotent = raw_json.get("idempotent", False)
                 is_reconciled = raw_json.get("reconciled", False)
 

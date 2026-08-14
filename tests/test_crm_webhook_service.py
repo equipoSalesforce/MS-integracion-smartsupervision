@@ -44,6 +44,44 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(resultado)
 
+    async def test_200_ok_json_empty_body_rejected(self):
+        """🟢 FIX P0-07: Un HTTP 200 con JSON vacío {} ya no debe aceptarse como éxito."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {}
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(resultado)
+
+    async def test_200_ok_json_success_true_case_number_incorrecto_rejected(self):
+        """🟢 FIX P0-07: success=true para un case_number distinto al notificado debe rechazarse."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {
+            "success": True,
+            "case_id": "50000000001",
+            "case_number": "CASE-999-OTRO-CASO",
+        }
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(resultado)
+
     async def test_200_ok_json_valid_contract_accepted(self):
         """Verifica que un HTTP 200 con JSON y contrato válido sea aceptado."""
         mock_response = MagicMock()
