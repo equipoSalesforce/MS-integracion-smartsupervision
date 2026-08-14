@@ -226,17 +226,22 @@ async def reintentar_despachos_pendientes_job():
         casos_despachados_exito = 0
 
         for index, item in enumerate(pendientes):
-            reclamado = await queue_service.reclamar_item_para_procesamiento(
+            # 🟢 FIX P0-04: el claim ahora devuelve el item TAL COMO ESTÁ en Redis en ese
+            # instante (no la copia leída durante el listado previo), cerrando la ventana
+            # en la que el payload pudo haber sido sobrescrito por un evento más nuevo del
+            # mismo smart_code entre `obtener_pendientes_para_reintento` y el claim.
+            item_reclamado = await queue_service.reclamar_item_para_procesamiento(
                 registro_id=item.id,
                 worker_id=worker_id,
                 lease_segundos=60
             )
 
-            if not reclamado:
+            if item_reclamado is None:
                 continue
 
-            item_data = item.to_dict() if hasattr(item, "to_dict") else {}
-            
+            item = item_reclamado
+            item_data = item.to_dict()
+
             # 🟢 FIX HALLAZGO 47: Extraer el correlation_id preservado del modelo ColaItemRedis
             cid_guardado = (
                 item.correlation_id
@@ -271,12 +276,31 @@ async def reintentar_despachos_pendientes_job():
                             es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                             continue
 
-                        await idempotency_service.registrar_exito(
-                            smart_code=item.smart_code,
-                            payload_dict=payload_actual,
-                            sfc_response=resultado
-                        )
-                        await queue_service.marcar_sfc_completado(item.id, sfc_response=resultado)
+                        # 🟢 FIX P0-06: SFC ya recibió y procesó el envío en este punto. Si la
+                        # persistencia durable de ese hecho falla (tras los reintentos internos de
+                        # cada método), NO se debe tratar como un fallo normal de la operación —
+                        # registrar_fallo incrementaría intentos y el próximo retry reenviaría a
+                        # SFC. Se aísla en su propio try/except: se alerta como falla crítica de
+                        # infraestructura y se deja el item intacto para reintentar sólo la
+                        # persistencia en el próximo ciclo, en vez de silenciar el fallo.
+                        try:
+                            await idempotency_service.registrar_exito(
+                                smart_code=item.smart_code,
+                                payload_dict=payload_actual,
+                                sfc_response=resultado
+                            )
+                            await queue_service.marcar_sfc_completado(item.id, sfc_response=resultado)
+                        except Exception as persist_err:
+                            logger.critical(
+                                f"🔥 [Scheduler Job] SFC procesó exitosamente el caso {item.smart_code} pero no fue "
+                                f"posible persistir el estado durable (idempotencia/SFC_DONE): {persist_err}. "
+                                f"Riesgo de reenvío duplicado a la SFC en el próximo reintento."
+                            )
+                            await EmailAlertService.notificar_falla_infraestructura(
+                                smart_code=item.smart_code,
+                                error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+                            )
+                            continue
                         sfc_ya_completado = True
 
                     # PASO 2: Notificación al CRM Webhook (utiliza automáticamente get_correlation_id())
@@ -295,12 +319,25 @@ async def reintentar_despachos_pendientes_job():
                         await queue_service.registrar_fallo(item.id, error_msg=error_msg)
                     else:
                         try:
-                            await queue_service.marcar_exitoso(item.id)
-                            casos_despachados_exito += 1
-                            logger.info(
-                                f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC "
-                                f"y confirmado al CRM desde Redis [CID: {cid_guardado}]."
+                            # 🟢 FIX P0-04/P0-05: se pasa worker_id + la versión reclamada para que
+                            # MARK_SUCCESS verifique ownership y que el registro no fue sobrescrito.
+                            resultado_mark = await queue_service.marcar_exitoso(
+                                item.id, worker_id=worker_id, expected_version=item.version
                             )
+                            if resultado_mark == "completed":
+                                casos_despachados_exito += 1
+                                logger.info(
+                                    f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC "
+                                    f"y confirmado al CRM desde Redis [CID: {cid_guardado}]."
+                                )
+                            else:
+                                # "not_owner"/"version_mismatch"/"not_found": el envío a SFC/CRM sí
+                                # ocurrió, pero este worker ya no tiene autoridad sobre el registro.
+                                # No es un fallo de reintentos: no se llama a registrar_fallo.
+                                logger.warning(
+                                    f"⚠️ [Scheduler Job] Caso {item.smart_code} procesado en SFC/CRM pero no "
+                                    f"completado en Redis (motivo: {resultado_mark}). Ver contenido vigente."
+                                )
                         except Exception as redis_err:
                             logger.critical(
                                 f"🔥 [Scheduler Job] ERROR CRÍTICO DE PERSISTENCIA: Caso {item.smart_code} (ID: {item.id}) "

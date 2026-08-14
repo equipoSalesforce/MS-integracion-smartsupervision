@@ -1,4 +1,5 @@
 # app/services/queue_service.py
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -63,6 +64,10 @@ if existing_id then
             data["proximo_reintento_at"] = proximo_reintento_iso
             data["correlation_id"] = correlation_id
             data["es_duplicado"] = true
+            -- 🟢 FIX P0-04: cada sobrescritura de un item pendiente sube su versión, para
+            -- que un worker que ya estaba procesando la versión anterior pueda detectar
+            -- en MARK_SUCCESS que el contenido cambió bajo sus pies y NO lo marque COMPLETED.
+            data["version"] = (tonumber(data["version"]) or 1) + 1
 
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
@@ -94,7 +99,8 @@ local item_data = {
     created_at = now_iso,
     updated_at = now_iso,
     correlation_id = correlation_id,
-    es_duplicado = false
+    es_duplicado = false,
+    version = 1
 }
 
 redis.call("SET", item_key, cjson.encode(item_data))
@@ -113,6 +119,7 @@ return cjson.encode({
 CLAIM_ITEM_LUA_SCRIPT = """
 local pending_set_key = KEYS[1]
 local claim_key = KEYS[2]
+local item_key = KEYS[3]
 
 local item_id = ARGV[1]
 local worker_id = ARGV[2]
@@ -128,7 +135,16 @@ if not set_res then
     return cjson.encode({claimed = false, reason = "already_claimed"})
 end
 
-return cjson.encode({claimed = true})
+-- 🟢 FIX P0-04: devolver el item TAL COMO ESTÁ en Redis en el mismo paso atómico que el
+-- claim, en vez de que el caller reutilice una copia leída antes de reclamar (ventana en
+-- la que el payload pudo haber sido sobrescrito por un evento más nuevo del mismo caso).
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    redis.call("DEL", claim_key)
+    return cjson.encode({claimed = false, reason = "item_not_found"})
+end
+
+return cjson.encode({claimed = true, item = cjson.decode(raw_item)})
 """
 
 MARK_SUCCESS_LUA_SCRIPT = """
@@ -141,13 +157,38 @@ local claim_key = KEYS[5]
 local item_id = ARGV[1]
 local now_iso = ARGV[2]
 local estado_completed = ARGV[3]
+local worker_id = ARGV[4]
+local expected_version = tonumber(ARGV[5])
+
+-- 🟢 FIX P0-05: sólo el worker que sigue siendo dueño del lease puede completar el item.
+-- Antes se borraba el claim incondicionalmente, permitiendo que un worker cuyo lease ya
+-- expiró (y que por lo tanto otro worker ya reclamó) completara igual y le borrara el
+-- claim activo al nuevo dueño.
+local current_owner = redis.call("GET", claim_key)
+if current_owner ~= worker_id then
+    return cjson.encode({success = false, reason = "not_owner"})
+end
 
 local raw_item = redis.call("GET", item_key)
 if not raw_item then
+    redis.call("DEL", claim_key)
     return cjson.encode({success = false, reason = "item_not_found"})
 end
 
 local data = cjson.decode(raw_item)
+
+-- 🟢 FIX P0-04: si el item fue sobrescrito por un evento más nuevo del mismo smart_code
+-- mientras este worker lo procesaba (version distinta a la que reclamó), NO completar.
+-- El contenido que se envió a SFC ya fue transmitido correctamente, pero el registro
+-- actual en Redis ya no representa ese envío: se libera el claim y se deja el item
+-- pendiente (con el próximo reintento que el propio ENQUEUE ya programó) para que el
+-- contenido vigente se transmita en su turno, en vez de marcarlo COMPLETED sin haberlo
+-- enviado nunca.
+if tonumber(data["version"] or 1) ~= expected_version then
+    redis.call("DEL", claim_key)
+    return cjson.encode({success = false, reason = "version_mismatch"})
+end
+
 data["estado"] = estado_completed
 data["updated_at"] = now_iso
 
@@ -184,6 +225,8 @@ class ColaItemRedis:
         # 🟢 FIX HALLAZGO 47: Preservar correlation_id en el modelo duradero de Python
         self.correlation_id = str(data.get("correlation_id", "N/A"))
         self.es_duplicado = bool(data.get("es_duplicado", False))
+        # 🟢 FIX P0-04: versión del payload, usada para detectar sobrescrituras concurrentes
+        self.version = int(data.get("version", 1))
 
     def to_dict(self) -> dict:
         return {
@@ -201,7 +244,8 @@ class ColaItemRedis:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "correlation_id": self.correlation_id,  # 🟢 FIX HALLAZGO 47
-            "es_duplicado": self.es_duplicado
+            "es_duplicado": self.es_duplicado,
+            "version": self.version  # 🟢 FIX P0-04
         }
 
     def to_summary_dict(self) -> dict:
@@ -315,40 +359,75 @@ class QueueService:
             logger.error(f"❌ [Cola Redis] Error ejecutando Lua Script de encolado para {smart_code}: {e}")
             raise
 
-    async def marcar_sfc_completado(self, registro_id: int, sfc_response: Optional[Dict[str, Any]] = None):
+    async def marcar_sfc_completado(
+        self,
+        registro_id: int,
+        sfc_response: Optional[Dict[str, Any]] = None,
+        max_intentos_persistencia: int = 3
+    ):
+        """
+        🟢 FIX P0-06: Esta es la escritura más crítica de todo el flujo — si SFC ya recibió
+        y procesó el envío pero esto falla en persistirse, el próximo reintento puede
+        reenviar la misma operación a SFC. Ya no se traga la excepción: reintenta con
+        backoff corto y, si sigue fallando, propaga para que el caller lo trate como una
+        falla crítica de infraestructura (no como un fallo normal de la operación).
+        """
         if not self.redis:
-            return
+            raise RuntimeError("Cliente de Redis no disponible al intentar persistir SFC_DONE.")
 
         item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
-        try:
-            raw_item = await self.redis.get(item_key)
-            if not raw_item:
+        ultimo_error: Optional[Exception] = None
+
+        for intento in range(1, max_intentos_persistencia + 1):
+            try:
+                raw_item = await self.redis.get(item_key)
+                if not raw_item:
+                    logger.warning(f"⚠️ [Cola Redis] No se encontró el registro {registro_id} al marcar sfc_completado.")
+                    return
+
+                data = json.loads(raw_item, strict=False)
+                data["sfc_completado"] = True
+                data["estado"] = SmartStatus.SFC_DONE.value
+                if sfc_response is not None:
+                    data["sfc_response"] = sfc_response
+                data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
+
+                await self.redis.set(item_key, json.dumps(data, ensure_ascii=False))
+                logger.info(f"📌 [Cola Redis] Ítem {registro_id} ({data.get('smart_code')}) actualizado a {SmartStatus.SFC_DONE.value}.")
                 return
+            except Exception as e:
+                ultimo_error = e
+                logger.warning(
+                    f"⚠️ [Cola Redis] Intento {intento}/{max_intentos_persistencia} fallido marcando "
+                    f"sfc_completado para registro {registro_id}: {e}"
+                )
+                if intento < max_intentos_persistencia:
+                    await asyncio.sleep(0.5 * intento)
 
-            data = json.loads(raw_item, strict=False)
-            data["sfc_completado"] = True
-            data["estado"] = SmartStatus.SFC_DONE.value
-            if sfc_response is not None:
-                data["sfc_response"] = sfc_response
-            data["updated_at"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-
-            await self.redis.set(item_key, json.dumps(data, ensure_ascii=False))
-            logger.info(f"📌 [Cola Redis] Ítem {registro_id} ({data.get('smart_code')}) actualizado a {SmartStatus.SFC_DONE.value}.")
-        except Exception as e:
-            logger.error(f"Error marcando sfc_completado para registro {registro_id} en Redis: {e}")
+        raise RuntimeError(
+            f"No fue posible persistir SFC_DONE para el registro {registro_id} tras "
+            f"{max_intentos_persistencia} intentos. Último error: {ultimo_error}"
+        )
 
     async def reclamar_item_para_procesamiento(
-        self, 
-        registro_id: int, 
-        worker_id: str, 
+        self,
+        registro_id: int,
+        worker_id: str,
         lease_segundos: int = 60
-    ) -> bool:
+    ) -> Optional[ColaItemRedis]:
+        """
+        Reclama el item y devuelve, en el MISMO paso atómico, el contenido tal como está
+        en Redis en ese instante (🟢 FIX P0-04). Devolver un simple bool obligaba al caller
+        a reusar la copia leída durante el listado previo, que pudo haber sido sobrescrita
+        por un evento más nuevo del mismo smart_code entre el listado y el claim.
+        """
         if not self.redis:
-            return False
+            return None
 
         keys = [
             f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
-            f"{QUEUE_PREFIX}:claim:{registro_id}"
+            f"{QUEUE_PREFIX}:claim:{registro_id}",
+            f"{QUEUE_PREFIX}:item:{registro_id}"
         ]
         args = [
             str(registro_id),
@@ -359,10 +438,12 @@ class QueueService:
         try:
             raw_res = await self.redis.eval(CLAIM_ITEM_LUA_SCRIPT, len(keys), *keys, *args)
             res = json.loads(raw_res)
-            return res.get("claimed", False)
+            if not res.get("claimed", False):
+                return None
+            return ColaItemRedis(res["item"])
         except Exception as e:
             logger.error(f"Error al reclamar ítem {registro_id} en Redis: {e}")
-            return False
+            return None
 
     async def obtener_casos_vencidos_sla(self, horas_limite: int = 12) -> List[Dict[str, Any]]:
         if not self.redis:
@@ -429,7 +510,16 @@ class QueueService:
             logger.error(f"Error obteniendo pendientes para reintento en Redis: {e}")
             return []
 
-    async def marcar_exitoso(self, registro_id: int):
+    async def marcar_exitoso(self, registro_id: int, worker_id: str, expected_version: int) -> str:
+        """
+        Retorna el resultado de la transición: "completed", "not_owner",
+        "version_mismatch" o "not_found". Sólo lanza excepción ante un fallo real de
+        Redis/Lua (conexión, script, etc.) — "not_owner"/"version_mismatch" son carreras
+        benignas (🟢 FIX P0-04/P0-05): el envío a SFC sí ocurrió, pero este worker ya no
+        tiene autoridad sobre el registro (perdió el lease, o el contenido fue
+        sobrescrito por un evento más nuevo del mismo caso) y por eso NO debe completarlo
+        ni contarse como fallo de reintentos.
+        """
         if not self.redis:
             logger.error("❌ [Cola Redis] Cliente de Redis no inicializado al intentar marcar éxito.")
             raise RuntimeError("Cliente de Redis no disponible.")
@@ -445,7 +535,9 @@ class QueueService:
         args = [
             str(registro_id),
             now_bogota.isoformat(),
-            SmartStatus.COMPLETED.value
+            SmartStatus.COMPLETED.value,
+            worker_id,
+            str(expected_version)
         ]
 
         try:
@@ -456,12 +548,26 @@ class QueueService:
                 reason = res.get("reason", "error_desconocido")
                 if reason == "item_not_found":
                     logger.warning(f"⚠️ [Cola Redis] Intentando marcar como exitoso un registro inexistente: {registro_id}")
-                    return
+                    return "not_found"
+                if reason == "not_owner":
+                    logger.warning(
+                        f"⚠️ [Cola Redis] Registro {registro_id} ya no pertenece al worker {worker_id} "
+                        f"(lease perdido/reclamado por otro worker). No se completa desde aquí."
+                    )
+                    return "not_owner"
+                if reason == "version_mismatch":
+                    logger.warning(
+                        f"⚠️ [Cola Redis] Registro {registro_id} fue sobrescrito por un evento más nuevo "
+                        f"del mismo caso mientras se procesaba (versión esperada {expected_version}). "
+                        f"No se marca COMPLETED; el contenido vigente se reintentará en su turno."
+                    )
+                    return "version_mismatch"
                 raise RuntimeError(
                     f"Fallo en transición de estado a {SmartStatus.COMPLETED.value} en Redis para el registro {registro_id}. Razón: {reason}"
                 )
 
             logger.info(f"✅ [Cola Redis] Ítem {registro_id} actualizado a {SmartStatus.COMPLETED.value} exitosamente.")
+            return "completed"
 
         except Exception as e:
             logger.error(f"❌ [Cola Redis] Excepción al marcar exitoso el registro {registro_id}: {e}")

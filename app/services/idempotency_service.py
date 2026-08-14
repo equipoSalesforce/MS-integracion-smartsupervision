@@ -1,12 +1,14 @@
 # app/services/idempotency_service.py
+import asyncio
 import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, Set
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
+from app.core.constants import SmartStatus
 from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
@@ -24,14 +26,31 @@ class IdempotencyService:
     prevenir transmisiones duplicadas hacia la SFC.
     """
 
+    # 🟢 FIX P0-11: campos que el esquema Pydantic auto-rellena con la fecha/hora ACTUAL
+    # cuando el cliente los omite (ver `auto_completar_y_validar_fecha_creacion` para
+    # CreatedDate, mode="before"; y el auto-relleno de ClosedDate en
+    # `validar_reglas_segun_datos_presentes`). Si participaran en el hash, dos envíos
+    # IDÉNTICOS del mismo request (mismo campo omitido) generarían hashes distintos según
+    # el instante exacto de procesamiento de cada uno, rompiendo la deduplicación de
+    # idempotencia justo para el caso que más importa: un reintento genuino del mismo
+    # request. Se excluyen del hash para todos los llamadores por igual.
+    CAMPOS_EXCLUIDOS_DEL_HASH = {"CreatedDate", "ClosedDate"}
+
     def __init__(self, redis_client=None, ttl_days: int = 30):
         self.redis = redis_client
         self.ttl_seconds = ttl_days * 86400
 
     @staticmethod
     def compute_payload_hash(payload_dict: dict) -> str:
-        """Genera un hash SHA-256 determinista del payload ordenando sus llaves."""
-        serialized = json.dumps(payload_dict, sort_keys=True, ensure_ascii=False)
+        """
+        Genera un hash SHA-256 determinista de un payload CANÓNICO: ordena las llaves y
+        excluye los campos con auto-relleno no determinista (🟢 FIX P0-11).
+        """
+        canonico = {
+            k: v for k, v in payload_dict.items()
+            if k not in IdempotencyService.CAMPOS_EXCLUIDOS_DEL_HASH
+        }
+        serialized = json.dumps(canonico, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     def _get_idempotency_key(self, smart_code: str, operation: str, payload_hash: str) -> str:
@@ -146,18 +165,41 @@ class IdempotencyService:
                         }
 
                     if op_status == "QUEUED":
-                        logger.info(
-                            f"📦 [Idempotency Store] La operación '{operation}' para {smart_code} "
-                            f"(Hash: {payload_hash[:8]}) ya está encolada."
+                        # 🟢 FIX P0-12: antes de reportar "ya encolado", verificar que el item
+                        # de cola referenciado siga existiendo, pendiente, y con ESTE mismo
+                        # payload. Si otro evento del mismo smart_code lo sobrescribió (ver
+                        # ENQUEUE_LUA_SCRIPT), este registro quedó huérfano: liberarlo y dejar
+                        # que la operación se procese como nueva, en vez de mentir que sigue
+                        # encolada cuando en realidad nunca se procesará en esta forma.
+                        sigue_vigente = await self._item_de_cola_sigue_vigente(
+                            record.get("queue_item_id"), payload_hash
                         )
-                        return True, {
-                            "status": "already_queued",
-                            "is_idempotent_hit": True,
-                            "smart_code": smart_code,
-                            "operation": operation,
-                            "payload_hash": payload_hash,
-                            "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
-                        }
+
+                        if sigue_vigente:
+                            logger.info(
+                                f"📦 [Idempotency Store] La operación '{operation}' para {smart_code} "
+                                f"(Hash: {payload_hash[:8]}) ya está encolada."
+                            )
+                            return True, {
+                                "status": "already_queued",
+                                "is_idempotent_hit": True,
+                                "smart_code": smart_code,
+                                "operation": operation,
+                                "payload_hash": payload_hash,
+                                "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
+                            }
+
+                        logger.warning(
+                            f"⚠️ [Idempotency Store] Registro QUEUED huérfano para {smart_code} "
+                            f"({operation} | Hash: {payload_hash[:8]}): el item de cola "
+                            f"{record.get('queue_item_id')} ya no contiene este payload. Liberando "
+                            f"y procesando como una operación nueva."
+                        )
+                        try:
+                            await self.redis.delete(key)
+                        except Exception as del_err:
+                            logger.warning(f"No se pudo liberar el registro QUEUED huérfano para {smart_code}: {del_err}")
+                        # No retorna: cae hacia abajo para iniciar como PROCESSING nuevo.
 
             initial_record = {
                 "source": source,
@@ -221,9 +263,21 @@ class IdempotencyService:
                 }
             return False, None
 
-    async def registrar_exito(self, smart_code: str, payload_dict: dict, sfc_response: dict):
+    async def registrar_exito(
+        self,
+        smart_code: str,
+        payload_dict: dict,
+        sfc_response: dict,
+        max_intentos_persistencia: int = 3
+    ):
+        """
+        🟢 FIX P0-06: registrar COMPLETED aquí es lo que evita que una petición fresca
+        duplicada (misma operación/payload) vuelva a disparar la SFC por la vía síncrona.
+        Ya no se traga la excepción de Redis: reintenta con backoff corto y, si sigue
+        fallando, propaga para que el caller lo trate como falla crítica de infraestructura.
+        """
         if not self.redis:
-            return
+            raise RuntimeError("Cliente de Redis no disponible al intentar registrar éxito de idempotencia.")
 
         operation = self.infer_operation_type(payload_dict)
         payload_hash = self.compute_payload_hash(payload_dict)
@@ -241,16 +295,38 @@ class IdempotencyService:
             "sfc_response": sfc_response
         }
 
-        try:
-            await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
-            logger.info(
-                f"✅ [Idempotency Store] Operación '{operation}' para {smart_code} "
-                f"(Hash: {payload_hash[:8]}) registrada como COMPLETED."
-            )
-        except Exception as e:
-            logger.error(f"Error registrando éxito en Idempotency Store para {smart_code}: {e}")
+        ultimo_error: Optional[Exception] = None
+        for intento in range(1, max_intentos_persistencia + 1):
+            try:
+                await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
+                logger.info(
+                    f"✅ [Idempotency Store] Operación '{operation}' para {smart_code} "
+                    f"(Hash: {payload_hash[:8]}) registrada como COMPLETED."
+                )
+                return
+            except Exception as e:
+                ultimo_error = e
+                logger.warning(
+                    f"⚠️ [Idempotency Store] Intento {intento}/{max_intentos_persistencia} fallido "
+                    f"registrando éxito para {smart_code}: {e}"
+                )
+                if intento < max_intentos_persistencia:
+                    await asyncio.sleep(0.5 * intento)
 
-    async def registrar_encolado(self, smart_code: str, payload_dict: dict, error_msg: str):
+        raise RuntimeError(
+            f"No fue posible registrar éxito de idempotencia para {smart_code} tras "
+            f"{max_intentos_persistencia} intentos. Último error: {ultimo_error}"
+        )
+
+    async def registrar_encolado(
+        self, smart_code: str, payload_dict: dict, error_msg: str, registro_id: Optional[int] = None
+    ):
+        """
+        🟢 FIX P0-12: se guarda `queue_item_id` (el id del item de cola real) junto con el
+        estado QUEUED, para poder verificar más adelante si ese item sigue conteniendo
+        este mismo payload — o si fue sobrescrito por un evento más nuevo del mismo
+        smart_code y este registro de idempotencia quedó huérfano.
+        """
         if not self.redis:
             return
 
@@ -268,13 +344,40 @@ class IdempotencyService:
             "created_at": now_iso,
             "completed_at": None,
             "sfc_response": None,
-            "error_msg": error_msg
+            "error_msg": error_msg,
+            "queue_item_id": registro_id
         }
 
         try:
             await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
         except Exception as e:
             logger.error(f"Error registrando estado QUEUED en Idempotency Store para {smart_code}: {e}")
+
+    async def _item_de_cola_sigue_vigente(self, queue_item_id: Optional[int], payload_hash: str) -> bool:
+        """
+        🟢 FIX P0-12: verifica que el item de cola referenciado por un registro QUEUED
+        todavía exista, siga pendiente, y su payload actual corresponda al MISMO hash —
+        es decir, que no haya sido sobrescrito por un evento más nuevo del mismo
+        smart_code (ver ENQUEUE_LUA_SCRIPT en queue_service.py, que reutiliza el mismo
+        item_id al colisionar). No se importa QueueService/QUEUE_PREFIX a nivel de módulo
+        para evitar el ciclo de imports ya existente entre este servicio y queue_service.
+        """
+        if not queue_item_id or not self.redis:
+            # Registros QUEUED previos a este fix no tienen queue_item_id almacenado;
+            # se asume vigente para no romper items ya en vuelo al desplegar el cambio.
+            return True
+        try:
+            raw_item = await self.redis.get(f"{{sfc:queue}}:item:{queue_item_id}")
+            if not raw_item:
+                return False
+            data = json.loads(raw_item)
+            if data.get("estado") != SmartStatus.PENDING.value:
+                return False
+            item_hash = self.compute_payload_hash(data.get("payload_json") or {})
+            return item_hash == payload_hash
+        except Exception as e:
+            logger.warning(f"No se pudo verificar vigencia del item de cola {queue_item_id}: {e}")
+            return True  # Fail-open: ante la duda, no se altera el comportamiento previo.
 
     async def liberar_por_fallo_definitivo(self, smart_code: str, payload_dict: dict):
         if not self.redis:
@@ -309,3 +412,64 @@ class IdempotencyService:
             )
         except Exception as e:
             logger.error(f"Error liberando candado de idempotencia por error para {smart_code}: {e}")
+
+    # ==========================================================================
+    # 🟢 FIX P0-10: CHECKPOINT DURABLE POR ARCHIVO/PASO
+    # ==========================================================================
+    # Complementa la idempotencia a nivel de request completo: registra qué archivos
+    # individuales ya fueron confirmados como transmitidos a la SFC para un caso, para
+    # que un reintento del LOTE completo (tras un fallo parcial) no vuelva a reenviar
+    # los que ya tuvieron éxito. Antes de esto, la única protección era la detección de
+    # duplicados del propio lado de la SFC (best-effort, por coincidencia de texto).
+
+    def _get_checkpoint_key(self, sfc_codigo_queja: str) -> str:
+        return f"{IDEMPOTENCY_PREFIX}:file_checkpoint:{sfc_codigo_queja}"
+
+    async def obtener_archivos_completados(self, sfc_codigo_queja: str) -> Set[str]:
+        """Devuelve el conjunto de identificadores de archivo (s3_key) ya confirmados
+        como transmitidos exitosamente a la SFC para este caso."""
+        if not self.redis:
+            return set()
+        key = self._get_checkpoint_key(sfc_codigo_queja)
+        try:
+            raw_keys = await self.redis.hkeys(key)
+            return {k if isinstance(k, str) else k.decode("utf-8") for k in raw_keys}
+        except Exception as e:
+            # Fail-open deliberado: en el peor caso se reintenta un archivo que ya había
+            # tenido éxito (el comportamiento previo a este fix), no se pierde ni duplica
+            # nada nuevo — la protección de fondo sigue siendo la deduplicación de la SFC.
+            logger.error(f"Error consultando checkpoint de archivos para {sfc_codigo_queja}: {e}")
+            return set()
+
+    async def marcar_archivo_completado(
+        self, sfc_codigo_queja: str, identificador_archivo: str, metadata: Optional[dict] = None
+    ):
+        """Registra que un archivo específico ya fue transmitido exitosamente a la SFC.
+        Se llama INMEDIATAMENTE tras el éxito de CADA archivo (no al final del lote),
+        para no perder el progreso ya confirmado si otro archivo del mismo lote falla
+        después."""
+        if not self.redis:
+            return
+        key = self._get_checkpoint_key(sfc_codigo_queja)
+        try:
+            valor = json.dumps(metadata or {"completed_at": datetime.now(ZoneInfo("America/Bogota")).isoformat()}, ensure_ascii=False)
+            await self.redis.hset(key, identificador_archivo, valor)
+            await self.redis.expire(key, self.ttl_seconds)
+        except Exception as e:
+            logger.error(
+                f"⚠️ [Idempotency Store] No se pudo persistir el checkpoint del archivo "
+                f"'{identificador_archivo}' para {sfc_codigo_queja}: {e}. "
+                f"El archivo SÍ fue transmitido a la SFC; un reintento podría reenviarlo "
+                f"y depender de la deduplicación del lado de la SFC."
+            )
+
+    async def limpiar_checkpoint_archivos(self, sfc_codigo_queja: str):
+        """Libera el checkpoint una vez que el caso completó su ciclo (éxito definitivo o
+        fallo definitivo), para no acumular claves indefinidamente."""
+        if not self.redis:
+            return
+        key = self._get_checkpoint_key(sfc_codigo_queja)
+        try:
+            await self.redis.delete(key)
+        except Exception as e:
+            logger.error(f"Error liberando checkpoint de archivos para {sfc_codigo_queja}: {e}")

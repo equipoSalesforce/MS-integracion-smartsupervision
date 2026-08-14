@@ -235,10 +235,14 @@ async def despachar_queja_crm(
             )
             
             # 📌 REGISTRAR EN IDEMPOTENCY STORE COMO QUEUED
+            # 🟢 FIX P0-12: se pasa el id real del item de cola para poder detectar más
+            # adelante si este registro de idempotencia quedó huérfano (item sobrescrito
+            # por un evento más nuevo del mismo smart_code).
             await idempotency_service.registrar_encolado(
                 smart_code=payload.Smart_Code__c,
                 payload_dict=raw_payload,
-                error_msg=error_detalle
+                error_msg=error_detalle,
+                registro_id=item_encolado.id
             )
             operacion_exitosa_o_encolada = True
             
@@ -299,11 +303,30 @@ async def despachar_queja_crm(
             )
             
         # 📌 REGISTRAR ÉXITO EN IDEMPOTENCY STORE (Camino Exitoso Síncrono)
-        await idempotency_service.registrar_exito(
-            smart_code=payload.Smart_Code__c,
-            payload_dict=raw_payload,
-            sfc_response=resultado
-        )
+        # 🟢 FIX P0-06: SFC ya proceso exitosamente el caso en este punto. Si SÓLO falla la
+        # persistencia del registro de idempotencia, esto NO debe convertirse en un 500 para
+        # el CRM: el bloque `finally` de abajo liberaría la llave (por `operacion_exitosa_o_
+        # encolada` seguir en False) y un reintento del CRM ante ese 500, sin idempotencia
+        # activa, volvería a llegar a la SFC — exactamente el duplicado que se quiere evitar.
+        # Se alerta como falla crítica de infraestructura en su lugar, sin alterar la
+        # respuesta exitosa que sí corresponde a lo que realmente ocurrió en la SFC.
+        try:
+            await idempotency_service.registrar_exito(
+                smart_code=payload.Smart_Code__c,
+                payload_dict=raw_payload,
+                sfc_response=resultado
+            )
+        except Exception as persist_err:
+            logger.critical(
+                f"🔥 [Idempotency] SFC procesó exitosamente el caso {payload.Smart_Code__c} pero no fue "
+                f"posible persistir el registro de idempotencia: {persist_err}. "
+                f"Ventana de riesgo ante un duplicado inmediato del mismo request."
+            )
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code=payload.Smart_Code__c,
+                error_msg=f"Persistencia de idempotencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+            )
+
         operacion_exitosa_o_encolada = True
 
         return resultado

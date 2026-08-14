@@ -182,6 +182,11 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         reg.id = 1
         reg.smart_code = "1423111"
         reg.payload_json = {"Smart_Code__c": "1423111"}
+        reg.correlation_id = "N/A"
+        reg.sfc_completado = False
+        reg.sfc_response = {}
+        reg.version = 1
+        reg.to_dict = MagicMock(return_value={"correlation_id": "N/A"})
 
         redis_mock = AsyncMock()
         redis_mock.set = AsyncMock(return_value=True)
@@ -201,9 +206,10 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=casos_vencidos)
             instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
             instance_qs.contar_pendientes = AsyncMock(return_value=0)
-            instance_qs.marcar_exitoso = AsyncMock()
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
             instance_qs.registrar_fallo = AsyncMock()
-            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=True)
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
 
             instance_orq = MockOrquestador.return_value
             instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
