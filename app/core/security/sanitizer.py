@@ -2,7 +2,7 @@
 import json
 import re
 import logging
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -18,21 +18,40 @@ IGNORED_LOG_HEADERS = {
     "x-frame-options", "permissions-policy", "content-security-policy"
 }
 
-# 🟢 FIX HALLAZGO 30: Ampliación de campos de PII, credenciales y texto sensible/reclamos (SFC y CRM)
-SENSITIVE_FIELDS = {
-    # PII e Identificación
-    "nombres", "suppliedname", "numero_id_cf", "id_number__c", 
-    "correo", "suppliedemail", "telefono", "suppliedphone", 
-    "direccion", "direccion__c", "first_name", "last_name", 
-    "email", "phone", "address", "nombre", "apellido", "apellidos",
-    
-    # Credenciales y Secretos
-    "sfc_password", "password", "secret_key", "sfc_secret_key", "api_key",
-    
-    # 🛡️ Datos Sensibles de Reclamaciones y Contenido de Texto Libre (Hallazgo 30)
-    "description", "texto_queja", "cuerpo_respuesta_final", 
-    "cuerpo_correo", "argumento_replica", "texto_crm"
+# 🟡 FIX P1-16: se reemplazó el enfoque de blocklist (SENSITIVE_FIELDS) por una
+# allowlist (CAMPOS_LOGGEABLES). Con blocklist, un campo NUEVO que alguien olvide
+# agregar aquí se loggea sin enmascarar por defecto — el default es inseguro. Con
+# allowlist, cualquier campo desconocido se enmascara por defecto y sólo lo
+# explícitamente aprobado (identificadores, códigos de clasificación, timestamps,
+# metadatos de archivo) se loggea en claro; el default ahora es seguro.
+CAMPOS_LOGGEABLES = {
+    # Identificadores / trazabilidad (no PII: códigos internos, no datos personales)
+    "case_id", "smart_code__c", "smart_code", "codigo_queja", "correlation_id",
+    "tipo_operacion", "operation", "registro_id", "queue_item_id", "worker_id",
+    "event_id", "id", "source", "status_code", "error_type", "sfc_field",
+
+    # Clasificación / estado del caso (catálogos, no datos personales)
+    "status", "estado", "estado_cod", "canal__c", "punto_recepcion",
+    "instancia_de_recepcion__c", "product__c", "smart_producto_nombre__c",
+    "categorias_col__c", "tutela__c", "ente_de_control__c", "admision_col__c",
+    "sc_id_type__c", "sc_genero__c", "tipo_de_persona__c", "sc_lgbtiq__c",
+    "sc_condicion_especial__c", "smart_escalamiento_dcf__c", "smart_anexo_queja__c",
+    "quejas_express__c", "producto_digital__c", "departamento__c", "sc_municipio__c",
+    "codigo_pais__c", "tipo_fraude__c", "modalidad_fraude__c", "favorabilidad__c",
+    "aceptacion__c", "rectificacion__c", "prorroga__c", "a_favor_de__c",
+    "desistimiento_queja__c", "marcacion__c", "card_amount__c",
+    "total_devuelto_por_desconocimiento__c",
+
+    # Timestamps
+    "createddate", "closeddate", "lastmodifieddate", "fecha_creacion",
+    "fecha_cierre", "fecha_actualizacion", "created_at", "updated_at", "completed_at",
+
+    # Metadatos de archivo (ubicación, no contenido)
+    "archivos_s3", "s3_key", "nombre_archivo", "bucket", "nombre_archivo_fraude",
+    "directorio_s3",
 }
+
+REDACTED_PLACEHOLDER = "[REDACTED]"
 
 DANGEROUS_TAGS_RE = re.compile(
     r"<(script|iframe|embed|object|link|meta|base)[^>]*?>", 
@@ -69,18 +88,49 @@ def sanitizar_headers(headers: Any) -> Dict[str, str]:
 
 
 def sanitizar_payload(data: Union[Dict, list, str, Any]) -> Any:
-    """Recorre recursivamente un JSON y enmascara los campos declarados como PII o sensibles."""
+    """
+    Recorre recursivamente un JSON y sólo deja en claro los campos declarados en
+    CAMPOS_LOGGEABLES (allowlist); cualquier campo NO reconocido se redacta por
+    defecto, sea PII conocida o un campo nuevo que aún no se haya clasificado.
+    """
     if isinstance(data, dict):
         cleaned = {}
         for k, v in data.items():
-            if str(k).lower() in SENSITIVE_FIELDS and isinstance(v, str):
-                cleaned[k] = mask_value(v)
-            else:
+            if isinstance(v, (dict, list)):
+                # Se recorre siempre, sea o no la llave contenedora parte de la
+                # allowlist: los campos PII anidados igual se enmascaran por su
+                # propio nombre: no perder de vista sub-campos legítimamente
+                # loggeables sólo porque el contenedor no fue clasificado.
                 cleaned[k] = sanitizar_payload(v)
+            elif str(k).lower() in CAMPOS_LOGGEABLES:
+                cleaned[k] = v
+            elif isinstance(v, str):
+                cleaned[k] = mask_value(v)
+            elif v is None:
+                cleaned[k] = None
+            else:
+                cleaned[k] = REDACTED_PLACEHOLDER
         return cleaned
     elif isinstance(data, list):
         return [sanitizar_payload(item) for item in data]
     return data
+
+
+def sanitizar_texto_plano(raw_text: Optional[str], max_chars: int = 120) -> str:
+    """
+    🟡 FIX P1-16: para cuerpos de respuesta que NO son JSON (HTML, texto plano de un
+    error upstream), no hay estructura de campos que enmascarar selectivamente — y ese
+    texto puede reflejar de vuelta datos del payload original enviado (ej. un mensaje
+    de error de la SFC/CRM que cita el valor rechazado). En vez de loggear el texto
+    completo sin control, se registra sólo tamaño y una vista previa acotada, igual de
+    útil para depurar sin arriesgar un volcado completo de datos externos a CloudWatch.
+    """
+    if not raw_text:
+        return "<vacío>"
+    largo = len(raw_text)
+    preview = raw_text[:max_chars].replace("\n", " ").replace("\r", " ")
+    sufijo = "..." if largo > max_chars else ""
+    return f"<contenido no-JSON, {largo} caracteres> preview='{preview}{sufijo}'"
 
 
 def sanitizar_html_para_pdf(html_raw: str) -> str:

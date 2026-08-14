@@ -5,7 +5,7 @@ import httpx
 from typing import Optional
 from app.core.config import settings
 from app.core.middleware import get_correlation_id
-from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,13 @@ class CrmWebhookService:
                     raw_json = response.json()
                     res_body_clean = sanitizar_payload(raw_json)
                 except Exception:
-                    res_body_clean = response.text or None
+                    # 🟡 FIX P1-16: JSON malformado igual puede reflejar datos del
+                    # request original — no se loggea el texto completo sin control.
+                    res_body_clean = sanitizar_texto_plano(response.text)
             else:
-                res_body_clean = response.text or None
+                # 🟡 FIX P1-16: respuesta no-JSON de un sistema externo (CRM); mismo
+                # criterio que en sfc_client.py: tamaño + vista previa acotada.
+                res_body_clean = sanitizar_texto_plano(response.text)
 
             logger.debug("AUDIT_HTTP_INCOMING_RESPONSE_CRM_WEBHOOK", extra={
                 "extra_data": {

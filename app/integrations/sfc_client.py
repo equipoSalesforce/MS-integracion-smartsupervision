@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager 
 from app.core.constants import SfcEndpoints, SmartStatus
-from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload
+from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 from app.core.middleware import get_aws_trace_id, get_correlation_id
 from app.core.security.signatures import ssl_context
 
@@ -98,7 +98,10 @@ async def log_response(response: httpx.Response):
         else:
             body_clean = None
     except Exception:
-        body_clean = response.text or None
+        # 🟡 FIX P1-16: un body no-JSON (HTML de error, texto plano) no tiene campos
+        # que enmascarar selectivamente y puede reflejar datos del request original —
+        # se registra tamaño + vista previa acotada en vez del contenido completo.
+        body_clean = sanitizar_texto_plano(response.text)
 
     logger.info("AUDIT_HTTP_INCOMING_RESPONSE", extra={
         "extra_data": {
@@ -253,7 +256,7 @@ class SfcClient:
         try:
             response = await self.client.post(url, json=payload_mapeado, auth=self.interceptor)
             if response.status_code not in (200, 201):
-                logger.error(f"SFC rechazó la queja. Código: {response.status_code}. Respuesta: {response.text}")
+                logger.error(f"SFC rechazó la queja. Código: {response.status_code} (detalle sanitizado disponible en AUDIT_HTTP_INCOMING_RESPONSE)")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
             return response.json()
         except httpx.HTTPStatusError as exc:
@@ -308,7 +311,7 @@ class SfcClient:
             )
 
             if response.status_code not in (200, 201):
-                logger.error(f"SFC rechazó la carga del archivo. Código: {response.status_code}. Respuesta: {response.text}")
+                logger.error(f"SFC rechazó la carga del archivo. Código: {response.status_code} (detalle sanitizado disponible en AUDIT_HTTP_INCOMING_RESPONSE)")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
                 
             return response.json()
@@ -325,7 +328,7 @@ class SfcClient:
         try:
             response = await self.client.patch(url, json=payload, auth=self.interceptor)
             if response.status_code not in (200, 201):
-                logger.error(f"SFC rechazó la actualización del caso. Código: {response.status_code}. Respuesta: {response.text}")
+                logger.error(f"SFC rechazó la actualización del caso. Código: {response.status_code} (detalle sanitizado disponible en AUDIT_HTTP_INCOMING_RESPONSE)")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)
             return response.json()
         except httpx.HTTPStatusError as exc:
