@@ -36,6 +36,7 @@ El microservicio está diseñado bajo una arquitectura distribuida y desacoplada
 * **🔄 Mecanismo de Contingencia y Resiliencia (Redis + APScheduler):** Si la API de la SFC está lenta (>3s) o devuelve cuota agotada (`HTTP 429 / RESOURCE_EXHAUSTED`), el caso se encola de inmediato en Redis y responde `HTTP 202 Accepted` al cliente, procesándose en segundo plano.
 * **🩹 Mecanismo de Auto-Recuperación (Self-Healing):** Si la SFC devuelve un error `404 Not Found` al intentar actualizar un caso en Momento 3, el orquestador radicará automáticamente la queja base en Momento 2 y re-ejecutará la actualización de M3 de forma transparente.
 * **📄 Generación Automática de Dictámenes PDF:** Renderizado dinámico de respuestas finales de cierre en formato PDF mediante ReportLab, subida automática a S3 y transmisión del adjunto a la SFC con el afijo normativo `RESP_FINAL_SFC`.
+* **📊 Observabilidad vía CloudWatch EMF:** Cada ciclo del *Scheduler* emite métricas en formato CloudWatch Embedded Metric Format (namespace `SSV/Queue`: `queue_depth`, `oldest_pending_age_seconds`, `dispatch_success`, `dispatch_failure`) directo a stdout — sin infraestructura adicional, ya que CloudWatch las extrae automáticamente del log del contenedor.
 
 ---
 
@@ -54,15 +55,18 @@ Crea un archivo `.env` en la raíz del proyecto tomando como base `.env.example`
 
 | Variable                    | Descripción                                        | Valor por Defecto                 |
 | :-------------------------- | :-------------------------------------------------- | :-------------------------------- |
-| `ENVIRONMENT`             | Entorno de ejecución (`local`, `qa`, `prod`) | `qa`                            |
-| `PROJECT_NAME`            | Nombre del Microservicio                            | `ms-test-integracion`           |
-| `SFC_URL_BASE`            | URL Base del API Gateway de la SFC                  | `https://api-sfc-qa.cloud.goog` |
-| `SFC_TIPO_ENTIDAD`        | Tipo de entidad asignado por la SFC                 | `14`                            |
-| `SFC_ENTIDAD_COD`         | Código único de la entidad                        | `23`                            |
-| `REDIS_HOST`              | Host del servidor Redis                             | `redis`                         |
+| `ENVIRONMENT`             | Entorno de ejecución (`local`, `qa`, `prod`) | `local`                            |
+| `PROJECT_NAME`            | Nombre del Microservicio                            | `MS-integracion-smartsupervision`           |
+| `SFC_URL_BASE`            | URL Base del API Gateway de la SFC                  | *(obligatoria, sin default)* |
+| `SFC_TIPO_ENTIDAD`        | Tipo de entidad asignado por la SFC                 | `128`                            |
+| `SFC_ENTIDAD_COD`         | Código único de la entidad                        | `6`                            |
+| `REDIS_HOST`              | Host del servidor Redis                             | `localhost`                         |
 | `REDIS_PORT`              | Puerto de Redis                                     | `6379`                          |
-| `AWS_S3_ENDPOINT_URL`     | URL de S3 o MinIO                                   | `http://minio:9000`             |
-| `SFC_MINI_RETRY_ATTEMPTS` | Reintentos HTTP síncronos inmediatos               | `0` (Sencillo a cola)           |
+| `AWS_S3_ENDPOINT_URL`     | URL de S3 o MinIO (dejar vacío para AWS S3 real)    | *(sin default; sugerido local: `http://minio:9000`)* |
+| `SFC_MINI_RETRY_ATTEMPTS` | Reintentos HTTP síncronos inmediatos               | `2`           |
+| `SMTP_FROM_EMAIL`         | Remitente visible de alertas (separado de `SMTP_USER`, obligatorio en SES) | *(sin default; cae a `SMTP_USER`)* |
+| `SFC_SYNC_MAX_PAGINAS`    | Máx. páginas por ciclo de paginación SFC (M1/M4)    | `1000`                          |
+| `SFC_SYNC_MAX_SEGUNDOS`   | Tiempo máx. por ciclo de paginación SFC (M1/M4)     | `300`                          |
 
 ---
 
@@ -177,7 +181,7 @@ El microservicio cuenta con un módulo de monitoreo proactivo que envía alertas
 | **2. Umbral de Acumulación**    | La cola de Redis alcanza múltiplos de**100 casos pendientes**.          | Por cada 100 casos          |
 | **3. Error No Mapeado SFC**      | La SFC responde con un error no registrado en`errores_sfc.json`.             | Inmediata                   |
 | **4. Digest SLA (>12h)**         | Existen casos retenidos en cola por más de**12 horas**.                 | En cada ciclo del Scheduler |
-| **5. Dead Letter Queue (DLQ)**   | Un caso alcanza el límite de**20 reintentos** (`FALLIDO_DEFINITIVO`). | Inmediata                   |
+| **5. Dead Letter Queue (DLQ)**   | Un caso alcanza el límite de**10 reintentos** (`FALLIDO_DEFINITIVO`). | Inmediata                   |
 | **6. Autorrecuperación SFC**    | La SFC vuelve a estar online y la cola se vacía por completo (0 pendientes).  | Eventual                    |
 
 ---
@@ -218,7 +222,7 @@ Genera una tabla resumen con los casos que llevan más de 12 horas esperando ser
 
 ##### ❌ Alerta 5: Caso Fallido Definitivo / Dead Letter Queue (DLQ)
 
-Se dispara cuando un caso agota sus **20 reintentos automáticos** (~31.67 horas en cola). Informa que el caso requiere auditoría manual.
+Se dispara cuando un caso agota sus **10 reintentos automáticos** (~3.75 horas en cola). Informa que el caso requiere auditoría manual.
 
 ![1785942390072](image/Readme/1785942390072.png)
 
@@ -234,22 +238,21 @@ Confirma al equipo que la comunicación con la SFC se restableció y que el *Sch
 
 ## 🧮 3. Ciclo de Vida, Retención y Backoff en Redis
 
-La cola utiliza un algoritmo de **Backoff Lineal** para espaciar los reintentos y evitar saturar la SFC.
+La cola utiliza un algoritmo de **Backoff Lineal** (`espera = QUEUE_RETRY_INTERVAL_MINUTES × intentos`) para espaciar los reintentos y evitar saturar la SFC.
 
-* **Intervalo Base (`QUEUE_RETRY_INTERVAL_MINUTES`):** 10 minutos.
-* **Máximo de Reintentos (`QUEUE_MAX_RETRIES`):** 20 intentos.
-* **Tiempo Máximo en Cola:** **1,900 minutos (31 horas y 40 minutos / 1.32 días)**.
+* **Intervalo Base (`QUEUE_RETRY_INTERVAL_MINUTES`):** 5 minutos.
+* **Máximo de Reintentos (`QUEUE_MAX_RETRIES`):** 10 intentos.
+* **Tiempo Máximo en Cola:** **≈225 minutos (3.75 horas)** antes de pasar a DLQ.
 
 ### Tabla de Progresión de Reintentos
 
-| N° Reintento | Tiempo de Espera |   Tiempo Acumulado   |         Horas Acumuladas         |
-| :-----------: | :--------------: | :------------------: | :------------------------------: |
-|       1       |      10 min      |        10 min        |              0.17 h              |
-|       2       |      20 min      |        30 min        |              0.50 h              |
-|       5       |      50 min      |       150 min       |              2.50 h              |
-|      10      |     100 min     |       550 min       |              9.17 h              |
-|      15      |     150 min     |      1,200 min      |             20.00 h             |
-|      19      |     190 min     | **1,900 min** |        **31.67 h**        |
-|      20      |      0 min      | **Pasa a DLQ** | **`FALLIDO_DEFINITIVO`** |
+| N° Intento | Tiempo de Espera |  Tiempo Acumulado  | Horas Acumuladas |
+| :--------: | :---------------: | :-----------------: | :---------------: |
+|     1     |       5 min       |        5 min        |       0.08 h       |
+|     2     |       10 min       |       15 min       |       0.25 h       |
+|     5     |       25 min       |       75 min       |       1.25 h       |
+|     8     |       40 min       |       180 min       |       3.00 h       |
+|     9     |       45 min       | **225 min** |     **3.75 h**     |
+|     10     |         —         | **Pasa a DLQ** | **`FALLIDO_DEFINITIVO`** |
 
 > 🛡️ **Nota sobre caídas prolongadas:** Si la SFC responde con un error de infraestructura (`429 Throttled`, `502 Bad Gateway`), el *Circuit Breaker* pospone la ejecución de la tanda **sin incrementar el contador de intentos**, protegiendo el caso de ser descartado prematuramente.

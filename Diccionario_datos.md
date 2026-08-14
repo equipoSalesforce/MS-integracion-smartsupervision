@@ -59,7 +59,7 @@ A continuación se detallan todos los atributos soportados por el esquema DTO `Q
 | **`Categorias_COL__c`** | No | N/A | String | Macro motivo / Categoría de la queja. Mapeado al catálogo normativo SFC. |
 | **`archivos_s3`** | Sí | `[]` | List[Object] | Lista de objetos con metadatos de archivos subidos en S3 (`nombre_archivo`, `s3_key`, `bucket`). |
 | **`directorio_s3`** | Sí | `null` | String | Ruta de directorio S3. Permite inspección y enlistado automático de adjuntos. |
-| **`producto_digital__c`** | No | N/A | String | Indica si la queja está asociada a un producto digital. |
+| **`producto_digital__c`** | Sí | `null` | String | Indica si la queja está asociada a un producto digital (`Si`/`No`). **Importante:** su sola presencia (valor no nulo) hace que el caso se clasifique como Momento 3 en vez de alta M2 pura, incluso con `Status="New"` — no enviar este campo en un alta M2 genuina. |
 | **`tipo_fraude__c`** | Sí | `null` | String | Tipo de fraude investigado. **Gatillo para activar Pipeline de Fraude en M3**. |
 | **`modalidad_fraude__c`** | Sí | `null` | String | Modalidad específica del fraude (Suplantación, Phishing, Cajero, etc.). |
 | **`card_amount__c`** | Sí | `0.0` | Float | Monto financiero total reclamado en eventos de fraude. |
@@ -130,7 +130,7 @@ El orquestador de despacho infiere automáticamente la fase y operaciones necesa
 ## 🩹 4. Resiliencia y Mecanismos Especiales
 
 ### 🔄 Mecanismo de Auto-Recuperación (Self-Healing)
-Si el orquestador intenta aplicar un paso de Momento 3 (Trámite, Fraude o Cierre) sobre un caso que no existe previamente en la base de datos de la SFC (la SFC retorna `HTTP 404 Not Found` o un `400` equivalente), se activa la secuencia automática:
+Si el orquestador intenta aplicar un paso de Momento 3 (Trámite, Fraude o Cierre) sobre un caso que no existe previamente en la base de datos de la SFC (la SFC retorna `HTTP 404 Not Found` o un `error_type` estructurado `NOT_FOUND_ERROR`), se activa la secuencia automática. **La activación exige uno de estos dos criterios exactos** — un error de catálogo/mapeo (ej. "producto no encontrado") que sólo coincida por texto libre con la palabra "no encontrado" ya NO dispara esta secuencia:
 
 1. **Paso A (Radicación Base M2):** El orquestador crea la queja inicial en Momento 2 usando los 11 campos base (omitiendo adjuntos iniciales).
 2. **Paso B (Re-ejecución M3):** Una vez recibido el código SFC, se re-ejecuta de forma transparente el pipeline de Momento 3 para aplicar los adjuntos, reportes de fraude o el cierre definitivo.
