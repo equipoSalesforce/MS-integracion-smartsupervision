@@ -1,9 +1,29 @@
 # tests/test_s3_service.py
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from botocore.exceptions import ClientError
 from app.services.s3_service import S3StorageService
 from app.core.exceptions import SfcIntegrationException
+
+
+class _StubRedisHash:
+    """Emula únicamente las operaciones de HASH usadas por el checkpoint de idempotencia
+    (HSET/HKEYS/EXPIRE/DELETE) para probar P0-10 sin depender de un Redis real."""
+
+    def __init__(self):
+        self.hashes = {}
+
+    async def hset(self, key, field, value):
+        self.hashes.setdefault(key, {})[field] = value
+
+    async def hkeys(self, key):
+        return list(self.hashes.get(key, {}).keys())
+
+    async def expire(self, key, ttl):
+        pass
+
+    async def delete(self, key):
+        self.hashes.pop(key, None)
 
 
 class TestS3ServiceErrorHandling(unittest.IsolatedAsyncioTestCase):
@@ -49,6 +69,63 @@ class TestS3ServiceErrorHandling(unittest.IsolatedAsyncioTestCase):
         exc = ctx.exception
         self.assertEqual(exc.status_code, 500)
         self.assertEqual(exc.error_type, "S3_ACCESS_DENIED")
+
+
+class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
+    """🟢 FIX P0-10: un reintento del lote no debe volver a subir archivos ya
+    confirmados por la SFC en un intento previo."""
+
+    def setUp(self):
+        self.service = S3StorageService(s3_client=MagicMock())
+        self.service.obtener_stream_archivo = AsyncMock(return_value=b"contenido")
+        self.service.validar_integridad_archivo = MagicMock()
+
+        self.stub_redis = _StubRedisHash()
+        self.patcher = patch("app.services.s3_service.get_redis_client", return_value=self.stub_redis)
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+        self.archivos = [
+            {"nombre_archivo": f"doc{i}.pdf", "s3_key": f"caso/X/doc{i}.pdf", "bytes": b"x"}
+            for i in range(1, 6)
+        ]
+
+    async def test_retry_no_reenvia_archivos_ya_confirmados(self):
+        """M2 con 5 adjuntos y fallo en el adjunto 4: el retry del lote completo no debe
+        volver a subir los que ya tuvieron éxito (escenario exacto de la auditoría)."""
+        sfc_client = MagicMock()
+
+        async def post_falla_doc4(sfc_codigo_queja, file_data, file_type, file_name):
+            if file_name == "doc4.pdf":
+                raise SfcIntegrationException(500, "SFC_INTERNAL_ERROR", None, "Error inesperado", "reintentar")
+            return {"id": file_name}
+
+        sfc_client.post_adjunto_queja = post_falla_doc4
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-X", adjuntos_crm=self.archivos
+            )
+
+        llamados_reintento = []
+
+        async def post_ok(sfc_codigo_queja, file_data, file_type, file_name):
+            llamados_reintento.append(file_name)
+            return {"id": file_name}
+
+        sfc_client.post_adjunto_queja = post_ok
+
+        resultado = await self.service.transferir_lote_s3_a_sfc(
+            sfc_client=sfc_client, sfc_codigo_queja="CASO-X", adjuntos_crm=self.archivos
+        )
+
+        # Sólo el archivo que realmente había fallado debe volver a llegar a la SFC.
+        self.assertEqual(llamados_reintento, ["doc4.pdf"])
+
+        estados = {r["file_name"]: r["status"] for r in resultado}
+        self.assertEqual(estados["doc4.pdf"], "OK")
+        for nombre in ("doc1.pdf", "doc2.pdf", "doc3.pdf", "doc5.pdf"):
+            self.assertEqual(estados[nombre], "ALREADY_CONFIRMED_CHECKPOINT")
 
 
 if __name__ == "__main__":

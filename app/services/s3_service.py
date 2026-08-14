@@ -10,6 +10,8 @@ import httpx
 
 from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
+from app.db.redis import get_redis_client
+from app.services.idempotency_service import IdempotencyService
 
 logger = logging.getLogger(__name__)
 
@@ -548,6 +550,13 @@ class S3StorageService:
         if not adjuntos_crm:
             return []
 
+        # 🟢 FIX P0-10: checkpoint durable por archivo. Antes de reintentar el lote, se
+        # consulta qué archivos de ESTE caso ya fueron confirmados por la SFC en un
+        # intento previo, para no reenviarlos — en vez de depender únicamente de que la
+        # SFC detecte el duplicado por su cuenta.
+        checkpoint_service = IdempotencyService(get_redis_client())
+        archivos_ya_completados = await checkpoint_service.obtener_archivos_completados(sfc_codigo_queja)
+
         sem = asyncio.Semaphore(5)
 
         async def _procesar_envio(item: Any) -> Optional[Dict[str, Any]]:
@@ -555,11 +564,19 @@ class S3StorageService:
                 s3_key = item.s3_key if hasattr(item, "s3_key") else item.get("s3_key")
                 bucket = (item.bucket if hasattr(item, "bucket") else item.get("bucket")) or self.default_bucket
                 original_name = (item.nombre_archivo if hasattr(item, "nombre_archivo") else item.get("nombre_archivo")) or (item.get("nombre") if isinstance(item, dict) else None)
-                
+
                 if not original_name and s3_key:
                     original_name = s3_key.split("/")[-1]
                 if not original_name:
                     return None
+
+                identificador_archivo = s3_key or original_name
+                if identificador_archivo in archivos_ya_completados:
+                    logger.info(
+                        f"⏭️ [S3 Storage] Archivo '{original_name}' ya estaba confirmado por checkpoint "
+                        f"previo para {sfc_codigo_queja}; se omite el reenvío."
+                    )
+                    return {"file_name": original_name, "status": "ALREADY_CONFIRMED_CHECKPOINT"}
 
                 file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
 
@@ -594,6 +611,14 @@ class S3StorageService:
                         file_name=final_send_name
                     )
                     logger.info(f"✅ Adjunto '{final_send_name}' transmitido exitosamente a la SFC.")
+
+                    # 🟢 FIX P0-10: checkpoint INMEDIATO tras el éxito de ESTE archivo — no se
+                    # espera a que termine el lote completo, para no perder el progreso ya
+                    # confirmado si otro archivo del mismo lote falla después.
+                    await checkpoint_service.marcar_archivo_completado(
+                        sfc_codigo_queja, identificador_archivo, metadata={"file_name": final_send_name}
+                    )
+
                     return {"file_name": final_send_name, "status": "OK", "sfc_response": res_sfc}
 
                 except SfcIntegrationException as exc:
@@ -611,6 +636,12 @@ class S3StorageService:
                         logger.warning(
                             f"⚠️ [S3 Storage] Archivo '{original_name}' omitido en SFC para {sfc_codigo_queja}: "
                             f"Ya se encontraba registrado o el caso ya fue cerrado."
+                        )
+                        # 🟢 FIX P0-10: también se registra el checkpoint aquí — la SFC ya
+                        # considera este archivo resuelto (duplicado o caso cerrado), así que
+                        # un reintento futuro tampoco debe volver a intentarlo.
+                        await checkpoint_service.marcar_archivo_completado(
+                            sfc_codigo_queja, identificador_archivo, metadata={"file_name": original_name, "status": "DUPLICATE_OMITTED"}
                         )
                         return {"file_name": original_name, "status": "DUPLICATE_OMITTED"}
                     else:
