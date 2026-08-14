@@ -15,21 +15,27 @@ logger = logging.getLogger(__name__)
 
 def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     """
-    Evalúa si la SFC rechazó la petición porque la queja
-    ya cuenta con un documento de respuesta final o se encuentra en estado (4) Cerrado.
+    Evalúa si la SFC rechazó la petición porque la queja YA se encuentra cerrada /
+    ya cuenta con documento de respuesta final — un estado terminal que debe tratarse
+    como éxito idempotente, no como un error real.
+
+    🟢 FIX P0-08: se retiró el fragmento genérico "respuesta final" (y "diferente de
+    (4) cerrado", que no corresponde a ninguna entrada real de la matriz de errores
+    SFC). Ese fragmento también coincidía con mensajes de la matriz
+    (errores_sfc.json) que significan justo lo contrario — un documento de respuesta
+    final FALTANTE, no ya entregado — ej. "documento de respuesta final debe haber
+    sido enviado" o "fijado en True". Quedan sólo frases completas que en la matriz
+    real significan inequívocamente "la queja ya está cerrada".
     """
     raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
-    keywords = [
+    frases_ya_cerrada = [
         "ya cuenta con un documento de respuesta final",
-        "diferente de (4) cerrado",
-        "respuesta final",
-        "se encuentra con estado cerrado",
-        "se encuentra cerrada",
-        "queja se encuentra cerrada",
+        "la queja se encuentra con estado cerrado",
+        "no se puede actualizar el anexo debido a que la queja se encuentra cerrada",
         "queja ya esta cerrada",
         "already closed"
     ]
-    return any(kw in raw_msg for kw in keywords)
+    return any(frase in raw_msg for frase in frases_ya_cerrada)
 
 class DespachoQuejaOrquestador:
     """
@@ -126,14 +132,18 @@ class DespachoQuejaOrquestador:
         except SfcIntegrationException as exc:
             error_tipo = getattr(exc, "error_type", None)
             is_unmapped = getattr(exc, "is_unmapped", False) or error_tipo == "UNKNOWN_ERROR"
-            raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
-            
-            # 🚨 AUTO-RECUPERACIÓN (SELF-HEALING): 404 Estándar o 404 camuflado en un 400
+
+            # 🚨 AUTO-RECUPERACIÓN (SELF-HEALING): 404 Estándar o NOT_FOUND_ERROR estructurado.
+            # 🟢 FIX P0-09: se retiraron los fallbacks de texto libre ("404" in raw_msg,
+            # "no encontrado" in raw_msg). error_type ya lo asigna de forma confiable
+            # SfcErrorTranslator a partir de la matriz curada (subcadenas "not found",
+            # "no existe", "does not exist"), pensada específicamente para "la queja no
+            # existe en la SFC". Un error de catálogo/mapeo (ej. "producto no encontrado
+            # en catálogo") no debe disparar la recreación M2 sólo por compartir esa
+            # subcadena en el mensaje.
             es_caso_no_encontrado = (
-                exc.status_code == 404 or 
-                error_tipo == "NOT_FOUND_ERROR" or 
-                "404" in raw_msg or 
-                "no encontrado" in raw_msg
+                exc.status_code == 404 or
+                error_tipo == "NOT_FOUND_ERROR"
             )
 
             if es_caso_no_encontrado:

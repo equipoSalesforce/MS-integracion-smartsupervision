@@ -267,6 +267,69 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once()
         self.assertEqual(self.orquestador.m3_service.ejecutar_cierre_definitivo.call_count, 1)
 
+    # ======================================================================
+    # 🟠 CASO 8 (🟢 FIX P0-09): ERROR DE CATÁLOGO NO DEBE ACTIVAR SELF-HEALING M2
+    # ======================================================================
+    async def test_8_error_catalogo_no_encontrado_no_activa_self_healing(self):
+        """
+        Un error de catálogo/mapeo cuyo mensaje contiene 'no encontrado' (pero cuyo
+        error_type NO es NOT_FOUND_ERROR y cuyo status_code NO es 404) no debe disparar
+        la secuencia de auto-recuperación M2 -> M3: la queja SÍ existe en la SFC, sólo
+        falló un valor de catálogo.
+        """
+        tramite_dict = self.base_payload_dict.copy()
+        tramite_dict.update({
+            "Status": "In Progress",
+            "sc_genero__c": "Masculino"
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
+
+        error_catalogo = SfcIntegrationException(
+            400,
+            "VALIDATION_ERROR",
+            "producto_cod",
+            "El producto no encontrado en catálogo SFC",
+            "Verificar catálogo"
+        )
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite.side_effect = error_catalogo
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.orquestador.procesar_despacho(payload)
+
+        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_not_called()
+
+    # ======================================================================
+    # 🟠 CASO 9 (🟢 FIX P0-08): DOCUMENTO FALTANTE NO DEBE INTERPRETARSE COMO "YA CERRADO"
+    # ======================================================================
+    async def test_9_documento_respuesta_final_faltante_no_se_confunde_con_ya_cerrado(self):
+        """
+        Un mensaje de la SFC que dice que el documento de respuesta final DEBE enviarse
+        (es decir, FALTA) contiene la subcadena "respuesta final", pero significa lo
+        opuesto a "ya está cerrada". No debe tratarse como éxito idempotente.
+        """
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Prueba de documento faltante.</p>",
+            "archivos_s3": []
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        error_doc_faltante = SfcIntegrationException(
+            400,
+            "BUSINESS_RULE_ERROR",
+            None,
+            "El documento de respuesta final debe haber sido enviado antes de fijado en True",
+            "Verificar que existe el documento de cierre"
+        )
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = error_doc_faltante
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.orquestador.procesar_despacho(payload)
+
 
 if __name__ == "__main__":
     unittest.main()
