@@ -268,24 +268,31 @@ class QueueService:
         self.redis = redis_client
 
     def _crear_pipeline_compatible(self):
+        """
+        🟢 FIX P1-03: antes se usaba `transaction=False` (pipeline no atómico, sin
+        garantía todo-o-nada) en modo cluster, dejando expuestas las transiciones
+        multi-clave a quedar parcialmente aplicadas ante una interrupción a mitad de
+        camino. Todas las claves del dominio de cola comparten el mismo hash-tag
+        "{sfc:queue}" como prefijo (ver QUEUE_PREFIX) — Redis Cluster enruta por hash
+        tag, así que TODAS caen siempre en el mismo slot. Eso hace seguro usar
+        `transaction=True` (MULTI/EXEC real) también en cluster, sin riesgo de
+        CROSSSLOT, y con la misma atomicidad que en modo standalone.
+        """
         if not self.redis:
             return None
-        
-        # 🟢 FIX HALLAZGO 51: Lectura directa de settings.REDIS_CLUSTER_MODE
-        is_cluster = settings.REDIS_CLUSTER_MODE or "Cluster" in self.redis.__class__.__name__
-        
-        if is_cluster:
-            return self.redis.pipeline(transaction=False)
         return self.redis.pipeline(transaction=True)
 
     async def contar_pendientes(self) -> int:
+        """
+        🟢 FIX P1-15: ya no se traga la excepción devolviendo 0. Un fallo real de Redis
+        aquí era indistinguible de "cola vacía" — y como este método decide si se envía
+        la notificación de recuperación total (`casos_despachados_exito > 0 and
+        totales_restantes == 0` en scheduler.py), un fallo silencioso podía disparar un
+        falso aviso de "recuperación completa" cuando en realidad no se pudo verificar.
+        """
         if not self.redis:
             return 0
-        try:
-            return await self.redis.scard(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}")
-        except Exception as e:
-            logger.error(f"Error contando pendientes en Redis: {e}")
-            return 0
+        return await self.redis.scard(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}")
 
     async def encolar_despacho(
         self, 
@@ -446,69 +453,73 @@ class QueueService:
             return None
 
     async def obtener_casos_vencidos_sla(self, horas_limite: int = 12) -> List[Dict[str, Any]]:
+        """
+        🟢 FIX P1-15: ya no se traga la excepción devolviendo []. El caller
+        (scheduler.py) ya envuelve esta llamada en su propio try/except, así que dejar
+        propagar el error real permite loguearlo distinto de "no hay casos vencidos".
+        """
         if not self.redis:
             return []
 
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
         limite_ts = (now_bogota - timedelta(hours=horas_limite)).timestamp()
 
-        try:
-            item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:created_zset", "-inf", limite_ts)
-            casos_vencidos = []
+        item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:created_zset", "-inf", limite_ts)
+        casos_vencidos = []
 
-            for item_id in item_ids:
-                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
-                if not is_pending:
-                    continue
+        for item_id in item_ids:
+            is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
+            if not is_pending:
+                continue
 
-                raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
-                if not raw_item:
-                    continue
+            raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
+            if not raw_item:
+                continue
 
-                data = json.loads(raw_item, strict=False)
-                created_dt = datetime.fromisoformat(data["created_at"])
-                horas_en_cola = (now_bogota - created_dt).total_seconds() / 3600.0
+            data = json.loads(raw_item, strict=False)
+            created_dt = datetime.fromisoformat(data["created_at"])
+            horas_en_cola = (now_bogota - created_dt).total_seconds() / 3600.0
 
-                casos_vencidos.append({
-                    "smart_code": data["smart_code"],
-                    "correlation_id": data.get("correlation_id", "N/A"),
-                    "fecha_encolado": created_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "horas_en_cola": horas_en_cola,
-                    "reintentos": data["intentos"],
-                    "ultimo_error": data.get("ultimo_error") or "Sin detalle de error"
-                })
+            casos_vencidos.append({
+                "smart_code": data["smart_code"],
+                "correlation_id": data.get("correlation_id", "N/A"),
+                "fecha_encolado": created_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "horas_en_cola": horas_en_cola,
+                "reintentos": data["intentos"],
+                "ultimo_error": data.get("ultimo_error") or "Sin detalle de error"
+            })
 
-            return casos_vencidos
-        except Exception as e:
-            logger.error(f"Error consultando casos vencidos SLA en Redis: {e}")
-            return []
+        return casos_vencidos
 
     async def obtener_pendientes_para_reintento(self) -> List[ColaItemRedis]:
+        """
+        🟢 FIX P1-15: ya no se traga la excepción devolviendo []. Este método determina
+        QUÉ procesa el scheduler en cada ciclo — un fallo de Redis silenciado aquí era
+        indistinguible de "no hay nada pendiente", pudiendo ocultar una caída real
+        durante todo el tiempo que dure. El caller ahora debe manejar la excepción
+        explícitamente (ver reintentar_despachos_pendientes_job).
+        """
         if not self.redis:
             return []
 
         now_ts = datetime.now(ZoneInfo("America/Bogota")).timestamp()
-        try:
-            item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:pending_zset", "-inf", now_ts)
-            pendientes = []
+        item_ids = await self.redis.zrangebyscore(f"{QUEUE_PREFIX}:pending_zset", "-inf", now_ts)
+        pendientes = []
 
-            for item_id in item_ids:
-                is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
-                if not is_pending:
-                    continue
+        for item_id in item_ids:
+            is_pending = await self.redis.sismember(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id))
+            if not is_pending:
+                continue
 
-                raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
-                if not raw_item:
-                    continue
+            raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}")
+            if not raw_item:
+                continue
 
-                data = json.loads(raw_item, strict=False)
-                if data.get("intentos", 0) < data.get("max_intentos", settings.QUEUE_MAX_RETRIES):
-                    pendientes.append(ColaItemRedis(data))
+            data = json.loads(raw_item, strict=False)
+            if data.get("intentos", 0) < data.get("max_intentos", settings.QUEUE_MAX_RETRIES):
+                pendientes.append(ColaItemRedis(data))
 
-            return pendientes
-        except Exception as e:
-            logger.error(f"Error obteniendo pendientes para reintento en Redis: {e}")
-            return []
+        return pendientes
 
     async def marcar_exitoso(self, registro_id: int, worker_id: str, expected_version: int) -> str:
         """

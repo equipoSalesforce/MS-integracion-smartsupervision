@@ -183,6 +183,14 @@ def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
 
 
 async def reintentar_despachos_pendientes_job():
+    # 🟡 P1-02 (aceptado, no se corrige): el lock es global por diseño — un solo
+    # nodo procesa el ciclo de reintentos a la vez, aunque haya varias réplicas.
+    # Es la forma más simple de evitar doble despacho a la SFC entre réplicas; el
+    # claim por-item (P0-04/P0-05) ya permite que ese nodo procese muchos items en
+    # un solo ciclo, así que esto es un techo de throughput, no un bug de
+    # correctitud. Si el volumen de reintentos lo exige, la vía de escalar sería
+    # particionar la cola (p.ej. registro_id % N) para que cada réplica tome su
+    # propio lock por partición.
     redis = get_redis_client()
     if not redis:
         logger.warning("⚠️ [Scheduler Job] Cliente Redis no disponible. Omitiendo ciclo de reintentos.")
@@ -215,7 +223,15 @@ async def reintentar_despachos_pendientes_job():
             logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
 
         # 2. Obtener registros pendientes vencidos
-        pendientes = await queue_service.obtener_pendientes_para_reintento()
+        # 🟢 FIX P1-15: obtener_pendientes_para_reintento ya no traga excepciones de
+        # Redis devolviendo []; se distingue explícitamente "no hay nada pendiente" de
+        # "no se pudo verificar" para no ocultar una caída de Redis en este ciclo.
+        try:
+            pendientes = await queue_service.obtener_pendientes_para_reintento()
+        except Exception as e:
+            logger.critical(f"🔥 [Scheduler Job] No se pudo consultar la cola de pendientes en Redis: {e}")
+            return
+
         if not pendientes:
             return
 

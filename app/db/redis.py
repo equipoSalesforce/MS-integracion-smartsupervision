@@ -105,6 +105,7 @@ async def _reintentar_conexion_background():
     
     while redis_client is None:
         await asyncio.sleep(10)
+        candidate_client = None
         try:
             candidate_client = _build_redis_client()
             await candidate_client.ping()
@@ -113,6 +114,14 @@ async def _reintentar_conexion_background():
             break
         except Exception as e:
             logger.debug(f"⏳ [Redis Auto-Reconnect] Reintento de conexión fallido: {e}")
+            # 🟢 FIX P1-01: cerrar el cliente candidato fallido — si no, cada intento
+            # fallido durante una caída prolongada deja un pool de conexiones abierto sin
+            # referenciar, acumulándose indefinidamente.
+            if candidate_client is not None:
+                try:
+                    await candidate_client.aclose()
+                except Exception:
+                    pass
 
 
 async def close_redis():
