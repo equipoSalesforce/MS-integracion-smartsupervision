@@ -206,6 +206,7 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=casos_vencidos)
             instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
             instance_qs.contar_pendientes = AsyncMock(return_value=0)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=None)
             instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
             instance_qs.marcar_sfc_completado = AsyncMock()
             instance_qs.registrar_fallo = AsyncMock()

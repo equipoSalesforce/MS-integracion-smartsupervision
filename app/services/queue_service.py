@@ -294,6 +294,37 @@ class QueueService:
             return 0
         return await self.redis.scard(f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}")
 
+    async def obtener_edad_item_mas_antiguo_pendiente(self) -> Optional[float]:
+        """
+        Observabilidad: antigüedad (segundos) del item PENDING más antiguo en la
+        cola, usada para el metric oldest_pending_age_seconds. Recorre created_zset
+        desde el más antiguo, saltando ids que ya no estén en estado PENDING
+        (p.ej. completados/fallidos definitivos aún no purgados del zset) — mismo
+        patrón defensivo que ya usa obtener_casos_vencidos_sla. Devuelve None si la
+        cola está vacía o si no se pudo determinar (nunca lanza).
+        """
+        if not self.redis:
+            return None
+        try:
+            candidatos = await self.redis.zrangebyscore(
+                f"{QUEUE_PREFIX}:created_zset", "-inf", "+inf",
+                start=0, num=20, withscores=True
+            )
+            if not candidatos:
+                return None
+
+            now_ts = datetime.now(ZoneInfo("America/Bogota")).timestamp()
+            for item_id, created_ts in candidatos:
+                is_pending = await self.redis.sismember(
+                    f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}", str(item_id)
+                )
+                if is_pending:
+                    return max(0.0, now_ts - created_ts)
+            return None
+        except Exception as e:
+            logger.warning(f"No se pudo calcular la antigüedad del item más antiguo pendiente: {e}")
+            return None
+
     async def encolar_despacho(
         self, 
         smart_code: str, 

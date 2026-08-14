@@ -14,6 +14,7 @@ from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
+from app.core.metrics import emit_emf_metric
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -182,6 +183,32 @@ def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
     return any(kw in msg_lower for kw in keywords)
 
 
+async def _emitir_metricas_cola(
+    queue_service: QueueService, casos_exito: int, casos_fallidos: int
+) -> None:
+    """
+    Observabilidad: emite métricas EMF (CloudWatch Embedded Metric Format) del
+    estado de la cola al final de cada ciclo del scheduler. Best-effort: un fallo
+    aquí nunca debe impedir liberar el lock del job ni afectar el resultado del
+    ciclo, por eso vive aislado en su propio try/except.
+    """
+    try:
+        queue_depth = await queue_service.contar_pendientes()
+        oldest_age = await queue_service.obtener_edad_item_mas_antiguo_pendiente()
+
+        metrics = {
+            "queue_depth": (queue_depth, "Count"),
+            "dispatch_success": (casos_exito, "Count"),
+            "dispatch_failure": (casos_fallidos, "Count"),
+        }
+        if oldest_age is not None:
+            metrics["oldest_pending_age_seconds"] = (oldest_age, "Seconds")
+
+        emit_emf_metric(namespace="SSV/Queue", metrics=metrics)
+    except Exception as e:
+        logger.warning(f"⚠️ [Scheduler Job] No se pudieron emitir métricas de la cola: {e}")
+
+
 async def reintentar_despachos_pendientes_job():
     # 🟡 P1-02 (aceptado, no se corrige): el lock es global por diseño — un solo
     # nodo procesa el ciclo de reintentos a la vez, aunque haya varias réplicas.
@@ -208,9 +235,14 @@ async def reintentar_despachos_pendientes_job():
         logger.debug("ℹ️ [Scheduler Job] Otro nodo worker ya se encuentra ejecutando el ciclo de reintentos.")
         return
 
+    # 🟢 Observabilidad: se define fuera del try para que el finally siempre pueda
+    # emitir métricas (queue_depth, etc.) incluso si el ciclo corta temprano.
+    queue_service = QueueService(redis)
+    casos_despachados_exito = 0
+    casos_fallidos = 0
+
     try:
         worker_id = f"worker_node:{uuid.uuid4()}"
-        queue_service = QueueService(redis)
         idempotency_service = IdempotencyService(redis)
 
         # 1. Control de SLA
@@ -238,8 +270,6 @@ async def reintentar_despachos_pendientes_job():
         sfc_client = get_sfc_client()
         s3_client = get_s3_client()
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
-
-        casos_despachados_exito = 0
 
         for index, item in enumerate(pendientes):
             # 🟢 FIX P0-04: el claim ahora devuelve el item TAL COMO ESTÁ en Redis en ese
@@ -289,6 +319,7 @@ async def reintentar_despachos_pendientes_job():
                         if resultado.get("status") == "error":
                             error_msg = resultado.get("message") or "Error en el despacho a la SFC"
                             await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                            casos_fallidos += 1
                             es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                             continue
 
@@ -333,6 +364,7 @@ async def reintentar_despachos_pendientes_job():
                         )
                         logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
                         await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                        casos_fallidos += 1
                     else:
                         try:
                             # 🟢 FIX P0-04/P0-05: se pasa worker_id + la versión reclamada para que
@@ -364,6 +396,7 @@ async def reintentar_despachos_pendientes_job():
                     error_msg = str(exc)
                     logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
                     await queue_service.registrar_fallo(item.id, error_msg=error_msg)
+                    casos_fallidos += 1
                     es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                 finally:
                     correlation_id_ctx.reset(token)
@@ -387,6 +420,7 @@ async def reintentar_despachos_pendientes_job():
             logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
 
     finally:
+        await _emitir_metricas_cola(queue_service, casos_despachados_exito, casos_fallidos)
         await job_lock.release()
 
 
