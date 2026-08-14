@@ -36,7 +36,20 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "etiquetado inmutable (ej. Git Commit SHA 'a1b2c3d' o versión semántica 'v1.0.0'). "
             "Se prohíbe el uso de 'latest' como tag de despliegue para garantizar trazabilidad y rollbacks."
         )
-    
+
+    # 🟢 FIX P1-08: Validación Fail-Fast para SMTP_FROM_EMAIL (sin fallback silencioso).
+    # En SES, SMTP_USER es una credencial IAM generada, no una dirección entregable — si
+    # este render se hace sin SMTP_FROM_EMAIL, la app caería de vuelta a SMTP_USER como
+    # remitente (ver app/services/email_service.py) y las alertas fallarían en SES sin
+    # ningún aviso hasta que alguien note que dejaron de llegar.
+    smtp_from_email = os.getenv("SMTP_FROM_EMAIL")
+    if not smtp_from_email or not smtp_from_email.strip():
+        raise ValueError(
+            "🚨 [FAIL-FAST] La variable de entorno 'SMTP_FROM_EMAIL' es obligatoria para el "
+            "despliegue en AWS — debe ser una identidad de remitente verificada en SES, "
+            "distinta de la credencial SMTP_USER."
+        )
+
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
         run_scheduler = "False"
@@ -92,7 +105,13 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${REDIS_HOST}": os.getenv("REDIS_HOST", f"{environment.lower()}-smartsupervision-redis.cache.amazonaws.com"),
         "${REDIS_SSL}": os.getenv("REDIS_SSL", "True"),
         "${GOOGLE_SPREADSHEET_ID}": os.getenv("GOOGLE_SPREADSHEET_ID", "1a2b3c4d5e6f7g8h9i0j"),
-        "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a")
+        "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a"),
+        "${SFC_TIPO_ENTIDAD}": os.getenv("SFC_TIPO_ENTIDAD", "128"),
+        "${SFC_ENTIDAD_COD}": os.getenv("SFC_ENTIDAD_COD", "6"),
+        "${REDIS_CLUSTER_MODE}": os.getenv("REDIS_CLUSTER_MODE", "False"),
+        "${SFC_SYNC_MAX_PAGINAS}": os.getenv("SFC_SYNC_MAX_PAGINAS", "1000"),
+        "${SFC_SYNC_MAX_SEGUNDOS}": os.getenv("SFC_SYNC_MAX_SEGUNDOS", "300"),
+        "${SMTP_FROM_EMAIL}": smtp_from_email.strip()
     }
 
     # ${CONTAINER_COMMAND} y ${PORT_MAPPINGS} ya son fragmentos JSON completos (arrays) y

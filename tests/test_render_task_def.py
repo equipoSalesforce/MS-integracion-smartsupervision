@@ -16,11 +16,13 @@ class TestRenderTaskDefinition(unittest.TestCase):
         os.environ["AWS_ACCOUNT_ID"] = "999888777666"
         os.environ["SECRET_SUFFIX"] = "a1b2c3"
         os.environ["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        os.environ["SMTP_FROM_EMAIL"] = "alertas@global66.com"
         
         self.env_vars = {
             "AWS_ACCOUNT_ID": "112233445566",
             "SECRET_SUFFIX": "a1b2c3",
-            "AWS_REGION": "us-east-1"
+            "AWS_REGION": "us-east-1",
+            "SMTP_FROM_EMAIL": "alertas@global66.com"
         }
 
     def tearDown(self):
@@ -94,6 +96,20 @@ class TestRenderTaskDefinition(unittest.TestCase):
             render_task_definition("api", "dev")
 
         self.assertIn("IMAGE_TAG", str(ctx.exception))
+
+    def test_missing_smtp_from_email_fails_fast(self):
+        """
+        P1-08: SMTP_FROM_EMAIL es obligatoria para el render de AWS — sin ella, la app
+        caería de vuelta a SMTP_USER como remitente y las alertas fallarían en SES
+        silenciosamente. Verifica que se lance un ValueError si no está presente.
+        """
+        if "SMTP_FROM_EMAIL" in os.environ:
+            del os.environ["SMTP_FROM_EMAIL"]
+
+        with self.assertRaises(ValueError) as ctx:
+            render_task_definition("api", "dev")
+
+        self.assertIn("SMTP_FROM_EMAIL", str(ctx.exception))
 
     def test_unrendered_placeholder_fails(self):
         """Verifica que el script falle si queda algún placeholder ${...} sin reemplazar."""
