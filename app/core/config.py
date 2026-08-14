@@ -71,6 +71,14 @@ class Settings(BaseSettings):
         Union[List[str], str], BeforeValidator(parse_cors)
     ] = Field(..., description="Orígenes permitidos para CORS (dominios reales del CRM, sin comodín)")
 
+    # 🟢 FIX HALLAZGO 41: Límite global de tamaño de request body. La API sólo recibe
+    # metadatos JSON (los archivos viajan por S3, nunca como bytes en el body), por lo
+    # que un límite generoso en MB es suficiente y acota el abuso/consumo de memoria.
+    MAX_REQUEST_BODY_SIZE_BYTES: int = Field(
+        default=2 * 1024 * 1024,
+        description="Tamaño máximo permitido (en bytes) para el body de una request HTTP entrante."
+    )
+
     # --- Configuración AWS S3 ---
     AWS_S3_BUCKET: str = Field(..., description="Nombre del bucket S3 para adjuntos")
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
@@ -92,10 +100,6 @@ class Settings(BaseSettings):
     SFC_SECRET_KEY: str = Field(
         ...,
         description="Llave secreta de firma criptográfica HMAC-SHA256 (Obligatoria sin defaults)"
-    )
-    SFC_VERIFY_SIGNATURES: bool = Field(
-        default=False,
-        description="Interruptor para activar o desactivar la verificación y generación de firmas HMAC"
     )
     
     CRM_API_KEY: str = Field(..., description="API Key requerida para consumos del CRM")

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.core.config import settings
+from app.core.exceptions import SfcIntegrationException
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload, SfcActualizarQuejaPayload
 
 logger = logging.getLogger(__name__)
@@ -447,6 +448,32 @@ class SfcSalesforceMapper:
         return sfc_value
 
     @classmethod
+    def _lookup_or_fail(cls, source_dict: Dict[str, Any], normalized_value: str, sf_key: str, raw_value: Any, catalog_name: str) -> Any:
+        """
+        Traduce un valor CRM->SFC contra un catálogo/índice ya normalizado. Si el valor
+        no existe en el catálogo, rechaza el caso en lugar de inventar un dato regulatorio
+        plausible (HALLAZGO 23 de la auditoría 2026-08-13).
+        """
+        if normalized_value in source_dict:
+            return source_dict[normalized_value]
+
+        logger.error(
+            f"🚫 [Mapping SFC] Valor no reconocido para '{sf_key}' en catálogo '{catalog_name}': "
+            f"'{raw_value}'. Se rechaza el envío a la SFC en lugar de usar un default plausible."
+        )
+        raise SfcIntegrationException(
+            status_code=400,
+            error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+            sfc_field=sf_key,
+            raw_message=f"El valor '{raw_value}' de '{sf_key}' no existe en el catálogo '{catalog_name}'.",
+            crm_action=(
+                f"Verifique el valor de '{sf_key}' en el CRM o actualice el catálogo de mapeo "
+                f"'{catalog_name}' antes de reintentar."
+            ),
+        )
+
+
+    @classmethod
     def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
         if sf_value is None: 
             return None
@@ -454,7 +481,7 @@ class SfcSalesforceMapper:
         if sf_key == "codigo_pais__c":
             normalized_country = cls._normalize_text(str(sf_value))
             cat_inverse_pais = cls.INVERSE_CATALOGS.get("codigo_pais", {})
-            return str(cat_inverse_pais.get(normalized_country, "170"))
+            return str(cls._lookup_or_fail(cat_inverse_pais, normalized_country, sf_key, sf_value, "codigo_pais"))
 
         if sf_key in ("Tutela__c", "Quejas_express__c"):
             v_clean = str(sf_value).lower().strip()
@@ -471,34 +498,62 @@ class SfcSalesforceMapper:
 
         normalized = cls._normalize_text(str(sf_value))
 
+        # Campos regulatorios sin una capa de default explícita aguas abajo: un valor no
+        # reconocido en el catálogo rechaza el caso (HALLAZGO 23) en vez de inventar un dato.
         sf_to_cat = {
-            "sc_genero__c": ("genero", 10),
-            "SC_id_type__c": ("tipo_id", 1),
-            "tipo_de_persona__c": ("persona", 1),
-            "sc_LGBTIQ__c": ("lgbtiq", 2),
-            "sc_Condicion_especial__c": ("condicion_especial", 98),
-            "canal__c": ("canal", 13),
-            "Ente_de_control__c": ("ente_control", 99),
-            "Instancia_de_recepcion__c": ("instancia_recepcion", 2),
-            "admision_col__c": ("admision", 1),
-            "Favorabilidad__c": ("favorabilidad", None),
-            "Desistimiento__c": ("desistimiento", 2),
-            "tipo_fraude__c": ("tipo_fraude", 2),
-            "Tipo_Fraude__c": ("tipo_fraude", 2),
-            "modalidad_fraude__c": ("modalidad_fraude", 90),
-            "Modalidad_Fraude__c": ("modalidad_fraude", 90),
-            "punto_recepcion": ("punto_recepcion", 1),
-            "Categorias_COL__c": ("macro_motivo", 940),
-            "Aceptacion__c": ("aceptacion", None),
-            "Rectificacion__c": ("rectificacion", 2),
+            "sc_genero__c": "genero",
+            "SC_id_type__c": "tipo_id",
+            "tipo_de_persona__c": "persona",
+            "sc_LGBTIQ__c": "lgbtiq",
+            "canal__c": "canal",
+            "Instancia_de_recepcion__c": "instancia_recepcion",
+            "Desistimiento__c": "desistimiento",
+            "tipo_fraude__c": "tipo_fraude",
+            "Tipo_Fraude__c": "tipo_fraude",
+            "modalidad_fraude__c": "modalidad_fraude",
+            "Modalidad_Fraude__c": "modalidad_fraude",
+            "punto_recepcion": "punto_recepcion",
+            "Categorias_COL__c": "macro_motivo",
+            "Rectificacion__c": "rectificacion",
+        }
+
+        # Campos que YA cuentan con una capa de default deliberada aguas abajo:
+        # - Favorabilidad__c / Aceptacion__c: sólo son exigidos por
+        #   crm_entity_to_sfc_momento3_payload cuando estado_cod == 4 (Cierre); en cualquier
+        #   otro caso un valor ausente/no reconocido es legítimamente None.
+        # - sc_Condicion_especial__c / Ente_de_control__c / admision_col__c: Momento 3
+        #   (momento_3_sync.py, diccionario `sfc_defaults`) y Momento 2
+        #   (crm_entity_to_sfc_momento2_payload, operador `or`) ya rellenan un default de
+        #   negocio explícito si el mapeo no resuelve el valor. Forzar un hard-fail aquí
+        #   duplicaría/contradiría esa capa existente en vez de reemplazarla.
+        # Se registra la advertencia igualmente para mantener visibilidad (antes no existía).
+        sf_to_cat_soft = {
+            "sc_Condicion_especial__c": "condicion_especial",
+            "Ente_de_control__c": "ente_control",
+            "admision_col__c": "admision",
+            "Favorabilidad__c": "favorabilidad",
+            "Aceptacion__c": "aceptacion",
         }
 
         if sf_key in sf_to_cat:
-            cat_key, default_val = sf_to_cat[sf_key]
-            return cls.INVERSE_CATALOGS.get(cat_key, {}).get(normalized, default_val)
+            cat_key = sf_to_cat[sf_key]
+            return cls._lookup_or_fail(cls.INVERSE_CATALOGS.get(cat_key, {}), normalized, sf_key, sf_value, cat_key)
 
-        if sf_key == "Departamento__c": return cls.DEPT_DIVIPOLA.get(normalized, str(sf_value))
-        if sf_key == "SC_municipio__c": return cls.MUNI_DIVIPOLA.get(normalized, str(sf_value))
+        if sf_key in sf_to_cat_soft:
+            cat_key = sf_to_cat_soft[sf_key]
+            cat_dict = cls.INVERSE_CATALOGS.get(cat_key, {})
+            if normalized in cat_dict:
+                return cat_dict[normalized]
+            logger.warning(
+                f"⚠️ [Mapping SFC] Valor no reconocido para '{sf_key}' en catálogo '{cat_key}': "
+                f"'{sf_value}'. Se usará None (el default de negocio se aplica aguas abajo)."
+            )
+            return None
+
+        if sf_key == "Departamento__c":
+            return cls._lookup_or_fail(cls.DEPT_DIVIPOLA, normalized, sf_key, sf_value, "DIVIPOLA departamento")
+        if sf_key == "SC_municipio__c":
+            return cls._lookup_or_fail(cls.MUNI_DIVIPOLA, normalized, sf_key, sf_value, "DIVIPOLA municipio")
 
         if sf_key == "Status":
             status_map = {

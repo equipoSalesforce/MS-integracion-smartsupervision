@@ -1,7 +1,7 @@
 # app/schemas/crm_payloads.py
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, List, Optional
+from typing import Annotated, Any, List, Optional
 from zoneinfo import ZoneInfo
 from pydantic import (
     BaseModel,
@@ -19,9 +19,11 @@ from app.core.config import settings
 class ArchivoS3Schema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    nombre_archivo: str = Field(..., description="Nombre final del archivo guardado")
-    s3_key: str = Field(..., description="Ruta/Clave única de acceso en el bucket S3")
-    bucket: str = Field(..., description="Bucket de S3 donde se alojó")
+    # 🟢 FIX HALLAZGO 41: el límite de 50 archivos en 'archivos_s3' no acota nada si cada
+    # string individual puede ser arbitrariamente largo; se acotan también aquí.
+    nombre_archivo: str = Field(..., max_length=255, description="Nombre final del archivo guardado")
+    s3_key: str = Field(..., max_length=1024, description="Ruta/Clave única de acceso en el bucket S3")
+    bucket: str = Field(..., max_length=63, description="Bucket de S3 donde se alojó")
 
 
 class QuejaMapeadaCrmResponse(BaseModel):
@@ -387,7 +389,7 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         }
     )
 
-    producto_digital__c: Optional[str] = Field("Si", description="Producto digital (Si/No)")
+    producto_digital__c: Optional[str] = Field(None, description="Producto digital (Si/No)")
 
     tipo_fraude__c: Optional[str] = Field(None, description="Tipo de fraude")
     modalidad_fraude__c: Optional[str] = Field(None, description="Modalidad de fraude")
@@ -524,12 +526,22 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         if es_evento_fraude:
             if num_archivos == 0 and not tiene_directorio:
                 raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
-            
+
+            # 🟢 FIX HALLAZGO 26: un monto ausente ya no se reescribe silenciosamente a 0.0.
+            # "$0 reclamado" y "monto no informado" son hechos distintos para un reporte
+            # regulatorio de fraude; se exige que el CRM envíe el valor explícitamente
+            # (incluido 0.0 si de verdad no hubo impacto económico).
             if self.card_amount__c is None:
-                self.card_amount__c = 0.0
+                raise ValueError(
+                    "Falta el campo obligatorio 'card_amount__c' (monto reclamado) para un caso de fraude. "
+                    "Envíe 0.0 explícitamente si no hubo impacto económico."
+                )
             if self.Total_Devuelto_por_Desconocimiento__c is None:
-                self.Total_Devuelto_por_Desconocimiento__c = 0.0
-            
+                raise ValueError(
+                    "Falta el campo obligatorio 'Total_Devuelto_por_Desconocimiento__c' (monto devuelto) "
+                    "para un caso de fraude. Envíe 0.0 explícitamente si no hubo impacto económico."
+                )
+
             if not tiene_directorio and num_archivos > 0:
                 if not self.nombre_archivo_fraude:
                     if num_archivos == 1:
@@ -547,7 +559,9 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 class ConfirmacionAckInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ids_quejas: List[str] = Field(
+    # 🟢 FIX HALLAZGO 41: el tope de 500 elementos no acota nada si cada string individual
+    # puede ser arbitrariamente largo; se acota también el tamaño de cada identificador.
+    ids_quejas: List[Annotated[str, Field(max_length=50)]] = Field(
         ...,
         min_length=1,
         max_length=500,
@@ -566,8 +580,9 @@ class ConfirmacionAckInput(BaseModel):
 class ConfirmacionAckUsuariosInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    numeros_id_cf: List[str] = Field(
-        ..., 
+    # 🟢 FIX HALLAZGO 41: mismo criterio que ids_quejas — acota también cada elemento.
+    numeros_id_cf: List[Annotated[str, Field(max_length=30)]] = Field(
+        ...,
         min_length=1,
         max_length=500,
         description="Lista de números de identificación (numero_id_CF) procesados exitosamente por el CRM."

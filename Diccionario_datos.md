@@ -59,7 +59,7 @@ A continuación se detallan todos los atributos soportados por el esquema DTO `Q
 | **`Categorias_COL__c`** | No | N/A | String | Macro motivo / Categoría de la queja. Mapeado al catálogo normativo SFC. |
 | **`archivos_s3`** | Sí | `[]` | List[Object] | Lista de objetos con metadatos de archivos subidos en S3 (`nombre_archivo`, `s3_key`, `bucket`). |
 | **`directorio_s3`** | Sí | `null` | String | Ruta de directorio S3. Permite inspección y enlistado automático de adjuntos. |
-| **`producto_digital__c`** | Sí | `"Si"` | String | Indica si la queja está asociada a un producto digital. |
+| **`producto_digital__c`** | No | N/A | String | Indica si la queja está asociada a un producto digital. |
 | **`tipo_fraude__c`** | Sí | `null` | String | Tipo de fraude investigado. **Gatillo para activar Pipeline de Fraude en M3**. |
 | **`modalidad_fraude__c`** | Sí | `null` | String | Modalidad específica del fraude (Suplantación, Phishing, Cajero, etc.). |
 | **`card_amount__c`** | Sí | `0.0` | Float | Monto financiero total reclamado en eventos de fraude. |
@@ -67,7 +67,6 @@ A continuación se detallan todos los atributos soportados por el esquema DTO `Q
 | **`nombre_archivo_fraude`** | Sí | `null` | String | Nombre del archivo de informe de fraude. Requerido si `len(archivos_s3) > 1`. |
 | **`ClosedDate`** | Sí | `null` | ISO Datetime | Fecha/hora de cierre. **Gatillo de Cierre Definitivo en M3**. Default: Fecha/Hora actual. |
 | **`Favorabilidad__c`** | Sí | `null` | String | Dictamen final (`Favorable`, `Parcialmente Favorable`, `No Favorable`). |
-| **`a_favor_de__c`** | Sí | `null` | String | Entidad o persona a cuyo favor se resuelve el caso. |
 | **`Aceptacion__c`** | Sí | `null` | String | Aceptación formal de las decisiones por parte de la entidad vigilada. |
 | **`Rectificacion__c`** | Sí | `null` | String | Indica si hubo rectificación antes de la decisión del DCF. |
 | **`Prorroga__c`** | Sí | `null` | Integer | Número de días de prórroga solicitados/concedidos. |

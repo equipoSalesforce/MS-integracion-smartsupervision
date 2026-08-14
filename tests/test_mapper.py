@@ -33,12 +33,12 @@ class TestSfcSalesforceMapper(unittest.TestCase):
             "ClosedDate": "2026-07-16",
             "card_amount__c": 500000.0,
             "Total_Devuelto_por_Desconocimiento__c": 450000.0,
-            "Aceptacion__c": True,
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
             "Prorroga__c": False,
-            "Rectificacion__c": False,
+            "Rectificacion__c": "Queja o reclamo no rectificada por la entidad vigilada antes de la decisión del DCF",
             "canal__c": "Internet",
             "Ente_de_control__c": "Otros",
-            "tipo_de_persona__c": "Natural",
+            "tipo_de_persona__c": "B2C",
             "Status": "In progress"
         }
 

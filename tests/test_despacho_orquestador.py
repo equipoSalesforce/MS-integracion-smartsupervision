@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock
 
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
@@ -33,10 +35,16 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             return_value={"status": "success", "message": "Tramite actualizado"}
         )
 
+        # Fechas relativas a "hoy" para que las validaciones de ventana de 30 días
+        # (CreatedDate/ClosedDate) no dependan de cuándo corra el test.
+        hoy_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        fecha_creacion_reciente = (hoy_bogota - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S")
+        self.fecha_cierre_reciente = (hoy_bogota - timedelta(days=1)).strftime("%Y-%m-%d")
+
         # 🎯 Payload base canónico de CREACIÓN PURA M2 (Campos exclusivos M3 en None)
         self.base_payload_dict = {
             "Smart_Code__c": "999000111222",
-            "CreatedDate": "2026-07-21T10:00:00",
+            "CreatedDate": fecha_creacion_reciente,
             "Status": "New",
             "Status": "New",
             "SuppliedName": "Juan Perez",
@@ -110,6 +118,8 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "sc_genero__c": "Masculino",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
             "archivos_s3": [{"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}]
         })
@@ -130,7 +140,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict.update({
             "Status": "Closed",
             "Status": "Closed",
-            "ClosedDate": "2026-07-22",
+            "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
             "cuerpo_respuesta_final": "<p>Estimado consumidor, su reclamación ha sido resuelta no favorablemente.</p>",
@@ -155,8 +165,10 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "Status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
-            "ClosedDate": "2026-07-22",
+            "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
             "cuerpo_respuesta_final": "<p>Notificación final de investigación de fraude y cierre del caso.</p>",
@@ -185,8 +197,10 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "Status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
             "nombre_archivo_fraude": "dictamen_fraude.pdf",
-            "ClosedDate": "2026-07-22",
+            "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
             "cuerpo_respuesta_final": "<p>Respuesta final emitida tras la secuencia de auto-recuperación.</p>",
@@ -225,7 +239,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict.update({
             "Status": "Closed",
             "Status": "Closed",
-            "ClosedDate": "2026-07-22",
+            "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
             "cuerpo_respuesta_final": "<p>Notificación de prueba para aborto por fallo en M2.</p>",
