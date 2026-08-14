@@ -15,6 +15,78 @@ logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_PREFIX = "{sfc:idempotency}"
 
+# 🟢 FIX P1-13: el candado PROCESSING se creaba con un TTL fijo de 3 minutos y sin
+# renovación. Un despacho legítimo que tardara más que eso (SFC lenta, reintentos
+# internos del cliente HTTP) dejaba expirar el candado a mitad de vuelo: un reintento
+# del mismo payload durante esa ventana ya no vería "processing" y dispararía un
+# segundo envío concurrente a la SFC. Se extiende el TTL sólo si el registro sigue
+# siendo PROCESSING y corresponde a ESTE payload_hash, para no revivir un candado
+# ajeno que ya fue liberado/reemplazado.
+EXTEND_PROCESSING_LUA_SCRIPT = """
+local raw = redis.call("get", KEYS[1])
+if not raw then
+    return 0
+end
+local ok, record = pcall(cjson.decode, raw)
+if not ok or type(record) ~= "table" then
+    return 0
+end
+if record["status"] == "PROCESSING" and record["payload_hash"] == ARGV[1] then
+    return redis.call("pexpire", KEYS[1], tonumber(ARGV[2]))
+end
+return 0
+"""
+
+
+class IdempotencyProcessingHeartbeat:
+    """
+    Context manager que mantiene vivo el candado PROCESSING de idempotencia mientras
+    dura el trabajo real (llamada a la SFC), renovando su TTL periódicamente en vez de
+    depender de un TTL fijo que puede expirar antes de que termine el despacho.
+    """
+
+    def __init__(
+        self,
+        redis_client,
+        key: str,
+        payload_hash: str,
+        lease_ms: int = 180000,
+        intervalo_segundos: int = 45
+    ):
+        self.redis = redis_client
+        self.key = key
+        self.payload_hash = payload_hash
+        self.lease_ms = lease_ms
+        self.intervalo_segundos = intervalo_segundos
+        self._task: Optional[asyncio.Task] = None
+
+    async def _heartbeat(self):
+        while True:
+            await asyncio.sleep(self.intervalo_segundos)
+            try:
+                await self.redis.eval(
+                    EXTEND_PROCESSING_LUA_SCRIPT,
+                    1,
+                    self.key,
+                    self.payload_hash,
+                    str(self.lease_ms)
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ [Idempotency Heartbeat] No se pudo renovar el candado '{self.key}': {e}")
+
+    async def __aenter__(self):
+        if self.redis:
+            self._task = asyncio.create_task(self._heartbeat())
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
 
 class IdempotencyService:
     """
@@ -91,9 +163,21 @@ class IdempotencyService:
         else:
             return "M3_UPDATE"
 
+    def mantener_processing_vivo(self, smart_code: str, payload_dict: dict) -> "IdempotencyProcessingHeartbeat":
+        """
+        🟢 FIX P1-13: construye el context manager que renueva el candado PROCESSING
+        mientras dura el despacho real. Usar así:
+            async with idempotency_service.mantener_processing_vivo(smart_code, raw_payload):
+                ... llamada real a la SFC ...
+        """
+        operation = self.infer_operation_type(payload_dict)
+        payload_hash = self.compute_payload_hash(payload_dict)
+        key = self._get_idempotency_key(smart_code, operation, payload_hash)
+        return IdempotencyProcessingHeartbeat(redis_client=self.redis, key=key, payload_hash=payload_hash)
+
     async def verificar_o_iniciar_operacion(
-        self, 
-        smart_code: str, 
+        self,
+        smart_code: str,
         payload_dict: dict,
         source: str = "CRM_SALESFORCE",
         fail_closed: bool = True

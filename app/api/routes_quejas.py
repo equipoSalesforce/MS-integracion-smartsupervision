@@ -288,8 +288,14 @@ async def despachar_queja_crm(
     
     try:
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
-        resultado = await orquestador.procesar_despacho(payload=payload)
-        
+        # 🟢 FIX P1-13: el candado PROCESSING de idempotencia tenía un TTL fijo de 3
+        # minutos sin renovación; si el despacho real tardaba más, un reintento del
+        # mismo payload durante esa ventana ya no lo veía "processing" y disparaba un
+        # segundo envío concurrente a la SFC. Se mantiene vivo el candado mientras dura
+        # la llamada real.
+        async with idempotency_service.mantener_processing_vivo(payload.Smart_Code__c, raw_payload):
+            resultado = await orquestador.procesar_despacho(payload=payload)
+
         if isinstance(resultado, dict) and resultado.get("status") == "error":
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
