@@ -1,0 +1,230 @@
+# =============================================================================
+# EJEMPLO de CI/CD para desplegar MS Integración SmartSupervision (SSV) a ECS
+# =============================================================================
+# Este workflow es un PUNTO DE PARTIDA, no un pipeline listo para producción.
+# Antes de usarlo hay que:
+#
+#   1. Crear el rol de IAM para OIDC de GitHub (`AWS_DEPLOY_ROLE_ARN`) — ver
+#      sección 6 del informe de auditoría (IAM Execution Role / Task Role).
+#   2. Tener ya provisionados por Terraform (repo central de infraestructura,
+#      NO este repo): ECR, cluster ECS, servicios ECS "api"/"worker",
+#      ElastiCache, Secrets Manager, ALB/TG, SG y networking. Este workflow
+#      NO crea infraestructura — sólo construye, publica y despliega la
+#      aplicación sobre infraestructura que ya existe.
+#   3. Configurar los secrets/variables listados en cada job (Settings →
+#      Secrets and variables → Actions).
+#   4. Ajustar nombres de cluster/servicio/repo ECR a los reales del equipo.
+#
+# Estructura:
+#   test               -> corre siempre (push y pull_request)
+#   build-and-push      -> sólo en despliegue manual (workflow_dispatch)
+#   deploy              -> registra las Task Definitions (api + worker) y
+#                          actualiza los servicios ECS, esperando estabilidad
+# =============================================================================
+
+name: Deploy SSV a AWS ECS
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente de despliegue"
+        required: true
+        type: choice
+        options: [dev, qa, prod]
+        default: dev
+
+permissions:
+  id-token: write   # requerido para autenticación OIDC con AWS (sin access keys estáticas)
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # 1. TESTS — corre en cada push/PR, nunca despliega nada.
+  # ===========================================================================
+  test:
+    name: Suite de pruebas
+    runs-on: ubuntu-latest
+
+    # Redis real disponible para tests/test_queue_race_protection.py (verifica
+    # las protecciones de ownership/versión de la cola contra Redis de verdad,
+    # no un mock — ver ese archivo para el porqué).
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar suite completa (unittest)
+        env:
+          TEST_REDIS_URL: redis://localhost:6379/15
+        run: python -m unittest discover -s tests
+
+  # ===========================================================================
+  # 2. BUILD & PUSH — sólo en despliegue manual. Construye UNA imagen
+  #    (target final-api) reutilizada para ambos servicios (api y worker): la
+  #    Task Definition de ECS sobreescribe `command` y `healthCheck` por
+  #    contenedor, así que el mismo artefacto sirve para los dos roles — ver
+  #    infrastructure/ecs-task-def.json.tpl, que ya referencia una única
+  #    imagen/tag para ambos.
+  # ===========================================================================
+  build-and-push:
+    name: Build y push a ECR
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Definir tag inmutable (commit SHA corto)
+        id: vars
+        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar credenciales AWS (OIDC, sin access keys estáticas)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login en ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build imagen (target final-api)
+        run: |
+          docker build \
+            --target final-api \
+            -f infrastructure/Dockerfile \
+            -t "${{ steps.ecr-login.outputs.registry }}/ms-integracion-smartsupervision:${{ steps.vars.outputs.image_tag }}" \
+            .
+
+      # Gate de seguridad: la auditoría exige "scan on push" y cero críticas
+      # no aceptadas. Si el repo ECR ya tiene scanOnPush=true, este paso sólo
+      # consulta el resultado y falla el build si hay CRITICAL sin aceptar.
+      - name: Push a ECR
+        run: |
+          docker push "${{ steps.ecr-login.outputs.registry }}/ms-integracion-smartsupervision:${{ steps.vars.outputs.image_tag }}"
+
+      - name: Verificar hallazgos críticos del scan de ECR
+        run: |
+          aws ecr wait image-scan-complete \
+            --repository-name ms-integracion-smartsupervision \
+            --image-id imageTag=${{ steps.vars.outputs.image_tag }}
+          CRITICOS=$(aws ecr describe-image-scan-findings \
+            --repository-name ms-integracion-smartsupervision \
+            --image-id imageTag=${{ steps.vars.outputs.image_tag }} \
+            --query "imageScanFindings.findingSeverityCounts.CRITICAL || \`0\`" \
+            --output text)
+          echo "Vulnerabilidades CRITICAL encontradas: $CRITICOS"
+          if [ "$CRITICOS" != "0" ] && [ "$CRITICOS" != "None" ]; then
+            echo "❌ La imagen tiene vulnerabilidades CRITICAL sin aceptar. Abortando despliegue."
+            exit 1
+          fi
+
+  # ===========================================================================
+  # 3. DEPLOY — renderiza ambas Task Definitions (api + worker) con el script
+  #    ya existente (scripts/render_task_def.py, con sus validaciones
+  #    fail-fast) y actualiza los dos servicios ECS, esperando a que el
+  #    circuit breaker de despliegue confirme estabilidad o revierta.
+  # ===========================================================================
+  deploy:
+    name: Desplegar a ECS (${{ inputs.environment }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SECRET_SUFFIX: ${{ secrets.SECRET_SUFFIX }}
+      SFC_URL_BASE: ${{ vars.SFC_URL_BASE }}
+      CRM_CORS_ORIGINS: ${{ vars.CRM_CORS_ORIGINS }}
+      REDIS_HOST: ${{ vars.REDIS_HOST }}
+      AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
+      GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
+      GOOGLE_CATALOGS_SPREADSHEET_ID: ${{ vars.GOOGLE_CATALOGS_SPREADSHEET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configurar credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Renderizar Task Definitions (api + worker)
+        run: |
+          python scripts/render_task_def.py api ${{ inputs.environment }}
+          python scripts/render_task_def.py worker ${{ inputs.environment }}
+
+      - name: Registrar y desplegar servicio API
+        run: |
+          TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://ecs-task-def-api-${{ inputs.environment }}.json \
+            --query "taskDefinition.taskDefinitionArn" --output text)
+          echo "Registrada: $TD_ARN"
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --task-definition "$TD_ARN" \
+            --force-new-deployment
+
+      - name: Registrar y desplegar servicio Worker
+        run: |
+          TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://ecs-task-def-worker-${{ inputs.environment }}.json \
+            --query "taskDefinition.taskDefinitionArn" --output text)
+          echo "Registrada: $TD_ARN"
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --task-definition "$TD_ARN" \
+            --force-new-deployment
+
+      # Si el deployment circuit breaker (configurado en el servicio ECS vía
+      # IaC) detecta que las tasks nuevas no estabilizan, revierte solo. Este
+      # wait hace que el job de CI también falle en ese caso, en vez de
+      # reportar éxito prematuramente tras el `update-service`.
+      - name: Esperar estabilidad de los servicios (o rollback del circuit breaker)
+        run: |
+          aws ecs wait services-stable \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }} ms-smartsupervision-worker-${{ inputs.environment }}
+
+  # ===========================================================================
+  # (Opcional) TERRAFORM — si el IaC central usa Terraform, el `terraform
+  # plan`/`apply` de ECR, ECS, ALB, ElastiCache, IAM, etc. vive en el
+  # repositorio central de infraestructura del equipo, no en éste — el
+  # informe de auditoría (sección 6) es explícito en que la infraestructura
+  # operativa debe vivir ahí. Este workflow asume que esos recursos ya
+  # existen y sólo publica/despliega la aplicación sobre ellos.
+  # ===========================================================================
