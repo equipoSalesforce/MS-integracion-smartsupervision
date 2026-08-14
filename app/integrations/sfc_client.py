@@ -284,22 +284,6 @@ class SfcClient:
             "type": file_type
         }
 
-        token = await self.interceptor.get_valid_token()
-        signature = self.interceptor.signature_context.get_signature(
-            method="POST",
-            url=endpoint,
-            payload=data,
-            is_file_upload=True
-        )
-        
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Cache-Control": "no-cache",
-            "Accept": "*/*",
-            "Accept-Language": "es",
-            "X-SFC-Signature": signature
-        }
-
         if hasattr(file_data, "seek") and callable(file_data.seek):
             file_data.seek(0)
 
@@ -308,10 +292,21 @@ class SfcClient:
         }
 
         logger.info(f"Transmitiendo archivo adjunto ({file_name}) para la queja SFC: {sfc_codigo_queja}")
-        
+
         try:
-            response = await self.client.post(url, data=data, files=files, headers=headers)
-            
+            # 🟢 FIX HALLAZGO 19: Se usa el mismo `auth=self.interceptor` que el resto de
+            # llamadas SFC en vez de fabricar token/firma manualmente, para heredar el
+            # refresh-and-retry automático ante 401. Los campos a firmar (codigo_queja/type)
+            # se pasan vía `extensions`, ya que SfcAuthManager no puede releer un body
+            # multipart ya construido.
+            response = await self.client.post(
+                url,
+                data=data,
+                files=files,
+                auth=self.interceptor,
+                extensions={"sfc_signature_fields": data}
+            )
+
             if response.status_code not in (200, 201):
                 logger.error(f"SFC rechazó la carga del archivo. Código: {response.status_code}. Respuesta: {response.text}")
                 await SfcErrorTranslator.procesar_y_lanzar(response.status_code, response.text)

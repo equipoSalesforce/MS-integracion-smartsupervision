@@ -353,23 +353,31 @@ class SfcAuthManager(httpx.Auth):
 
         endpoint_for_sig = path
         payload = None
+        # 🟢 FIX HALLAZGO 19: Detección única de archivo/multipart, reutilizada también en el
+        # reintento post-401 más abajo. Los campos a firmar viajan en `request.extensions`
+        # (ver SfcClient.post_adjunto_queja), evitando tener que re-parsear el body multipart.
+        is_file_upload = "multipart/form-data" in content_type or "api/storage" in path
 
         if "X-SFC-Signature" not in request.headers:
             if request.method == "GET":
                 endpoint_for_sig = str(request.url)
                 payload = None
+            elif is_file_upload:
+                endpoint_for_sig = path
+                payload = request.extensions.get("sfc_signature_fields")
             else:
                 endpoint_for_sig = path
                 payload = None
 
-                if "multipart/form-data" not in content_type and "api/storage" not in path:
-                    try:
-                        if hasattr(request, "content") and request.content:
-                            payload = json.loads(request.content.decode("utf-8"))
-                    except Exception:
-                        payload = None
+                try:
+                    if hasattr(request, "content") and request.content:
+                        payload = json.loads(request.content.decode("utf-8"))
+                except Exception:
+                    payload = None
 
-            signature = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
+            signature = self.signature_context.get_signature(
+                request.method, endpoint_for_sig, payload, is_file_upload=is_file_upload
+            )
             request.headers["X-SFC-Signature"] = signature
 
         response = yield request
@@ -389,14 +397,14 @@ class SfcAuthManager(httpx.Auth):
                     nuevo_token = await self._get_valid_token_unlocked()
                     request.headers["Authorization"] = f"Bearer {nuevo_token}"
 
-                    if "multipart/form-data" in content_type or "api/storage" in path:
-                        # Extraer campos 'codigo_queja' y 'type' si es multipart
-                        fields = self._parse_multipart_fields(request)
-                        nueva_firma = self.signature_context.get_signature("POST", path, fields if fields else None)
-                        request.headers["X-SFC-Signature"] = nueva_firma
-                    else:
-                        nueva_firma = self.signature_context.get_signature(request.method, endpoint_for_sig, payload)
-                        request.headers["X-SFC-Signature"] = nueva_firma
+                    # 🟢 FIX HALLAZGO 19: Reutiliza el mismo `payload`/`is_file_upload` calculados
+                    # arriba (incluye multipart vía `request.extensions`) en vez del método
+                    # inexistente `_parse_multipart_fields`, que nunca llegó a implementarse y
+                    # hacía que el reintento post-401 de adjuntos fallara silenciosamente.
+                    nueva_firma = self.signature_context.get_signature(
+                        request.method, endpoint_for_sig, payload, is_file_upload=is_file_upload
+                    )
+                    request.headers["X-SFC-Signature"] = nueva_firma
 
                     logger.info("[SfcAuthManager] Recuperación exitosa. Reintentando petición con credenciales nuevas.")
                     response = yield request
