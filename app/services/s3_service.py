@@ -144,14 +144,37 @@ class S3StorageService:
             return False
     
     async def obtener_stream_archivo(
-        self, 
-        s3_key: str, 
-        bucket: Optional[str] = None, 
-        max_size_mb: int = 30
+        self,
+        s3_key: str,
+        bucket: Optional[str] = None,
+        max_size_mb: int = 30,
+        case_id_esperado: Optional[str] = None
     ) -> tempfile.SpooledTemporaryFile:
         s3_key_clean = self._limpiar_key(s3_key)
         target_bucket = self.default_bucket #Retirado bucket opcional para evitar inyecciones
         file_name = s3_key_clean.split("/")[-1] if "/" in s3_key_clean else s3_key_clean
+
+        # 🟢 FIX P1-10: el bucket ya está fijado server-side, pero la key en sí seguía
+        # siendo aceptada sin validar que perteneciera al caso que se está procesando —
+        # un consumidor autenticado podía referenciar (adrede o por error) un archivo de
+        # OTRO caso dentro del mismo bucket. Se valida contra Case_id (no Smart_Code__c):
+        # es el identificador real y estable dentro del CRM/DB — Smart_Code__c puede
+        # derivarse/generarse desde el schema cuando sólo llega Case_id, por lo que no es
+        # confiable para esta comparación en todos los casos (ej. recuperados en M1).
+        if case_id_esperado:
+            segmentos = [seg for seg in s3_key_clean.split("/") if seg]
+            if case_id_esperado not in segmentos:
+                logger.error(
+                    f"🚨 [S3 Ownership] La key '{s3_key_clean}' no pertenece al caso "
+                    f"'{case_id_esperado}' que se está procesando."
+                )
+                raise SfcIntegrationException(
+                    status_code=403,
+                    error_type="S3_KEY_OWNERSHIP_MISMATCH",
+                    sfc_field="s3_key",
+                    raw_message=f"La key '{s3_key_clean}' no corresponde al caso '{case_id_esperado}'.",
+                    crm_action="Verifique que los archivos referenciados (s3_key) pertenezcan al caso que se está enviando."
+                )
 
         tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
 
@@ -539,13 +562,14 @@ class S3StorageService:
         return adjuntos_validos
 
     async def transferir_lote_s3_a_sfc(
-        self, 
-        sfc_client, 
-        sfc_codigo_queja: str, 
+        self,
+        sfc_client,
+        sfc_codigo_queja: str,
         adjuntos_crm: List[Any],
         target_file_name: Optional[str] = None,
         afijo_regulatorio: Optional[str] = None,
-        afijo_masivo: bool = False
+        afijo_masivo: bool = False,
+        case_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         if not adjuntos_crm:
             return []
@@ -586,7 +610,9 @@ class S3StorageService:
                 
                 try:
                     if not raw_bytes_input:
-                        tmp_stream = await self.obtener_stream_archivo(s3_key=s3_key, bucket=bucket)
+                        tmp_stream = await self.obtener_stream_archivo(
+                            s3_key=s3_key, bucket=bucket, case_id_esperado=case_id
+                        )
                         file_obj_or_bytes = tmp_stream
                     else:
                         file_obj_or_bytes = io.BytesIO(raw_bytes_input)

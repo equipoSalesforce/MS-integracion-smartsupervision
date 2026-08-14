@@ -54,10 +54,12 @@ class Momento2SincronizacionService:
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c")
+            case_id_crm = payload.get("Case_id") or smart_code
             archivos_s3_raw = payload.get("archivos_s3", [])
         else:
             crm_dict = payload.model_dump()
             smart_code = payload.Smart_Code__c
+            case_id_crm = payload.Case_id or smart_code
             archivos_s3_raw = payload.archivos_s3
 
         # 🟢 FIX HALLAZGO 40: Lanza SfcIntegrationException (400) para errores de validación de entrada
@@ -100,7 +102,8 @@ class Momento2SincronizacionService:
                 await self.s3_service.transferir_lote_s3_a_sfc(
                     sfc_client=self.sfc_client,
                     sfc_codigo_queja=smart_code,
-                    adjuntos_crm=archivos_s3_raw
+                    adjuntos_crm=archivos_s3_raw,
+                    case_id=case_id_crm  # 🟢 FIX P1-10
                 )
 
             return {

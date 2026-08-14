@@ -153,7 +153,15 @@ class Momento2QuejaCrmInput(BaseModel):
                 return []
             if "s3_key" in v or "nombre_archivo" in v:
                 return [v]
-            return []
+            # 🟢 FIX P1-11: un dict no vacío con forma irreconocible es un payload
+            # malformado del CRM, no "sin adjuntos" — antes se descartaba en
+            # silencio como []. Se rechaza explícitamente para no entregar la
+            # queja al CRM/SFC como si no tuviera anexos cuando en realidad sí
+            # se recibió información de archivos, sólo que corrupta/inesperada.
+            raise ValueError(
+                f"'archivos_s3' recibió un objeto con forma no reconocida (claves: {sorted(v.keys())}). "
+                "Se espera una lista de objetos con 's3_key' y 'nombre_archivo'."
+            )
         return v
 
     @field_validator("direccion__c", mode="after")

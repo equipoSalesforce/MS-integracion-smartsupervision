@@ -88,10 +88,15 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
     async def test_envio_exitoso_con_anexos(self):
         """Prueba de descarga asíncrona de S3 y transmisión concurrente a la SFC."""
         datos_con_anexos = self.mock_datos_consolidados.copy()
+        # Escenario realista: el CRM manda el Case_id (su id real interno) y el
+        # Smart_Code__c se deriva/prefija en el schema; el s3_key está organizado
+        # por Case_id, no por el Smart_Code__c ya prefijado.
+        del datos_con_anexos["Smart_Code__c"]
+        datos_con_anexos["Case_id"] = self.smart_code
         datos_con_anexos["smart_anexo_queja__c"] = True
         datos_con_anexos["archivos_s3"] = [
             {
-                "s3_key": f"{self.smart_code}/soporte1.pdf", 
+                "s3_key": f"{self.smart_code}/soporte1.pdf",
                 "bucket": "mi-bucket-smartsupervision",
                 "nombre_archivo": "soporte1.pdf"
             }
@@ -167,6 +172,31 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
             Momento2QuejaCrmInput(**payload_invalido)
             
         self.assertIn("Debe incluir al menos 'Case_id' o 'Smart_Code__c'", str(ctx.exception))
+
+    def test_archivos_s3_dict_malformado_no_se_descarta_en_silencio(self):
+        """
+        P1-11: si el CRM manda 'archivos_s3' como un dict no vacío pero con forma
+        no reconocida (sin 's3_key' ni 'nombre_archivo'), antes se descartaba en
+        silencio como []. Debe rechazarse explícitamente en vez de tratarse como
+        'sin adjuntos'.
+        """
+        payload_invalido = self.mock_datos_consolidados.copy()
+        payload_invalido["archivos_s3"] = {"otro_campo": "valor_inesperado"}
+
+        with self.assertRaises(ValidationError) as ctx:
+            Momento2QuejaCrmInput(**payload_invalido)
+
+        self.assertIn("forma no reconocida", str(ctx.exception))
+
+    def test_archivos_s3_dict_unico_valido_se_normaliza_a_lista(self):
+        """Un único adjunto enviado como dict (no lista) sigue aceptándose normalmente."""
+        payload_valido = self.mock_datos_consolidados.copy()
+        payload_valido["archivos_s3"] = {"s3_key": "q/f.pdf", "nombre_archivo": "f.pdf", "bucket": "b1"}
+
+        payload_pydantic = Momento2QuejaCrmInput(**payload_valido)
+
+        self.assertEqual(len(payload_pydantic.archivos_s3), 1)
+        self.assertEqual(payload_pydantic.archivos_s3[0].nombre_archivo, "f.pdf")
 
 
 if __name__ == "__main__":

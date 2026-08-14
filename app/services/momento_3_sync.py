@@ -103,7 +103,8 @@ class Momento3SincronizacionService:
                     adjuntos_crm=archivos_s3_raw,
                     target_file_name=target_file_name,
                     afijo_regulatorio=afijo_regulatorio,
-                    afijo_masivo=afijo_masivo
+                    afijo_masivo=afijo_masivo,
+                    case_id=case_id_crm  # 🟢 FIX P1-10: sólo para validar ownership del s3_key
                 )
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
@@ -198,5 +199,6 @@ class Momento3SincronizacionService:
         await self.s3_service.transferir_lote_s3_a_sfc(
             sfc_client=self.sfc_client,
             sfc_codigo_queja=sfc_code,
-            adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}]
+            adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}],
+            case_id=case_id  # 🟢 FIX P1-10 (no-op aquí: bytes ya vienen inline, no se lee de S3)
         )
