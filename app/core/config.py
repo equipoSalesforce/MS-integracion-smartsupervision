@@ -124,6 +124,19 @@ class Settings(BaseSettings):
     QUEUE_RETENTION_DAYS: int = Field(default=7)
     QUEUE_RETENTION_DAYS_DLQ: int = Field(default=30)
 
+    # 🟢 FIX P1-12: los flujos de paginación de M1/M4 seguían el enlace "next" de la
+    # SFC en un `while True` sin cota. Un enlace de paginación defectuoso (ciclo,
+    # bug de la SFC) o un backlog anómalamente grande podían dejar el request
+    # colgado indefinidamente y acumulando resultados en memoria sin límite.
+    SFC_SYNC_MAX_PAGINAS: int = Field(
+        default=1000,
+        description="Máximo de páginas a seguir en un ciclo de paginación de la SFC (M1/M4) antes de cortar y alertar."
+    )
+    SFC_SYNC_MAX_SEGUNDOS: int = Field(
+        default=300,
+        description="Tiempo máximo (segundos) que un ciclo de paginación de la SFC (M1/M4) puede ejecutarse antes de cortar y alertar."
+    )
+
     # --- Configuración SMTP Alertas ---
     SMTP_HOST: str = Field(default="smtp.gmail.com")
     SMTP_PORT: int = Field(default=587)

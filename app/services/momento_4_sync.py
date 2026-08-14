@@ -1,11 +1,13 @@
 # app/services/momento_4_sync.py
 import asyncio
 import logging
+import time
 from typing import Dict, Any, List, Optional
 
 from app.integrations.sfc_client import SfcClient
 from app.core.mapping import SfcSalesforceMapper
 from app.core.config import settings
+from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,31 @@ class UserSync:
         vistos_ids = set()
         total_procesados = 0
         url_actual = None
+        # 🟢 FIX P1-12: cota de páginas/tiempo, mismo riesgo que en Momento 1 (enlace
+        # 'next' de la SFC sin fin).
+        pagina_actual = 0
+        inicio = time.monotonic()
+        paginacion_incompleta = False
 
         while True:
+            pagina_actual += 1
+            if pagina_actual > settings.SFC_SYNC_MAX_PAGINAS or (time.monotonic() - inicio) > settings.SFC_SYNC_MAX_SEGUNDOS:
+                logger.critical(
+                    f"🔥 [Momento 4] Ciclo de paginación cortado tras {pagina_actual - 1} página(s) "
+                    f"({len(usuarios_finales_crm)} usuarios acumulados): se alcanzó el límite de "
+                    f"páginas/tiempo configurado. Posible enlace 'next' inválido o backlog anómalo en la SFC."
+                )
+                await EmailAlertService.notificar_falla_infraestructura(
+                    smart_code="SYNC_M4_PAGINACION",
+                    error_msg=(
+                        f"Ciclo de paginación M4 cortado tras {pagina_actual - 1} página(s) "
+                        f"({len(usuarios_finales_crm)} usuarios acumulados) por exceder el límite de "
+                        f"páginas/tiempo configurado."
+                    )
+                )
+                paginacion_incompleta = True
+                break
+
             respuesta = await self.sfc_client.fetch_usuarios_pagina(url=url_actual)
             response_data = respuesta.get("Response") if "Response" in respuesta else respuesta
 
@@ -86,6 +111,8 @@ class UserSync:
                 break
 
         status = "success" if not failed_items else ("partial" if usuarios_finales_crm else "error")
+        if paginacion_incompleta:
+            status = "partial"
 
         logger.info(
             f"📊 [Momento 4] Sincronización finalizada. Status: {status} | "
@@ -98,7 +125,11 @@ class UserSync:
             "total_exitosos": len(usuarios_finales_crm),
             "total_fallidos": len(failed_items),
             "usuarios": usuarios_finales_crm,
-            "failed_items": failed_items
+            "failed_items": failed_items,
+            # 🟢 FIX P1-12: indica que se cortó el ciclo antes de agotar la paginación
+            # de la SFC (límite de páginas/tiempo alcanzado), para que el CRM sepa que
+            # la lista de usuarios puede no representar el backlog completo.
+            "paginacion_incompleta": paginacion_incompleta
         }
 
     async def confirmar_recepcion_ack_usuarios(self, numeros_id_cf: List[str]) -> Dict[str, Any]:

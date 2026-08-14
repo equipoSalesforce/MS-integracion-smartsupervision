@@ -9,6 +9,7 @@ from app.api.dependencies import get_sfc_client, get_s3_client
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.services.momento_1_sync import SincronizacionService
+from app.services.email_service import EmailAlertService
 
 
 class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
@@ -160,6 +161,32 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.sfc_client_mock.fetch_quejas_pagina.assert_called_once()
         self.sfc_client_mock.get_adjuntos_list.assert_not_called()
         self.assertEqual(len(resultado[0]["archivos_s3"]), 0)
+
+    async def test_paginacion_se_corta_al_alcanzar_el_limite_de_paginas(self):
+        """
+        P1-12: si el enlace 'next' de la SFC nunca se agota (bug/ciclo/backlog
+        anómalo), el ciclo de paginación debe cortarse por límite de páginas en
+        vez de correr indefinidamente, y debe alertar por correo.
+        """
+        def _pagina_infinita(url=None):
+            return {
+                "Response": {
+                    "count": 1,
+                    "next": "https://sfc.example.com/quejas?page=siguiente",
+                    "results": [dict(self.mock_quejas_response["Response"]["results"][0], anexo_queja=False)]
+                }
+            }
+
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(side_effect=_pagina_infinita)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        with patch.object(settings, "SFC_SYNC_MAX_PAGINAS", 3), \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_alerta:
+            resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(self.sfc_client_mock.fetch_quejas_pagina.call_count, 3)
+        self.assertEqual(len(resultado), 3)
+        mock_alerta.assert_called_once()
 
 
 class TestMomento1Integration(unittest.TestCase):

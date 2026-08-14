@@ -1,6 +1,8 @@
 # tests/test_momento_4.py
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
+from app.core.config import settings
+from app.services.email_service import EmailAlertService
 from app.services.momento_4_sync import UserSync
 
 
@@ -88,6 +90,40 @@ class TestMomento4Service(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado["status"], "error")
         self.assertEqual(resultado["confirmados"], 0)
         self.assertEqual(resultado["ids_error"], ids_usuarios)
+
+    async def test_paginacion_se_corta_al_alcanzar_el_limite_de_paginas(self):
+        """
+        P1-12: si el enlace 'next' de la SFC nunca se agota, el ciclo de
+        paginación de M4 debe cortarse por límite de páginas en vez de correr
+        indefinidamente, marcar el resultado como parcial y alertar por correo.
+        """
+        def _pagina_infinita(url=None):
+            return {
+                "Response": {
+                    "count": 1,
+                    "next": "https://sfc.gov.co/api/usuarios/info/?page=siguiente",
+                    "results": [
+                        {
+                            "numero_id_CF": "1018222333",
+                            "tipo_id_CF": 1,
+                            "nombre": "Juan",
+                            "apellido": "Pérez",
+                            "correo": "juan.perez@example.com"
+                        }
+                    ]
+                }
+            }
+
+        self.sfc_client_mock.fetch_usuarios_pagina.side_effect = _pagina_infinita
+
+        with patch.object(settings, "SFC_SYNC_MAX_PAGINAS", 3), \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_alerta:
+            resultado = await self.user_sync.sincronizar_usuarios()
+
+        self.assertEqual(self.sfc_client_mock.fetch_usuarios_pagina.call_count, 3)
+        self.assertEqual(resultado["status"], "partial")
+        self.assertTrue(resultado["paginacion_incompleta"])
+        mock_alerta.assert_called_once()
 
 
 if __name__ == "__main__":

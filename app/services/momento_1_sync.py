@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import time
 from typing import Dict, Any, List, Optional
 
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.core.mapping import SfcSalesforceMapper
 from app.core.config import settings
+from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +16,7 @@ class SincronizacionService:
     def __init__(self, sfc_client: SfcClient, s3_client=None):
         self.sfc_client = sfc_client
         self.s3_service = S3StorageService(
-            s3_client=s3_client, 
+            s3_client=s3_client,
             http_client=getattr(sfc_client, "client", None)
         )
 
@@ -22,8 +24,29 @@ class SincronizacionService:
         logger.info("[Momento 1] Descargando y procesando lote de quejas M1 de SFC...")
         quejas_finales_crm = []
         url_actual = None
+        # 🟢 FIX P1-12: cota de páginas/tiempo para no seguir un enlace 'next' de la
+        # SFC indefinidamente (ciclo de paginación, backlog anómalo, etc.).
+        pagina_actual = 0
+        inicio = time.monotonic()
 
         while True:
+            pagina_actual += 1
+            if pagina_actual > settings.SFC_SYNC_MAX_PAGINAS or (time.monotonic() - inicio) > settings.SFC_SYNC_MAX_SEGUNDOS:
+                logger.critical(
+                    f"🔥 [Momento 1] Ciclo de paginación cortado tras {pagina_actual - 1} página(s) "
+                    f"({len(quejas_finales_crm)} quejas acumuladas): se alcanzó el límite de páginas/tiempo "
+                    f"configurado. Posible enlace 'next' inválido o backlog anómalamente grande en la SFC."
+                )
+                await EmailAlertService.notificar_falla_infraestructura(
+                    smart_code="SYNC_M1_PAGINACION",
+                    error_msg=(
+                        f"Ciclo de paginación M1 cortado tras {pagina_actual - 1} página(s) "
+                        f"({len(quejas_finales_crm)} quejas acumuladas) por exceder el límite de "
+                        f"páginas/tiempo configurado."
+                    )
+                )
+                break
+
             respuesta = await self.sfc_client.fetch_quejas_pagina(url=url_actual)
             response_data = respuesta.get("Response") if "Response" in respuesta else respuesta
             lista_quejas = response_data.get("results", [])
