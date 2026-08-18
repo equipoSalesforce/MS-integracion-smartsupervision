@@ -12,9 +12,9 @@ El microservicio está diseñado bajo una arquitectura distribuida y desacoplada
 
 ```mermaid
     graph TD
-        CRM[Salesforce / Client API] -->|HTTP POST/PUT| APIGW[AWS API Gateway]
-        APIGW --> App1[FastAPI Cluster - Instancia 1]
-        APIGW --> App2[FastAPI Cluster - Instancia 2]
+        CRM[Salesforce / Client API] -->|HTTP POST/PUT| ALB[AWS Application Load Balancer]
+        ALB --> App1[FastAPI Cluster - Instancia 1]
+        ALB --> App2[FastAPI Cluster - Instancia 2]
 
         App1 -->|1. Validación DTO < 40ms| DTO[Pydantic v2]
         App1 -->|2. Intento Síncrono Timeout 3s| SFC[SFC API Gateway]
