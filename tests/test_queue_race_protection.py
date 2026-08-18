@@ -203,6 +203,168 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado, "completed")
         self.assertEqual(await self.queue_service.contar_pendientes(), 0)
 
+    # ==========================================================================
+    # 🟢 Auditoría adversarial v9 (2026-08-17) — P0-01: marcar_sfc_completado
+    # ==========================================================================
+
+    async def test_overwrite_en_vuelo_no_marca_sfc_done_el_evento_nuevo(self):
+        """
+        P0-01: worker_1 reclama A (version=1); llega B del mismo smart_code
+        (version=2) mientras A está en vuelo; worker_1 termina de procesar A ante
+        la SFC e intenta marcar_sfc_completado con SU respuesta de SFC — debe
+        rechazarse (version_mismatch) y NO debe persistirse sfc_completado=True
+        sobre el contenido de B, que nunca fue enviado a la SFC.
+        """
+        item_a = await self.queue_service.encolar_despacho(
+            smart_code="SC-500", tipo_operacion="AUTO",
+            payload_json={"evento": "A"}, error_inicial="timeout inicial"
+        )
+        worker_1 = "worker_1"
+        item_reclamado = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item_a.id, worker_id=worker_1, lease_segundos=60
+        )
+        self.assertEqual(item_reclamado.version, 1)
+
+        item_b = await self.queue_service.encolar_despacho(
+            smart_code="SC-500", tipo_operacion="AUTO",
+            payload_json={"evento": "B"}, error_inicial="timeout B"
+        )
+        self.assertEqual(item_b.version, 2)
+
+        resultado = await self.queue_service.marcar_sfc_completado(
+            item_a.id, worker_id=worker_1, expected_version=item_reclamado.version,
+            sfc_response={"event_processed": "A"}
+        )
+        self.assertEqual(resultado, "version_mismatch")
+
+        # El item vigente (B) NO debe quedar marcado como completado con la
+        # respuesta de A — debe seguir pendiente para ser enviado de verdad.
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item_a.id}")
+        import json as _json
+        data_vigente = _json.loads(raw_item)
+        self.assertFalse(data_vigente["sfc_completado"])
+        self.assertNotEqual(data_vigente.get("sfc_response"), {"event_processed": "A"})
+        self.assertEqual(await self.queue_service.contar_pendientes(), 1)
+
+    async def test_worker_sin_ownership_no_puede_marcar_sfc_done(self):
+        """
+        P0-01: un worker que perdió su lease no puede persistir SFC_DONE (recibe
+        'not_owner'), y el nuevo dueño legítimo sí puede hacerlo con su propia
+        respuesta de SFC.
+        """
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-600", tipo_operacion="AUTO",
+            payload_json={"evento": "F"}, error_inicial="timeout F"
+        )
+        worker_viejo = "worker_viejo"
+        claim_viejo = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id=worker_viejo, lease_segundos=60
+        )
+        await self.redis.delete(f"{{sfc:queue}}:claim:{item.id}")
+
+        worker_nuevo = "worker_nuevo"
+        claim_nuevo = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id=worker_nuevo, lease_segundos=60
+        )
+
+        resultado_viejo = await self.queue_service.marcar_sfc_completado(
+            item.id, worker_id=worker_viejo, expected_version=claim_viejo.version,
+            sfc_response={"event_processed": "viejo"}
+        )
+        self.assertEqual(resultado_viejo, "not_owner")
+
+        resultado_nuevo = await self.queue_service.marcar_sfc_completado(
+            item.id, worker_id=worker_nuevo, expected_version=claim_nuevo.version,
+            sfc_response={"event_processed": "nuevo"}
+        )
+        self.assertEqual(resultado_nuevo, "completed")
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item.id}")
+        import json as _json
+        data = _json.loads(raw_item)
+        self.assertTrue(data["sfc_completado"])
+        self.assertEqual(data["sfc_response"], {"event_processed": "nuevo"})
+
+    # ==========================================================================
+    # 🟢 Auditoría adversarial v9 (2026-08-17) — P0-02: registrar_fallo
+    # ==========================================================================
+
+    async def test_overwrite_en_vuelo_no_aplica_fallo_al_evento_nuevo(self):
+        """
+        P0-02: worker_1 reclama A (version=1); llega B del mismo smart_code
+        (version=2) mientras A está en vuelo; A falla y worker_1 llama
+        registrar_fallo — debe rechazarse (version_mismatch) sin incrementar
+        intentos ni escribir el error de A sobre el contenido vigente de B.
+        """
+        item_a = await self.queue_service.encolar_despacho(
+            smart_code="SC-700", tipo_operacion="AUTO",
+            payload_json={"evento": "A"}, error_inicial="timeout inicial"
+        )
+        worker_1 = "worker_1"
+        item_reclamado = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item_a.id, worker_id=worker_1, lease_segundos=60
+        )
+        self.assertEqual(item_reclamado.intentos, 1)
+
+        item_b = await self.queue_service.encolar_despacho(
+            smart_code="SC-700", tipo_operacion="AUTO",
+            payload_json={"evento": "B"}, error_inicial="timeout B"
+        )
+        self.assertEqual(item_b.version, 2)
+
+        resultado = await self.queue_service.registrar_fallo(
+            item=item_reclamado, error_msg="ERROR FROM EVENT A", worker_id=worker_1
+        )
+        self.assertEqual(resultado, "version_mismatch")
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item_a.id}")
+        import json as _json
+        data_vigente = _json.loads(raw_item)
+        self.assertEqual(data_vigente["intentos"], item_b.intentos, "No debe incrementarse sobre el contenido de B")
+        self.assertNotEqual(data_vigente["ultimo_error"], "ERROR FROM EVENT A")
+        self.assertEqual(data_vigente["version"], 2)
+
+    async def test_worker_sin_ownership_no_puede_registrar_fallo_ni_robar_claim(self):
+        """
+        P0-02: un worker que perdió su lease no puede registrar un fallo (recibe
+        'not_owner') ni borrar el claim del nuevo dueño; el nuevo dueño sí puede
+        registrar su propio fallo con normalidad.
+        """
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-800", tipo_operacion="AUTO",
+            payload_json={"evento": "G"}, error_inicial="timeout G"
+        )
+        worker_viejo = "worker_viejo"
+        claim_viejo = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id=worker_viejo, lease_segundos=60
+        )
+        await self.redis.delete(f"{{sfc:queue}}:claim:{item.id}")
+
+        worker_nuevo = "worker_nuevo"
+        claim_nuevo = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id=worker_nuevo, lease_segundos=60
+        )
+
+        resultado_viejo = await self.queue_service.registrar_fallo(
+            item=claim_viejo, error_msg="ERROR FROM WORKER VIEJO", worker_id=worker_viejo
+        )
+        self.assertEqual(resultado_viejo, "not_owner")
+
+        # El claim del worker nuevo debe seguir intacto tras el intento del viejo.
+        claim_actual = await self.redis.get(f"{{sfc:queue}}:claim:{item.id}")
+        self.assertEqual(claim_actual, worker_nuevo)
+
+        resultado_nuevo = await self.queue_service.registrar_fallo(
+            item=claim_nuevo, error_msg="ERROR FROM WORKER NUEVO", worker_id=worker_nuevo
+        )
+        self.assertEqual(resultado_nuevo, "failed")
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item.id}")
+        import json as _json
+        data = _json.loads(raw_item)
+        self.assertEqual(data["intentos"], 2)
+        self.assertEqual(data["ultimo_error"], "ERROR FROM WORKER NUEVO")
+
 
 if __name__ == "__main__":
     unittest.main()

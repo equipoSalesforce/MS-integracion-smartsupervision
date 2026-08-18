@@ -318,8 +318,18 @@ async def reintentar_despachos_pendientes_job():
 
                         if resultado.get("status") == "error":
                             error_msg = resultado.get("message") or "Error en el despacho a la SFC"
-                            await queue_service.registrar_fallo(item.id, error_msg=error_msg)
-                            casos_fallidos += 1
+                            # 🟢 FIX P0-02: se pasa el item completo (no sólo el id) + worker_id
+                            # para que registrar_fallo valide ownership/versión atómicamente.
+                            resultado_fallo = await queue_service.registrar_fallo(
+                                item=item, error_msg=error_msg, worker_id=worker_id
+                            )
+                            if resultado_fallo == "failed":
+                                casos_fallidos += 1
+                            else:
+                                logger.warning(
+                                    f"⚠️ [Scheduler Job] Caso {item.smart_code} falló en SFC pero el fallo no se "
+                                    f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
+                                )
                             es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                             continue
 
@@ -336,7 +346,11 @@ async def reintentar_despachos_pendientes_job():
                                 payload_dict=payload_actual,
                                 sfc_response=resultado
                             )
-                            await queue_service.marcar_sfc_completado(item.id, sfc_response=resultado)
+                            # 🟢 FIX P0-01: se pasa worker_id + la versión reclamada para que
+                            # MARK_SFC_DONE valide ownership y que el registro no fue sobrescrito.
+                            resultado_sfc_done = await queue_service.marcar_sfc_completado(
+                                item.id, worker_id=worker_id, expected_version=item.version, sfc_response=resultado
+                            )
                         except Exception as persist_err:
                             logger.critical(
                                 f"🔥 [Scheduler Job] SFC procesó exitosamente el caso {item.smart_code} pero no fue "
@@ -346,6 +360,18 @@ async def reintentar_despachos_pendientes_job():
                             await EmailAlertService.notificar_falla_infraestructura(
                                 smart_code=item.smart_code,
                                 error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+                            )
+                            continue
+
+                        if resultado_sfc_done != "completed":
+                            # "not_owner"/"version_mismatch"/"not_found": el envío a SFC sí
+                            # ocurrió, pero este worker ya no tiene autoridad sobre el registro
+                            # (otro evento del mismo caso lo sobrescribió, o el lease se perdió).
+                            # No se trata como fallo de reintentos: el contenido vigente se
+                            # procesará en su propio turno.
+                            logger.warning(
+                                f"⚠️ [Scheduler Job] Caso {item.smart_code} enviado a SFC pero SFC_DONE no se "
+                                f"persistió sobre el contenido vigente (motivo: {resultado_sfc_done})."
                             )
                             continue
                         sfc_ya_completado = True
@@ -363,8 +389,16 @@ async def reintentar_despachos_pendientes_job():
                             f"pero la notificación hacia el CRM Webhook falló."
                         )
                         logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
-                        await queue_service.registrar_fallo(item.id, error_msg=error_msg)
-                        casos_fallidos += 1
+                        resultado_fallo = await queue_service.registrar_fallo(
+                            item=item, error_msg=error_msg, worker_id=worker_id
+                        )
+                        if resultado_fallo == "failed":
+                            casos_fallidos += 1
+                        else:
+                            logger.warning(
+                                f"⚠️ [Scheduler Job] Caso {item.smart_code} falló el webhook pero el fallo no se "
+                                f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
+                            )
                     else:
                         try:
                             # 🟢 FIX P0-04/P0-05: se pasa worker_id + la versión reclamada para que
@@ -395,8 +429,11 @@ async def reintentar_despachos_pendientes_job():
                 except Exception as exc:
                     error_msg = str(exc)
                     logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
-                    await queue_service.registrar_fallo(item.id, error_msg=error_msg)
-                    casos_fallidos += 1
+                    resultado_fallo = await queue_service.registrar_fallo(
+                        item=item, error_msg=error_msg, worker_id=worker_id
+                    )
+                    if resultado_fallo == "failed":
+                        casos_fallidos += 1
                     es_falla_infraestructura = _es_falla_infraestructura(error_msg)
                 finally:
                     correlation_id_ctx.reset(token)

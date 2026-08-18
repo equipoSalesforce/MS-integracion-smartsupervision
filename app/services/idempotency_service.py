@@ -403,16 +403,32 @@ class IdempotencyService:
         )
 
     async def registrar_encolado(
-        self, smart_code: str, payload_dict: dict, error_msg: str, registro_id: Optional[int] = None
+        self,
+        smart_code: str,
+        payload_dict: dict,
+        error_msg: str,
+        registro_id: Optional[int] = None,
+        max_intentos_persistencia: int = 3
     ):
         """
         🟢 FIX P0-12: se guarda `queue_item_id` (el id del item de cola real) junto con el
         estado QUEUED, para poder verificar más adelante si ese item sigue conteniendo
         este mismo payload — o si fue sobrescrito por un evento más nuevo del mismo
         smart_code y este registro de idempotencia quedó huérfano.
+
+        🟢 FIX P0-03 (auditoría adversarial v9): antes, si el SET a Redis fallaba, la
+        excepción se registraba sólo en log y el método retornaba normalmente — el
+        endpoint (routes_quejas.py) devolvía 202 "encolado" como si la barrera de
+        idempotencia QUEUED estuviera activa, cuando en realidad nunca se persistió.
+        Un retry del mismo request durante esa ventana no tenía protección y podía
+        competir con el item ya encolado. Ahora reintenta con backoff corto (mismo
+        patrón que registrar_exito) y, si sigue fallando, propaga: el caller ya
+        envuelve esta llamada en el mismo try/except que usa para el fallo doble
+        SFC+Redis de encolar_despacho, así que la excepción hace que el endpoint
+        responda 503 (fallo real) en vez de un 202 falsamente protegido.
         """
         if not self.redis:
-            return
+            raise RuntimeError("Cliente de Redis no disponible al registrar estado QUEUED en Idempotency Store.")
 
         operation = self.infer_operation_type(payload_dict)
         payload_hash = self.compute_payload_hash(payload_dict)
@@ -432,10 +448,24 @@ class IdempotencyService:
             "queue_item_id": registro_id
         }
 
-        try:
-            await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
-        except Exception as e:
-            logger.error(f"Error registrando estado QUEUED en Idempotency Store para {smart_code}: {e}")
+        ultimo_error: Optional[Exception] = None
+        for intento in range(1, max_intentos_persistencia + 1):
+            try:
+                await self.redis.set(key, json.dumps(record, ensure_ascii=False), px=self.ttl_seconds * 1000)
+                return
+            except Exception as e:
+                ultimo_error = e
+                logger.warning(
+                    f"⚠️ [Idempotency Store] Intento {intento}/{max_intentos_persistencia} fallido registrando "
+                    f"estado QUEUED para {smart_code}: {e}"
+                )
+                if intento < max_intentos_persistencia:
+                    await asyncio.sleep(0.5 * intento)
+
+        raise RuntimeError(
+            f"No fue posible registrar estado QUEUED en Idempotency Store para {smart_code} tras "
+            f"{max_intentos_persistencia} intentos. Último error: {ultimo_error}"
+        )
 
     async def _item_de_cola_sigue_vigente(self, queue_item_id: Optional[int], payload_hash: str) -> bool:
         """
