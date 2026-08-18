@@ -1,9 +1,18 @@
 # app/core/config.py
 import json
 from typing import List, Any, Optional, Union
-from pydantic import BeforeValidator, Field, model_validator
+from pydantic import BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
+
+# 🟢 FIX (revisión despliegue AWS): valores reconocidos de ENVIRONMENT. Cualquier
+# otro valor (typo en la Task Definition, variable mal resuelta, etc.) debe fallar
+# el arranque explícitamente -- ver validar_environment_conocido más abajo. Antes,
+# un valor no reconocido caía silenciosamente en la rama permisiva de
+# validar_configuracion_estricta (que sólo aplica sobre un tuple fijo de nombres
+# "conocidos"), permitiendo que el microservicio arrancara en producción con
+# secretos/CORS/URLs de ejemplo sin ningún error.
+ENVIRONMENTS_RECONOCIDOS = ("local", "development", "test", "ci", "dev", "qa", "staging", "prod", "production")
 
 def parse_cors(v: Any) -> List[str]:
     """
@@ -54,7 +63,20 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "MS-integracion-smartsupervision"
     ENVIRONMENT: str = "local"
     API_V1_STR: str = "/api/v1"
-    
+
+    @field_validator("ENVIRONMENT")
+    @classmethod
+    def validar_environment_conocido(cls, v: str) -> str:
+        v_norm = (v or "").strip().lower()
+        if v_norm not in ENVIRONMENTS_RECONOCIDOS:
+            raise ValueError(
+                f"🚨 [FAIL-FAST] ENVIRONMENT='{v}' no es un valor reconocido. Debe ser uno de: "
+                f"{', '.join(ENVIRONMENTS_RECONOCIDOS)}. Un valor no reconocido antes caía "
+                f"silenciosamente en el ambiente permisivo 'local', saltándose toda la "
+                f"validación estricta de secretos/CORS/URLs."
+            )
+        return v
+
     # 🟢 FIX HALLAZGO 28: Deshabilitar Swagger/OpenAPI por defecto en entornos no-locales
     ENABLE_DOCS: bool = Field(
         default=False, 
@@ -218,13 +240,43 @@ class Settings(BaseSettings):
                     f"Se requieren orígenes HTTPS/HTTP explícitos (ej. 'https://crm.global66.com') en ambiente '{env_lower}'."
                 )
 
-            # 4. Validación de URL del Webhook del CRM
+            # 4. Validación de URL y API Key del Webhook del CRM
             webhook_url = (self.CRM_WEBHOOK_URL or "").strip().lower()
             if not webhook_url or not webhook_url.startswith(("http://", "https://")) or "example.com" in webhook_url:
                 errores_validacion.append(
                     f"- Campo 'CRM_WEBHOOK_URL' ('{self.CRM_WEBHOOK_URL}') es obligatorio y debe ser "
                     f"una URL HTTPS/HTTP válida en ambiente '{env_lower}'."
                 )
+            # 🟢 FIX (revisión despliegue AWS): CRM_WEBHOOK_API_KEY no se validaba aquí --
+            # si faltaba, crm_webhook_service.py enviaba "X-API-Key": "" en silencio en
+            # vez de fallar el arranque.
+            if not (self.CRM_WEBHOOK_API_KEY or "").strip():
+                errores_validacion.append(
+                    f"- Campo 'CRM_WEBHOOK_API_KEY' es obligatorio en ambiente '{env_lower}' "
+                    f"(sin él, las notificaciones al CRM se envían sin autenticar)."
+                )
+
+            # 🟢 FIX (revisión despliegue AWS): REDIS_PASSWORD/REDIS_SSL no se validaban
+            # aquí -- un secreto de Redis mal resuelto en Secrets Manager caía en silencio
+            # a una conexión sin autenticar/sin TLS contra ElastiCache en vez de fallar el
+            # arranque. Se excluye 'dev' de este bloque a propósito: docker-compose.yml
+            # reutiliza ENVIRONMENT=dev para el Redis local sin auth/TLS de
+            # infrastructure/docker-compose.yml (contenedor redis:7-alpine sin
+            # --requirepass), que es un uso legítimo y distinto del ambiente AWS "dev" real
+            # (ese sí pasa por ecs-task-def.json.tpl, que ya inyecta REDIS_PASSWORD desde
+            # Secrets Manager y REDIS_SSL=True por defecto).
+            ambientes_redis_real = ("production", "prod", "staging", "qa", "ci")
+            if env_lower in ambientes_redis_real:
+                if not (self.REDIS_PASSWORD or "").strip():
+                    errores_validacion.append(
+                        f"- Campo 'REDIS_PASSWORD' es obligatorio en ambiente '{env_lower}' "
+                        f"(sin él, la conexión a ElastiCache queda sin autenticar)."
+                    )
+                if not self.REDIS_SSL:
+                    errores_validacion.append(
+                        f"- Campo 'REDIS_SSL' debe estar en True en ambiente '{env_lower}' "
+                        f"para cifrar en tránsito la conexión a ElastiCache."
+                    )
 
             # 5. Bloquear exposición accidental de Swagger/ReDoc en Producción / Staging
             if env_lower in ("production", "prod", "staging") and self.ENABLE_DOCS:

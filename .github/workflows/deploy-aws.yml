@@ -4,18 +4,39 @@
 # Este workflow es un PUNTO DE PARTIDA, no un pipeline listo para producción.
 # Antes de usarlo hay que:
 #
-#   1. Crear el rol de IAM para OIDC de GitHub (`AWS_DEPLOY_ROLE_ARN`) — ver
-#      sección 6 del informe de auditoría (IAM Execution Role / Task Role).
-#      Debe incluir secretsmanager:DescribeSecret sobre
-#      arn:aws:secretsmanager:*:*:secret:*/smartsupervision/app-secrets-* para
-#      que el render pueda resolver el sufijo real del secreto (ya no se pasa
-#      manualmente por SECRET_SUFFIX).
+#   1. Crear el rol de IAM para OIDC de GitHub (`AWS_DEPLOY_ROLE_ARN`). Debe incluir
+#      secretsmanager:DescribeSecret sobre
+#      arn:aws:secretsmanager:*:*:secret:*/smartsupervision/app-secrets-* para que
+#      el render pueda resolver el sufijo real del secreto (ya no se pasa
+#      manualmente por SECRET_SUFFIX), además de los permisos ECR/ECS habituales
+#      para build-and-push/deploy (ecr:*, ecs:RegisterTaskDefinition,
+#      ecs:UpdateService, ecs:DescribeServices, iam:PassRole sobre los roles de
+#      ejecución/tarea de abajo).
+#   1b. Crear el Execution Role (`ecsTaskExecutionRole`, fijo, sin sufijo de
+#      ambiente) y el Task Role (`msSmartsupervisionTaskRole-${ENVIRONMENT}`, uno
+#      por ambiente) que referencia infrastructure/ecs-task-def.json.tpl. Cada uno
+#      tiene una responsabilidad distinta -- NO intercambiar los permisos entre
+#      ellos:
+#        - Execution Role: lo usa el agente de ECS ANTES de que la app corra (pull
+#          de imagen en ECR + resolver los `secrets` del task def contra Secrets
+#          Manager +, vía el driver `awslogs`, enviar logs a CloudWatch). Ver
+#          infrastructure/ms-smartsupervision-execution-role-policy.json.tpl como
+#          permisos adicionales sobre la política administrada estándar
+#          AmazonECSTaskExecutionRolePolicy (que ya cubre ECR + logs:CreateLogStream/
+#          PutLogEvents; el añadido real es secretsmanager:GetSecretValue). El log
+#          group en sí NO lo crea este rol ni la app (`awslogs-create-group: false`
+#          en el task def) -- debe existir de antemano, creado por Terraform.
+#        - Task Role: lo asume la app ya corriendo, para lo que ella misma llama
+#          por SDK -- hoy sólo S3 (confirmado: la app nunca llama a Secrets Manager
+#          ni a la API de CloudWatch Logs directamente). Ver
+#          infrastructure/ms-smartsupervision-task-role-policy.json.tpl.
 #   2. Tener ya provisionados por Terraform (repo central de infraestructura,
 #      NO este repo): ECR, cluster ECS, servicios ECS "api"/"worker",
 #      ElastiCache, Secrets Manager (incluyendo el secreto compuesto
-#      "{environment}/smartsupervision/app-secrets"), ALB/TG, SG y networking.
-#      Este workflow NO crea infraestructura — sólo construye, publica y
-#      despliega la aplicación sobre infraestructura que ya existe.
+#      "{environment}/smartsupervision/app-secrets"), el log group
+#      /ecs/ms-smartsupervision-${ENVIRONMENT}-{api,worker}, ALB/TG, SG y
+#      networking. Este workflow NO crea infraestructura — sólo construye,
+#      publica y despliega la aplicación sobre infraestructura que ya existe.
 #   3. Configurar los secrets/variables listados en cada job (Settings →
 #      Secrets and variables → Actions).
 #   4. Ajustar nombres de cluster/servicio/repo ECR a los reales del equipo.
@@ -51,6 +72,17 @@ on:
 permissions:
   id-token: write   # requerido para autenticación OIDC con AWS (sin access keys estáticas)
   contents: read
+
+# 🟢 FIX (revisión despliegue AWS): sin esto, dos ejecuciones de workflow_dispatch
+# contra el mismo ambiente (ej. dos personas desplegando 'dev' a la vez) podían pisarse
+# entre sí -- registrar Task Definitions y hacer update-service en paralelo sobre el
+# mismo servicio ECS. Se serializa por ambiente (los runs de test por push/PR se agrupan
+# por rama en vez de compartir un único grupo, para no bloquearse entre PRs distintos) y
+# el más nuevo espera en cola -- nunca cancela uno ya en curso, para no interrumpir un
+# `aws ecs wait` a mitad de despliegue.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && format('deploy-ssv-{0}', inputs.environment) || format('deploy-ssv-test-{0}', github.ref) }}
+  cancel-in-progress: false
 
 jobs:
   # ===========================================================================

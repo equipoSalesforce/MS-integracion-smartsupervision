@@ -17,9 +17,12 @@ class TestCorsSecurityValidation(unittest.TestCase):
             "CRM_API_KEY": "crm_key_segura_2026",
             "ADMIN_API_KEY": "admin_key_segura_2026",
             "CRM_WEBHOOK_URL": "https://crm.global66.com/webhook",
+            "CRM_WEBHOOK_API_KEY": "wh_key_segura_2026",
             "SMTP_USER": "alertas@global66.com",
             "SMTP_PASSWORD": "SmtpPasswordSegura2026!",
-            "ALERT_NOTIFY_EMAILS": "ops@global66.com"
+            "ALERT_NOTIFY_EMAILS": "ops@global66.com",
+            "REDIS_PASSWORD": "RedisPasswordSegura2026!",
+            "REDIS_SSL": True
         }
 
     def test_cors_wildcard_rechazado_en_ambientes_estrictos(self):

@@ -17,12 +17,26 @@ class TestRenderTaskDefinition(unittest.TestCase):
         os.environ["SECRET_SUFFIX"] = "a1b2c3"
         os.environ["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
         os.environ["SMTP_FROM_EMAIL"] = "alertas@global66.com"
-        
+        # 🟢 FIX (revisión despliegue AWS): obligatorias en 'prod' desde que
+        # render_task_def.py dejó de permitir sus fallbacks silenciosos ahí.
+        os.environ["SFC_URL_BASE"] = "https://smart.superfinanciera.gov.co"
+        os.environ["CRM_CORS_ORIGINS"] = "https://crm.global66.com"
+        os.environ["REDIS_HOST"] = "prod-smartsupervision-redis.cache.amazonaws.com"
+        os.environ["AWS_S3_BUCKET"] = "prod-global66-smartsupervision-attachments"
+        os.environ["GOOGLE_SPREADSHEET_ID"] = "1a2b3c4d5e6f7g8h9i0j"
+        os.environ["GOOGLE_CATALOGS_SPREADSHEET_ID"] = "0j9i8h7g6f5e4d3c2b1a"
+
         self.env_vars = {
             "AWS_ACCOUNT_ID": "112233445566",
             "SECRET_SUFFIX": "a1b2c3",
             "AWS_REGION": "us-east-1",
-            "SMTP_FROM_EMAIL": "alertas@global66.com"
+            "SMTP_FROM_EMAIL": "alertas@global66.com",
+            "SFC_URL_BASE": "https://smart.superfinanciera.gov.co",
+            "CRM_CORS_ORIGINS": "https://crm.global66.com",
+            "REDIS_HOST": "prod-smartsupervision-redis.cache.amazonaws.com",
+            "AWS_S3_BUCKET": "prod-global66-smartsupervision-attachments",
+            "GOOGLE_SPREADSHEET_ID": "1a2b3c4d5e6f7g8h9i0j",
+            "GOOGLE_CATALOGS_SPREADSHEET_ID": "0j9i8h7g6f5e4d3c2b1a",
         }
 
     def tearDown(self):
@@ -140,6 +154,36 @@ class TestRenderTaskDefinition(unittest.TestCase):
             render_task_definition("api", "dev")
 
         self.assertIn("SMTP_FROM_EMAIL", str(ctx.exception))
+
+    def test_infra_critica_faltante_falla_en_prod(self):
+        """
+        Verifica que en 'prod' se rechace el render si falta alguna variable crítica de
+        infraestructura (SFC_URL_BASE, REDIS_HOST, AWS_S3_BUCKET, etc.) en vez de caer
+        en silencio a sus valores por defecto (que apuntan a QA/ejemplo).
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["SFC_URL_BASE"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "prod")
+
+            self.assertIn("SFC_URL_BASE", str(ctx.exception))
+
+    def test_infra_critica_faltante_solo_advierte_fuera_de_prod(self):
+        """
+        Fuera de 'prod' (ej. un despliegue de prueba a 'ci'/'dev'), la ausencia de estas
+        variables no debe bloquear el render -- solo se advierte por consola.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["SFC_URL_BASE"]
+        del env_test["REDIS_HOST"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            result = render_task_definition("api", "ci")
+            self.assertIsInstance(result, dict)
 
     def test_unrendered_placeholder_fails(self):
         """Verifica que el script falle si queda algún placeholder ${...} sin reemplazar."""

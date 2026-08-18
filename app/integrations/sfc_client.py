@@ -2,7 +2,6 @@
 import asyncio
 import functools
 import os
-import ssl
 from urllib.parse import urlparse
 import httpx
 import json
@@ -10,17 +9,18 @@ import logging
 from typing import Dict, Any, Optional, Union
 from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
-from app.core.auth import SfcAuthManager 
+from app.core.auth import SfcAuthManager
 from app.core.constants import SfcEndpoints, SmartStatus
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 from app.core.middleware import get_aws_trace_id, get_correlation_id
+# 🟢 FIX (revisión despliegue AWS): antes este módulo redefinía su propio
+# ssl_context justo después de importarlo, descartando en silencio cualquier
+# configuración TLS de app.core.security.signatures.ssl_context (hoy son idénticos
+# por casualidad, pero un futuro hardening ahí -- cert de cliente, CA custom -- no
+# se habría propagado aquí). Se usa directamente el importado.
 from app.core.security.signatures import ssl_context
 
 logger = logging.getLogger(__name__)
-
-ssl_context = ssl.create_default_context()
-ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
 
 async def log_request(request: httpx.Request):

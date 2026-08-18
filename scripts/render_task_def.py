@@ -74,6 +74,33 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # este render se hace sin SMTP_FROM_EMAIL, la app caería de vuelta a SMTP_USER como
     # remitente (ver app/services/email_service.py) y las alertas fallarían en SES sin
     # ningún aviso hasta que alguien note que dejaron de llegar.
+    # 🟢 FIX (revisión despliegue AWS): SFC_URL_BASE, CRM_CORS_ORIGINS, REDIS_HOST,
+    # AWS_S3_BUCKET, GOOGLE_SPREADSHEET_ID y GOOGLE_CATALOGS_SPREADSHEET_ID tenían
+    # fallback silencioso a valores de QA/ejemplo más abajo (ver escaped_replacements).
+    # Si el GitHub Environment del ambiente objetivo no tiene esas Variables
+    # configuradas, un despliegue a 'prod' terminaría apuntando en silencio al sandbox
+    # de QA de la SFC, al bucket S3 equivocado o a un host de Redis inexistente -- sin
+    # ningún error, exactamente como el problema ya cerrado de ENVIRONMENT fail-open
+    # en app/core/config.py. En 'prod' esto ahora es fail-fast; en el resto de
+    # ambientes se advierte para dar visibilidad sin bloquear despliegues de prueba.
+    _campos_criticos_infra = [
+        "SFC_URL_BASE", "CRM_CORS_ORIGINS", "REDIS_HOST", "AWS_S3_BUCKET",
+        "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID",
+    ]
+    _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
+    if _faltantes_infra:
+        if is_prod:
+            raise ValueError(
+                f"🚨 [FAIL-FAST] En ambiente 'prod' son obligatorias las variables de entorno: "
+                f"{', '.join(_faltantes_infra)}. No se permite depender de sus valores por "
+                f"defecto (apuntan a infraestructura de QA/ejemplo)."
+            )
+        print(
+            f"[WARN] Usando valores por defecto (no aptos para 'prod') para: "
+            f"{', '.join(_faltantes_infra)}. Configura estas GitHub Variables para el "
+            f"ambiente '{environment}' si este no es un despliegue de prueba."
+        )
+
     smtp_from_email = os.getenv("SMTP_FROM_EMAIL")
     if not smtp_from_email or not smtp_from_email.strip():
         raise ValueError(
@@ -91,7 +118,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "--bind", "0.0.0.0:8000",
             "--workers", web_concurrency,
             "--timeout", "120",
-            "--graceful-timeout", "30"
+            "--graceful-timeout", "60"
         ])
         port_mappings = json.dumps([
             {"containerPort": 8000, "hostPort": 8000, "protocol": "tcp"}
@@ -131,7 +158,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${AWS_ACCOUNT_ID}": aws_account_id.strip(),
         "${AWS_REGION}": os.getenv("AWS_REGION", "us-east-1"),
         "${IMAGE_TAG}": image_tag.strip(),
-        "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", f"{environment.lower()}-global66-smartsupervision-attachments"),
+        "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", "global66-crm-b2c-ci-files-766452279030"),
         "${SFC_URL_BASE}": os.getenv("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co"),
         "${CRM_CORS_ORIGINS}": os.getenv("CRM_CORS_ORIGINS", "https://crm.global66.com"),
         "${REDIS_HOST}": os.getenv("REDIS_HOST", f"{environment.lower()}-smartsupervision-redis.cache.amazonaws.com"),

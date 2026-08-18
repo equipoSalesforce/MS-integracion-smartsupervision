@@ -55,11 +55,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
 
 # 🟢 FIX HALLAZGO 55: Migración a la clase uvicorn_worker.UvicornWorker del paquete uvicorn-worker
+# 🟢 FIX (revisión despliegue AWS): graceful-timeout subido de 30s a 60s -- un 429
+# de la SFC puede reintentarse internamente (SFC_MINI_RETRY_ATTEMPTS x
+# SFC_MINI_RETRY_DELAY_SECONDS) sobre un read timeout de 15s, superando los 30s
+# originales antes de que gunicorn mate el worker a mitad de un request en curso.
 CMD gunicorn app.main:app -k uvicorn_worker.UvicornWorker \
     --bind 0.0.0.0:8000 \
     --workers "${WEB_CONCURRENCY:-2}" \
     --timeout 120 \
-    --graceful-timeout 30
+    --graceful-timeout 60
 
 # ======================================================================
 # FASE 3b: Target Worker (APScheduler + Cola Redis - sin HTTP)

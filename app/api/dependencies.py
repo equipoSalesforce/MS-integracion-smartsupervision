@@ -101,11 +101,25 @@ def get_sfc_client(request: Request = None) -> SfcClient:
     """
     Inyecta SfcClient reutilizando la misma instancia de _auth_manager_instance.
     Esto permite conservar el access_token y refresh_token en memoria RAM.
+
+    Usado como dependencia de FastAPI (`Depends(get_sfc_client)`) -- su firma debe
+    seguir siendo introspectable por FastAPI, por eso NO recibe un `http_client`
+    explícito aquí. El worker/scheduler (que no tiene `Request` ni ciclo de vida
+    FastAPI) usa `get_sfc_client_con_http_client()` en su lugar.
     """
     http_client = None
     if request and hasattr(request, "app") and hasattr(request.app, "state") and hasattr(request.app.state, "http_client"):
         http_client = request.app.state.http_client
 
+    return SfcClient(interceptor=_auth_manager_instance, http_client=http_client)
+
+
+def get_sfc_client_con_http_client(http_client: httpx.AsyncClient) -> SfcClient:
+    """
+    Variante de get_sfc_client() para contextos sin `Request`/FastAPI (el proceso
+    worker). Recibe el httpx.AsyncClient explícitamente para que SfcClient lo
+    reutilice en vez de crear (y filtrar) uno propio en cada llamada.
+    """
     return SfcClient(interceptor=_auth_manager_instance, http_client=http_client)
 
 

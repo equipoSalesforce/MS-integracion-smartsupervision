@@ -57,7 +57,9 @@ class TestConfigSecurityValidation(unittest.TestCase):
             CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
             SMTP_USER="alertas_prod@global66.com",
             SMTP_PASSWORD="SmtpPasswordSegura2026!",
-            ALERT_NOTIFY_EMAILS="ops@global66.com"
+            ALERT_NOTIFY_EMAILS="ops@global66.com",
+            REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+            REDIS_SSL=True
         )
         self.assertEqual(cfg_prod.ENVIRONMENT, "production")
         self.assertEqual(cfg_prod.CRM_API_KEY, "g66_sk_prod_real_key_xyz_987654321")

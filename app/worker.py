@@ -117,7 +117,14 @@ async def run_worker_process():
         await SfcErrorTranslator.obtener_matriz_errores()
         await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
     except Exception as e:
-        logger.error(f"Error precargando matriz/catálogos en Worker: {e}")
+        # 🟢 FIX (revisión despliegue AWS): igual que en app/main.py -- estos catálogos
+        # sólo se cargan aquí, en el arranque, sin refresco perezoso posterior. Si
+        # fallan, el worker seguiría vivo (heartbeat OK) despachando reintentos contra
+        # un catálogo vacío de forma indefinida. Se prefiere fallar rápido y dejar que
+        # ECS reinicie la tarea.
+        logger.critical(f"🔥 Error crítico precargando matriz/catálogos en Worker: {e}")
+        await close_redis()
+        raise
 
     # 3. Forzar e Iniciar Scheduler
     settings.RUN_SCHEDULER = True

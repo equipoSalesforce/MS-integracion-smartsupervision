@@ -25,9 +25,12 @@ class TestSwaggerDisabledInNonLocalEnvironments(unittest.TestCase):
             CRM_API_KEY="crm_key",
             ADMIN_API_KEY="admin_key",
             CRM_WEBHOOK_URL="https://crm.global66.com/webhook",
+            CRM_WEBHOOK_API_KEY="wh_key",
             SMTP_USER="user@g66.com",
             SMTP_PASSWORD="pwd",
-            ALERT_NOTIFY_EMAILS="alert@g66.com"
+            ALERT_NOTIFY_EMAILS="alert@g66.com",
+            REDIS_PASSWORD="redis_pwd_segura",
+            REDIS_SSL=True
         )
 
         # 🟢 No reutilizar `app.main.app`: si otro módulo de test ya importó `app.main`

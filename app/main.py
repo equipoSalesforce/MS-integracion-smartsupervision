@@ -74,7 +74,16 @@ async def lifespan(app: FastAPI):
         await SfcErrorTranslator.obtener_matriz_errores()
         await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
     except Exception as e:
-        logger.error(f"Fallo al precargar catálogos/errores en RAM: {str(e)}")
+        # 🟢 FIX (revisión despliegue AWS): estos catálogos sólo se cargan aquí, en el
+        # arranque -- no hay refresco perezoso por request, y /health/ready no los
+        # valida (sólo revisa Redis). Antes, un fallo transitorio (p.ej. OAuth/Google
+        # Sheets caído en el boot) dejaba CATALOGOS vacío y el contenedor igual pasaba
+        # a servir tráfico del ALB, mapeando/validando cada despacho contra un
+        # catálogo vacío de forma indefinida hasta un reinicio manual. Se prefiere
+        # fallar rápido: si esto no carga, el contenedor no debe arrancar -- ECS
+        # reintentará el despliegue y el circuit breaker/alarmas lo detectan.
+        logger.critical(f"🔥 Fallo crítico al precargar catálogos/errores en RAM: {str(e)}")
+        raise
 
     yield
 

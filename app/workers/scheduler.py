@@ -3,6 +3,7 @@ import asyncio
 import uuid
 import logging
 from typing import Optional
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.db.redis import get_redis_client
@@ -10,14 +11,46 @@ from app.services.queue_service import QueueService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
 from app.services.idempotency_service import IdempotencyService
-from app.api.dependencies import get_sfc_client, get_s3_client
+from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
 from app.core.metrics import emit_emf_metric
+from app.core.security.signatures import ssl_context
+from app.integrations.sfc_client import log_request, log_response
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
+
+# 🟢 FIX (revisión despliegue AWS): el worker no tiene ciclo de vida FastAPI, así
+# que get_sfc_client() no podía reutilizar app.state.http_client como hace la API
+# -- cada ciclo del job creaba (y abandonaba) su propio httpx.AsyncClient con pool
+# propio, filtrando sockets/FDs indefinidamente en la tarea ECS del worker. Se
+# mantiene aquí un único cliente a nivel de módulo, creado perezosamente y cerrado
+# explícitamente en detener_scheduler().
+_scheduler_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_scheduler_http_client() -> httpx.AsyncClient:
+    global _scheduler_http_client
+    if _scheduler_http_client is None or _scheduler_http_client.is_closed:
+        _scheduler_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=3.0, read=15.0, write=10.0, pool=10.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            verify=ssl_context,
+            event_hooks={
+                'request': [log_request],
+                'response': [log_response]
+            }
+        )
+    return _scheduler_http_client
+
+
+async def _close_scheduler_http_client():
+    global _scheduler_http_client
+    if _scheduler_http_client is not None and not _scheduler_http_client.is_closed:
+        await _scheduler_http_client.aclose()
+    _scheduler_http_client = None
 
 SCHEDULER_LOCK_PREFIX = "{sfc:scheduler}"
 
@@ -267,7 +300,7 @@ async def reintentar_despachos_pendientes_job():
         if not pendientes:
             return
 
-        sfc_client = get_sfc_client()
+        sfc_client = get_sfc_client(_get_scheduler_http_client())
         s3_client = get_s3_client()
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
 
@@ -536,6 +569,7 @@ async def detener_scheduler(timeout_segundos: float = 90.0):
     que ECS mande SIGKILL.
     """
     if not scheduler.running:
+        await _close_scheduler_http_client()
         return
 
     try:
@@ -558,4 +592,5 @@ async def detener_scheduler(timeout_segundos: float = 90.0):
             )
 
     scheduler.shutdown(wait=False)
+    await _close_scheduler_http_client()
     logger.info("🛑 APScheduler detenido.")
