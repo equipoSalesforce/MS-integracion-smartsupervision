@@ -32,6 +32,7 @@ except ImportError:
     redis_asyncio = None
 
 from app.services.queue_service import QueueService
+from app.core.constants import SmartStatus
 
 TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/15")
 
@@ -364,6 +365,70 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         data = _json.loads(raw_item)
         self.assertEqual(data["intentos"], 2)
         self.assertEqual(data["ultimo_error"], "ERROR FROM WORKER NUEVO")
+
+    # ==========================================================================
+    # 🟢 Observabilidad (auditoría adversarial v9, sección 6): estado PROCESSING
+    # ==========================================================================
+
+    async def test_reclamar_marca_estado_processing(self):
+        """SmartStatus.PROCESSING estaba declarado pero nunca se aplicaba: el campo
+        `estado` se quedaba en PENDING durante todo el procesamiento, indistinguible
+        de un item nunca reclamado. Al reclamar, debe reflejarse PROCESSING."""
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-900", tipo_operacion="AUTO",
+            payload_json={"evento": "H"}, error_inicial="timeout H"
+        )
+        self.assertEqual(item.estado, SmartStatus.PENDING.value)
+
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_1", lease_segundos=60
+        )
+        self.assertEqual(claim.estado, SmartStatus.PROCESSING.value)
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item.id}")
+        import json as _json
+        self.assertEqual(_json.loads(raw_item)["estado"], SmartStatus.PROCESSING.value)
+
+    async def test_fallo_no_definitivo_regresa_estado_a_pending(self):
+        """Tras un fallo que todavía no es definitivo, el item vuelve a esperar su
+        próximo turno de reintento -- ya no está "en proceso", así que el estado no
+        debe quedarse en PROCESSING hasta el siguiente ciclo que lo reclame."""
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-901", tipo_operacion="AUTO",
+            payload_json={"evento": "I"}, error_inicial="timeout I"
+        )
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_1", lease_segundos=60
+        )
+        self.assertEqual(claim.estado, SmartStatus.PROCESSING.value)
+
+        resultado = await self.queue_service.registrar_fallo(
+            item=claim, error_msg="fallo transitorio", worker_id="worker_1"
+        )
+        self.assertEqual(resultado, "failed")
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item.id}")
+        import json as _json
+        self.assertEqual(_json.loads(raw_item)["estado"], SmartStatus.PENDING.value)
+
+    async def test_overwrite_no_hereda_estado_processing(self):
+        """Si un evento B sobrescribe a A mientras A está PROCESSING, el contenido
+        vigente (B) todavía no fue reclamado por nadie -- debe partir en PENDING, no
+        heredar el PROCESSING del contenido anterior."""
+        item_a = await self.queue_service.encolar_despacho(
+            smart_code="SC-902", tipo_operacion="AUTO",
+            payload_json={"evento": "A"}, error_inicial="timeout inicial"
+        )
+        await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item_a.id, worker_id="worker_1", lease_segundos=60
+        )
+
+        item_b = await self.queue_service.encolar_despacho(
+            smart_code="SC-902", tipo_operacion="AUTO",
+            payload_json={"evento": "B"}, error_inicial="timeout B"
+        )
+        self.assertEqual(item_b.version, 2)
+        self.assertEqual(item_b.estado, SmartStatus.PENDING.value)
 
 
 if __name__ == "__main__":

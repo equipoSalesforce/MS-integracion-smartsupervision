@@ -68,6 +68,11 @@ if existing_id then
             -- que un worker que ya estaba procesando la versión anterior pueda detectar
             -- en MARK_SUCCESS que el contenido cambió bajo sus pies y NO lo marque COMPLETED.
             data["version"] = (tonumber(data["version"]) or 1) + 1
+            -- 🟢 FIX observabilidad (auditoría adversarial v9, sección 6): el contenido
+            -- vigente es nuevo y todavía nadie lo reclamó -- si el item anterior estaba en
+            -- PROCESSING (un worker viejo procesando la versión que se acaba de sobrescribir),
+            -- ese estado no debe heredarse al contenido nuevo.
+            data["estado"] = estado_pendiente
 
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
@@ -124,6 +129,7 @@ local item_key = KEYS[3]
 local item_id = ARGV[1]
 local worker_id = ARGV[2]
 local lease_px = tonumber(ARGV[3])
+local estado_procesando = ARGV[4]
 
 local is_pending = redis.call("SISMEMBER", pending_set_key, item_id)
 if is_pending == 0 then
@@ -144,7 +150,16 @@ if not raw_item then
     return cjson.encode({claimed = false, reason = "item_not_found"})
 end
 
-return cjson.encode({claimed = true, item = cjson.decode(raw_item)})
+-- 🟢 FIX observabilidad (auditoría adversarial v9, sección 6): reflejar en el propio
+-- item que está siendo procesado -- antes el campo `estado` se quedaba en PENDING todo
+-- el tiempo que duraba el procesamiento, indistinguible (desde /queue) de un item que
+-- ni siquiera había sido reclamado. SmartStatus.PROCESSING existía declarado pero
+-- nunca se usaba.
+local data = cjson.decode(raw_item)
+data["estado"] = estado_procesando
+redis.call("SET", item_key, cjson.encode(data))
+
+return cjson.encode({claimed = true, item = data})
 """
 
 MARK_SUCCESS_LUA_SCRIPT = """
@@ -271,6 +286,7 @@ local estado_failed_final = ARGV[6]
 local proximo_reintento_iso = ARGV[7]
 local proximo_reintento_ts = ARGV[8]
 local item_id = ARGV[9]
+local estado_pendiente = ARGV[10]
 
 -- 🟢 FIX P0-02 (auditoría adversarial v9): sólo el worker dueño del lease puede
 -- registrar un fallo. Antes cualquier worker (incluso uno "viejo" cuyo item ya fue
@@ -301,6 +317,11 @@ data["updated_at"] = now_iso
 if es_definitivo == "1" then
     data["estado"] = estado_failed_final
 else
+    -- 🟢 FIX observabilidad (auditoría adversarial v9, sección 6): el claim se libera
+    -- (abajo) y el item vuelve a esperar su próximo turno de reintento -- ya no está
+    -- "en proceso", así que el estado debe reflejarlo (antes se quedaba en PROCESSING,
+    -- heredado del claim, hasta el siguiente ciclo que lo reclamara de nuevo).
+    data["estado"] = estado_pendiente
     data["proximo_reintento_at"] = proximo_reintento_iso
 end
 
@@ -623,7 +644,8 @@ class QueueService:
         args = [
             str(registro_id),
             worker_id,
-            str(lease_segundos * 1000)
+            str(lease_segundos * 1000),
+            SmartStatus.PROCESSING.value
         ]
 
         try:
@@ -821,7 +843,8 @@ class QueueService:
             SmartStatus.FAILED_FINAL.value,
             proximo_at.isoformat(),
             str(proximo_at.timestamp()),
-            str(registro_id)
+            str(registro_id),
+            SmartStatus.PENDING.value
         ]
 
         try:
