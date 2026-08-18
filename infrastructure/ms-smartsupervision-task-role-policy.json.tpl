@@ -2,27 +2,17 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "S3ObjectAccess",
+      "Sid": "S3BucketAccess",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
-        "s3:PutObject"
+        "s3:PutObject",
+        "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030/caso/*",
-        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030/quejas/*"
+        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030",
+        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030/*"
       ]
-    },
-    {
-      "Sid": "S3ListBucketScoped",
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030",
-      "Condition": {
-        "StringLike": {
-          "s3:prefix": ["caso/*", "quejas/*"]
-        }
-      }
     }
   ]
 }
