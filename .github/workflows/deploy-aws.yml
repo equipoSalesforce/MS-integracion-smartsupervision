@@ -75,9 +75,35 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      # 🟢 FIX P0-04 (auditoría adversarial v9): en un runner limpio (checkout nuevo, sin
+      # .env local) Settings() exige 12 variables sin default y aborta el import de
+      # cualquier módulo que toque app.core.config — la suite ni siquiera llega a
+      # correr. Estos son valores explícitamente ficticios, sólo para que el test job
+      # pueda construir Settings(); ningún test habla con servicios reales usándolos.
+      # GOOGLE_SPREADSHEET_ID/GOOGLE_CATALOGS_SPREADSHEET_ID también se fijan aquí:
+      # sin ellos, tests/test_single_flight_refresh.py omite la rama que llama a
+      # Google OAuth (es opcional en Settings) y el mock nunca se invoca, fallando la
+      # aserción de call_count aunque las 12 variables obligatorias ya estén presentes.
       - name: Ejecutar suite completa (unittest)
         env:
           TEST_REDIS_URL: redis://localhost:6379/15
+          ENVIRONMENT: test
+          CRM_CORS_ORIGINS: "*"
+          AWS_S3_BUCKET: test-smartsupervision-attachments
+          AWS_REGION: us-east-1
+          SFC_URL_BASE: https://qasmart.superfinanciera.gov.co
+          SFC_USERNAME: test_sfc_user
+          SFC_PASSWORD: test_sfc_password
+          SFC_SECRET_KEY: test_sfc_secret_key_12345
+          CRM_API_KEY: g66_sk_test_super_secreto_12345
+          ADMIN_API_KEY: g66_sk_test_admin_secreto_99999
+          SMTP_USER: test@example.com
+          SMTP_PASSWORD: test_password
+          ALERT_NOTIFY_EMAILS: test@example.com
+          CRM_WEBHOOK_API_KEY: test_crm_webhook_key
+          CRM_WEBHOOK_URL: https://localhost/test-webhook
+          GOOGLE_SPREADSHEET_ID: test_spreadsheet_id
+          GOOGLE_CATALOGS_SPREADSHEET_ID: test_catalogs_spreadsheet_id
         run: python -m unittest discover -s tests
 
   # ===========================================================================
