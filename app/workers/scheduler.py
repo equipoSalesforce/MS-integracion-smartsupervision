@@ -517,7 +517,45 @@ def iniciar_scheduler():
         )
 
 
-def detener_scheduler():
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("🛑 APScheduler detenido.")
+async def detener_scheduler(timeout_segundos: float = 90.0):
+    """
+    🟢 FIX P1-03 (auditoría adversarial v9): un SIGTERM de ECS (deploy/scale-in)
+    puede llegar mientras un job del scheduler tiene un envío a la SFC o un callback
+    al CRM en vuelo. `scheduler.shutdown(wait=True)` NO protege eso: la propia
+    librería documenta en `AsyncIOExecutor.shutdown()` que "There is no way to honor
+    wait=True without converting this method into a coroutine method" — para este
+    tipo de executor, wait=True y wait=False hacen exactamente lo mismo (cancelan
+    de inmediato cualquier future pendiente). Por eso se espera explícitamente,
+    aquí, sobre los futures del executor antes de apagar — así el caller (que
+    después cierra Redis/HTTP/auth) no le corta los recursos a un job que sigue
+    ejecutándose.
+
+    `timeout_segundos` debe quedar por debajo del `stopTimeout` de la Task
+    Definition de ECS (hasta 120s en Fargate) para dejar margen al resto de la
+    secuencia de apagado (alertas por correo, cierre de Redis/HTTP/auth) antes de
+    que ECS mande SIGKILL.
+    """
+    if not scheduler.running:
+        return
+
+    try:
+        executor = scheduler._lookup_executor("default")
+        pendientes = [f for f in getattr(executor, "_pending_futures", ()) if not f.done()]
+    except Exception as e:
+        logger.warning(f"⚠️ [Scheduler Shutdown] No se pudo inspeccionar jobs en vuelo: {e}")
+        pendientes = []
+
+    if pendientes:
+        logger.info(
+            f"⏳ [Scheduler Shutdown] Esperando hasta {timeout_segundos}s a que terminen "
+            f"{len(pendientes)} job(s) en vuelo (posible envío a SFC/CRM en curso) antes de apagar..."
+        )
+        _done, en_vuelo = await asyncio.wait(pendientes, timeout=timeout_segundos)
+        if en_vuelo:
+            logger.warning(
+                f"⚠️ [Scheduler Shutdown] {len(en_vuelo)} job(s) seguían en vuelo tras "
+                f"{timeout_segundos}s de espera; se cancelarán junto con el apagado del scheduler."
+            )
+
+    scheduler.shutdown(wait=False)
+    logger.info("🛑 APScheduler detenido.")

@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
     
     try:
-        detener_scheduler()
+        await detener_scheduler()
     except Exception as e:
         logger.error(f"Error al detener scheduler: {e}")
 
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
     await EmailAlertService.shutdown(timeout_segundos=3.0)
 
     try:
-        detener_scheduler()
+        await detener_scheduler()
     except Exception as e:
         logger.error(f"Error al detener scheduler: {e}")
 

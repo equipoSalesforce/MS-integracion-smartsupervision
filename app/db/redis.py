@@ -82,7 +82,18 @@ async def init_redis() -> bool:
             f"⚠️ [Redis Conexión] No se pudo establecer conexión inicial con Redis ({str(e)}). "
             f"El servicio operará de forma limitada e intentará reconectarse en segundo plano."
         )
+        # 🟢 FIX P1-02 (auditoría adversarial v9): cerrar el cliente antes de perder la
+        # referencia -- antes se descartaba con `redis_client = None` sin `aclose()`,
+        # dejando el pool de conexiones recién creado sin cerrar (mismo riesgo que ya
+        # se había corregido para candidate_client en el loop de reconexión más abajo,
+        # pero no para este primer intento de conexión).
+        cliente_fallido = redis_client
         redis_client = None
+        if cliente_fallido is not None:
+            try:
+                await cliente_fallido.aclose()
+            except Exception:
+                pass
         _iniciar_tarea_reconexion()
         return False
 

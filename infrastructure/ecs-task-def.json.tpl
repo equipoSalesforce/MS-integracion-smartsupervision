@@ -13,6 +13,7 @@
       "name": "${SERVICE_TYPE}-service",
       "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ms-integracion-smartsupervision:${IMAGE_TAG}",
       "essential": true,
+      "stopTimeout": 120,
       "command": ${CONTAINER_COMMAND},
       "portMappings": ${PORT_MAPPINGS},
       "environment": [

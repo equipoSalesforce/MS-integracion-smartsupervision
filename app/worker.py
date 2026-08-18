@@ -160,7 +160,7 @@ async def run_worker_process():
         except asyncio.CancelledError:
             pass
 
-        detener_scheduler()
+        await detener_scheduler()
         # 🟢 FIX P1-07: el worker no esperaba las alertas de correo en vuelo antes de
         # cerrar — a diferencia de app/main.py, que sí lo hace en su lifespan. Un
         # SIGTERM de ECS (deploy/scale-in) podía perder alertas ya programadas.

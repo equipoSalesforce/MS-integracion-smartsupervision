@@ -35,7 +35,12 @@ on:
         description: "Ambiente de despliegue"
         required: true
         type: choice
-        options: [dev, qa, prod]
+        # 🟢 FIX P1-01 (auditoría adversarial v9): el renderer (render_task_def.py) ya
+        # soporta "ci" como ambiente, pero no aparecía como opción manual aquí — con
+        # el objetivo de montar primero SSV en CI, hacía falta poder desplegarlo sin
+        # forzar dev/qa/prod. Requiere definir el GitHub Environment "ci" (Settings →
+        # Environments) con sus vars/secrets propios antes de usarlo.
+        options: [ci, dev, qa, prod]
         default: dev
 
 permissions:
