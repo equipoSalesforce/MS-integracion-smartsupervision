@@ -119,7 +119,7 @@
           "awslogs-group": "/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}",
           "awslogs-region": "${AWS_REGION}",
           "awslogs-stream-prefix": "${SERVICE_TYPE}",
-          "awslogs-create-group": "true"
+          "awslogs-create-group": "false"
         }
       }
     }

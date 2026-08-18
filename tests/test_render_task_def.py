@@ -77,15 +77,45 @@ class TestRenderTaskDefinition(unittest.TestCase):
 
         self.assertIn("AWS_ACCOUNT_ID", str(ctx.exception))
 
-    def test_missing_secret_suffix_fails_fast(self):
-        """Verifica que se lance un ValueError si SECRET_SUFFIX no existe o es '??????'."""
+    def test_secret_suffix_sin_override_falla_si_secrets_manager_no_responde(self):
+        """
+        Sin SECRET_SUFFIX como override manual, el render debe intentar resolver el
+        sufijo real contra Secrets Manager (secretsmanager:DescribeSecret) -- y fallar
+        con un ValueError claro si esa consulta falla (secreto inexistente, sin
+        permisos, etc.), en vez de continuar con un ARN roto.
+        """
         if "SECRET_SUFFIX" in os.environ:
             del os.environ["SECRET_SUFFIX"]
 
-        with self.assertRaises(ValueError) as ctx:
-            render_task_definition("api", "dev")
+        with patch("boto3.client") as mock_boto_client:
+            mock_boto_client.return_value.describe_secret.side_effect = Exception(
+                "ResourceNotFoundException: secret not found"
+            )
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
 
-        self.assertIn("SECRET_SUFFIX", str(ctx.exception))
+        self.assertIn("Secrets Manager", str(ctx.exception))
+
+    def test_secret_suffix_sin_override_resuelve_via_secrets_manager(self):
+        """
+        Sin SECRET_SUFFIX, el render debe resolver el sufijo real consultando el ARN
+        del secreto en Secrets Manager -- así nadie tiene que copiarlo a mano después
+        de que el plan de Terraform cree el secreto.
+        """
+        if "SECRET_SUFFIX" in os.environ:
+            del os.environ["SECRET_SUFFIX"]
+
+        arn_falso = "arn:aws:secretsmanager:us-east-1:999888777666:secret:dev/smartsupervision/app-secrets-XyZ123"
+        with patch("boto3.client") as mock_boto_client:
+            mock_boto_client.return_value.describe_secret.return_value = {"ARN": arn_falso}
+            result = render_task_definition("api", "dev")
+
+        mock_boto_client.return_value.describe_secret.assert_called_once_with(
+            SecretId="dev/smartsupervision/app-secrets"
+        )
+        crm_secret = result["containerDefinitions"][0]["secrets"][0]["valueFrom"]
+        self.assertIn("XyZ123", crm_secret)
+        self.assertNotIn("??????", crm_secret)
 
     def test_missing_image_tag_fails_fast(self):
         """Verifica que se lance un ValueError si IMAGE_TAG no existe en el entorno."""

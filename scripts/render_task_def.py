@@ -3,6 +3,41 @@ import os
 import re
 import sys
 
+
+def _resolver_secret_suffix(environment: str) -> str:
+    """
+    🟢 FIX: antes SECRET_SUFFIX era una variable obligatoria que
+    un humano tenía que copiar a mano desde la consola de AWS (el sufijo aleatorio de
+    6 caracteres que Secrets Manager le agrega al nombre del secreto al crearlo).
+    El secreto ya lo crea el plan de Terraform -- no hace falta que nadie rastree
+    manualmente su sufijo: se consulta el ARN real directamente en Secrets Manager.
+
+    SECRET_SUFFIX se conserva como override opcional (no obligatorio) sólo para
+    testing local/offline sin credenciales AWS reales -- si no se define, se resuelve
+    contra el servicio real.
+    """
+    override = os.getenv("SECRET_SUFFIX")
+    if override and override.strip() and override.strip() != "??????":
+        return override.strip()
+
+    secret_name = f"{environment.lower()}/smartsupervision/app-secrets"
+    try:
+        import boto3
+        client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
+        arn = client.describe_secret(SecretId=secret_name)["ARN"]
+        # Los ARNs de Secrets Manager terminan en "-{sufijo de 6 caracteres}"; el
+        # nombre del secreto en sí puede contener guiones (ej. "app-secrets"), por eso
+        # se parte desde la derecha una sola vez.
+        return arn.rsplit("-", 1)[-1]
+    except Exception as e:
+        raise ValueError(
+            f"🚨 [FAIL-FAST] No se pudo resolver el secreto '{secret_name}' en Secrets Manager "
+            f"({os.getenv('AWS_REGION', 'us-east-1')}) y no se definió SECRET_SUFFIX como override "
+            f"manual. ¿El secreto ya fue creado por el plan de Terraform en este ambiente y el rol "
+            f"de deploy tiene permiso secretsmanager:DescribeSecret sobre él? Error original: {e}"
+        )
+
+
 def render_task_definition(service_type: str, environment: str) -> dict:
     is_prod = environment.lower() in ("prod", "production")
     
@@ -20,13 +55,10 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "estar vacía ni usar valores por defecto ficticios (123456789012)."
         )
 
-    # 🟢 FIX HALLAZGO 11: Validación Fail-Fast para SECRET_SUFFIX (Sin fallback '??????')
-    secret_suffix = os.getenv("SECRET_SUFFIX")
-    if not secret_suffix or secret_suffix.strip() in ("", "??????"):
-        raise ValueError(
-            "🚨 [FAIL-FAST] La variable de entorno 'SECRET_SUFFIX' es obligatoria para resolver "
-            "los ARNs de Secrets Manager en la Task Definition y no puede ser '??????' ni estar vacía."
-        )
+    # 🟢 FIX HALLAZGO 11 (revisado): el sufijo ya no se exige como variable manual --
+    # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
+    # siendo imposible continuar con un sufijo vacío o sin resolver.
+    secret_suffix = _resolver_secret_suffix(environment)
 
     # 🟢 FIX HALLAZGO 45: Validación Fail-Fast para IMAGE_TAG inmutable (Sin fallback a 'latest')
     image_tag = os.getenv("IMAGE_TAG")

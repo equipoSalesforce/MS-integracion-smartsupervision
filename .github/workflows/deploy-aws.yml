@@ -6,11 +6,16 @@
 #
 #   1. Crear el rol de IAM para OIDC de GitHub (`AWS_DEPLOY_ROLE_ARN`) — ver
 #      sección 6 del informe de auditoría (IAM Execution Role / Task Role).
+#      Debe incluir secretsmanager:DescribeSecret sobre
+#      arn:aws:secretsmanager:*:*:secret:*/smartsupervision/app-secrets-* para
+#      que el render pueda resolver el sufijo real del secreto (ya no se pasa
+#      manualmente por SECRET_SUFFIX).
 #   2. Tener ya provisionados por Terraform (repo central de infraestructura,
 #      NO este repo): ECR, cluster ECS, servicios ECS "api"/"worker",
-#      ElastiCache, Secrets Manager, ALB/TG, SG y networking. Este workflow
-#      NO crea infraestructura — sólo construye, publica y despliega la
-#      aplicación sobre infraestructura que ya existe.
+#      ElastiCache, Secrets Manager (incluyendo el secreto compuesto
+#      "{environment}/smartsupervision/app-secrets"), ALB/TG, SG y networking.
+#      Este workflow NO crea infraestructura — sólo construye, publica y
+#      despliega la aplicación sobre infraestructura que ya existe.
 #   3. Configurar los secrets/variables listados en cada job (Settings →
 #      Secrets and variables → Actions).
 #   4. Ajustar nombres de cluster/servicio/repo ECR a los reales del equipo.
@@ -191,7 +196,6 @@ jobs:
       IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      SECRET_SUFFIX: ${{ secrets.SECRET_SUFFIX }}
       SFC_URL_BASE: ${{ vars.SFC_URL_BASE }}
       CRM_CORS_ORIGINS: ${{ vars.CRM_CORS_ORIGINS }}
       REDIS_HOST: ${{ vars.REDIS_HOST }}
@@ -211,6 +215,11 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      # boto3: el render ahora resuelve el sufijo real del secreto contra Secrets
+      # Manager (secretsmanager:DescribeSecret) en vez de depender de un valor manual.
+      - name: Instalar boto3
+        run: pip install boto3
 
       - name: Renderizar Task Definitions (api + worker)
         run: |
