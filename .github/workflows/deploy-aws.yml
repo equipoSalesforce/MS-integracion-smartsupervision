@@ -13,10 +13,14 @@
 #      resuelva el endpoint real de ElastiCache (ya no se pasa manualmente por la
 #      GitHub Variable REDIS_HOST -- ver render_task_def.py:_resolver_redis_host,
 #      y el nombre del replication group en Terraform debe seguir el patrón
-#      `smartsupervision-${environment}`), además de los permisos ECR/ECS
-#      habituales para build-and-push/deploy (ecr:*, ecs:RegisterTaskDefinition,
-#      ecs:UpdateService, ecs:DescribeServices, iam:PassRole sobre los roles de
-#      ejecución/tarea de abajo).
+#      `smartsupervision-${environment}`), elasticloadbalancing:DescribeLoadBalancers
+#      sobre el ALB del ambiente (nombrado `ms-smartsupervision-${environment}`,
+#      mismo patrón que el cluster) y ecs:RunTask + ecs:DescribeTasks (scopeados al
+#      cluster) para el smoke funcional post-deploy (ver sección "Smoke post-deploy"
+#      más abajo), además de los permisos ECR/ECS habituales para build-and-
+#      push/deploy (ecr:*, ecs:RegisterTaskDefinition, ecs:UpdateService,
+#      ecs:DescribeServices, iam:PassRole sobre los roles de ejecución/tarea de
+#      abajo).
 #   1b. Crear el Execution Role (`ecsTaskExecutionRole`, fijo, sin sufijo de
 #      ambiente) y el Task Role (`msSmartsupervisionTaskRole-${ENVIRONMENT}`, uno
 #      por ambiente) que referencia infrastructure/ecs-task-def.json.tpl. Cada uno
@@ -47,22 +51,45 @@
 #      patrón que _resolver_redis_host en scripts/render_task_def.py da por
 #      sentado), Secrets Manager (incluyendo el secreto compuesto
 #      "{environment}/smartsupervision/app-secrets"), el log group
-#      /ecs/ms-smartsupervision-${ENVIRONMENT}-{api,worker}, ALB/TG, SG y
-#      networking. Este workflow NO crea infraestructura — sólo construye,
-#      publica y despliega la aplicación sobre infraestructura que ya existe.
+#      /ecs/ms-smartsupervision-${ENVIRONMENT}-{api,worker}, ALB interno (nombrado
+#      "ms-smartsupervision-${environment}", resuelto en runtime -- ver sección
+#      "Smoke post-deploy")/TG, SG y networking. El Security Group del ALB debe
+#      permitir entrada 443 desde el SG que se use en ECS_SECURITY_GROUP_IDS (abajo),
+#      para que la task efímera del smoke pueda alcanzarlo. Este workflow NO crea
+#      infraestructura — sólo construye, publica y despliega la aplicación sobre
+#      infraestructura que ya existe.
 #   3. Configurar los secrets/variables listados en cada job (Settings →
-#      Secrets and variables → Actions).
+#      Secrets and variables → Actions), incluyendo dos Variables nuevas para el
+#      smoke post-deploy: ECS_SUBNET_IDS y ECS_SECURITY_GROUP_IDS, cada una como
+#      un array JSON de strings (ej. '["subnet-0123...", "subnet-0abc..."]'),
+#      subnets/SG privados de la misma VPC donde corren los servicios api/worker.
 #   4. Ajustar nombres de cluster/servicio/repo ECR a los reales del equipo.
+#
+# Smoke post-deploy (auditoría adversarial v10, P1-03/P1-05):
+#   `aws ecs wait services-stable` sólo prueba que ECS cree que las tasks están
+#   sanas -- no que el negocio funcione. Después de que api y worker estabilizan,
+#   el job `deploy` lanza una task efímera (misma imagen ya en ECR, mismo Task
+#   Role que el servicio api -- sin IAM nuevo para la app) que corre
+#   scripts/post_deploy_smoke.py: valida Redis pegándole a /health/ready A TRAVÉS
+#   del ALB interno (de punta a punta: routing + target group + contenedor +
+#   Redis) y S3 con un head_bucket real usando las credenciales del Task Role. Si
+#   el smoke falla, se revierten AMBOS servicios (api y worker) a su revisión
+#   previa -- el mismo mecanismo de rollback coordinado que ya protege contra un
+#   fallo de estabilización. Login SFC queda fuera de este alcance a propósito
+#   (ver discusión P1-05: exigiría un executionRole propio con acceso a Secrets
+#   Manager para la task efímera).
 #
 # Estructura:
 #   test               -> corre siempre (push y pull_request)
 #   build-and-push      -> sólo en despliegue manual (workflow_dispatch)
 #   deploy              -> registra ambas Task Definitions (api + worker) antes
 #                          de tocar cualquier servicio, despliega API y luego
-#                          worker verificando la revisión real desplegada, y
-#                          revierte AMBOS servicios a su revisión previa si
-#                          worker no estabiliza -- nunca deja una mezcla de
-#                          versiones entre los dos servicios
+#                          worker verificando la revisión real desplegada, corre
+#                          el smoke funcional post-deploy, y revierte AMBOS
+#                          servicios a su revisión previa si cualquiera de esos
+#                          pasos falla -- nunca deja una mezcla de versiones
+#                          entre los dos servicios ni una release "stable" pero
+#                          funcionalmente rota
 # =============================================================================
 
 name: Deploy SSV a AWS ECS
@@ -256,6 +283,10 @@ jobs:
       SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
       GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
       GOOGLE_CATALOGS_SPREADSHEET_ID: ${{ vars.GOOGLE_CATALOGS_SPREADSHEET_ID }}
+      # Subnets/SG privados para la task efímera del smoke post-deploy -- arrays
+      # JSON de strings, ej. '["subnet-0123...", "subnet-0abc..."]' (ver cabecera).
+      ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+      ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
     steps:
       - uses: actions/checkout@v4
 
@@ -385,6 +416,40 @@ jobs:
         if: failure() && steps.deploy_worker.outcome == 'failure'
         run: |
           echo "worker falló después de que api ya avanzó -- revirtiendo AMBOS servicios a sus revisiones previas para no dejar versiones mixtas."
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --task-definition "${{ steps.prev.outputs.api }}" \
+            --force-new-deployment
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --task-definition "${{ steps.prev.outputs.worker }}" \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }} ms-smartsupervision-worker-${{ inputs.environment }}
+          echo "Ambos servicios revertidos a la release anterior."
+          exit 1
+
+      # 🟢 FIX (auditoría adversarial v10, P1-03/P1-05): `wait services-stable` sólo
+      # prueba que ECS crea que las tasks están sanas -- no que el negocio funcione.
+      # Se lanza una task efímera (misma imagen/Task Role que api, sin IAM nuevo
+      # para la app) que corre scripts/post_deploy_smoke.py: valida Redis a través
+      # del ALB interno (de punta a punta) y S3 con un head_bucket real. El
+      # lanzamiento usa boto3 directo (scripts/run_post_deploy_smoke.py) en vez de
+      # construir a mano el JSON de --network-configuration/--overrides con bash.
+      - name: Smoke funcional post-deploy (Redis a través del ALB + S3)
+        id: smoke
+        env:
+          SMOKE_TASK_DEFINITION_ARN: ${{ steps.register.outputs.api }}
+        run: |
+          python scripts/run_post_deploy_smoke.py ${{ inputs.environment }}
+
+      - name: Rollback coordinado de API + Worker (si el smoke funcional falló)
+        if: failure() && steps.smoke.outcome == 'failure'
+        run: |
+          echo "El smoke funcional post-deploy falló -- revirtiendo AMBOS servicios a sus revisiones previas."
           aws ecs update-service \
             --cluster ms-smartsupervision-${{ inputs.environment }} \
             --service ms-smartsupervision-api-${{ inputs.environment }} \
