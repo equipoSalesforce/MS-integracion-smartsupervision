@@ -80,7 +80,11 @@
 #   Manager para la task efímera).
 #
 # Estructura:
-#   test               -> corre siempre (push y pull_request)
+#   test               -> corre siempre (push y pull_request), incluye el
+#                          render de ambas Task Definitions validado contra el
+#                          shape real de RegisterTaskDefinition (P1-02)
+#   docker-build-smoke  -> corre en push/pull_request (no en workflow_dispatch);
+#                          construye final-api y final-worker sin publicar (P1-01)
 #   build-and-push      -> sólo en despliegue manual (workflow_dispatch)
 #   deploy              -> registra ambas Task Definitions (api + worker) antes
 #                          de tocar cualquier servicio, despliega API y luego
@@ -191,6 +195,32 @@ jobs:
           GOOGLE_SPREADSHEET_ID: test_spreadsheet_id
           GOOGLE_CATALOGS_SPREADSHEET_ID: test_catalogs_spreadsheet_id
         run: python -m unittest discover -s tests
+
+  # ===========================================================================
+  # 1b. DOCKER BUILD SMOKE — corre en cada push/PR (auditoría adversarial v10,
+  #     P1-01): antes, `docker build` sólo corría en workflow_dispatch (dentro de
+  #     build-and-push), así que un Dockerfile roto podía mergearse con tests en
+  #     verde y sólo se descubría al intentar desplegar. No publica nada -- sólo
+  #     construye ambos targets para detectar la regresión temprano. No corre en
+  #     workflow_dispatch porque build-and-push ya hace el build real (con push)
+  #     para ese caso.
+  # ===========================================================================
+  docker-build-smoke:
+    name: Build Docker (smoke, sin publicar)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build imagen API (smoke, target final-api)
+        run: |
+          docker build --target final-api -f infrastructure/Dockerfile \
+            -t ssv-smoke-api:${{ github.sha }} .
+
+      - name: Build imagen Worker (smoke, target final-worker)
+        run: |
+          docker build --target final-worker -f infrastructure/Dockerfile \
+            -t ssv-smoke-worker:${{ github.sha }} .
 
   # ===========================================================================
   # 2. BUILD & PUSH — sólo en despliegue manual. Construye UNA imagen

@@ -50,6 +50,34 @@ class TestRenderTaskDefinition(unittest.TestCase):
                     except OSError:
                         pass
 
+    def test_task_definitions_validan_contra_shape_ecs_register_task_definition(self):
+        """
+        P1-02 (auditoría adversarial v10): render_task_def.py sólo corría en el job
+        `deploy` manual -- una regresión del template/renderer que produjera una
+        Task Definition estructuralmente inválida para ECS (tipo de campo
+        equivocado, estructura que RegisterTaskDefinition rechazaría) podía
+        mergearse con tests en verde. Esto valida ambos servicios contra el shape
+        real de la operación (mismo chequeo que el auditor hizo a mano con
+        botocore.validate.ParamValidator), corriendo en cada push/PR junto al
+        resto de la suite.
+        """
+        from botocore.session import get_session
+        from botocore.validate import ParamValidator
+
+        session = get_session()
+        operation_model = session.get_service_model("ecs").operation_model("RegisterTaskDefinition")
+        validator = ParamValidator()
+
+        for service_type in ["api", "worker"]:
+            with self.subTest(service_type=service_type):
+                task_def = render_task_definition(service_type, "dev")
+                report = validator.validate(task_def, operation_model.input_shape)
+                self.assertFalse(
+                    report.has_errors(),
+                    f"Task Definition de '{service_type}' inválida para RegisterTaskDefinition:\n"
+                    f"{report.generate_report()}"
+                )
+
     def test_render_task_definition_exito(self):
         """Verifica el renderizado exitoso en todas las combinaciones cuando las variables están presentes."""
         for service_type in ["api", "worker"]:
