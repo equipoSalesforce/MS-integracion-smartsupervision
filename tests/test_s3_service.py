@@ -159,6 +159,63 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         for nombre in ("doc1.pdf", "doc2.pdf", "doc3.pdf", "doc5.pdf"):
             self.assertEqual(estados[nombre], "ALREADY_CONFIRMED_CHECKPOINT")
 
+    async def test_sfc_rechaza_adjunto_duplicado_se_absorbe_como_exito_y_marca_checkpoint(self):
+        """
+        Nivel 2 (auditoría adversarial v10, P0-01/P0-03): reproduce el escenario
+        exacto que el informe usa como ejemplo -- un reintento (disparado porque
+        Redis no pudo confirmar el envío anterior) re-sube un adjunto que la SFC YA
+        recibió. La SFC debe rechazarlo como duplicado (error_type=DUPLICATE_FILE,
+        o alguna de las frases de errores_sfc.json) y el código debe absorberlo
+        como éxito idempotente -- sin propagar la excepción y SIN crear un segundo
+        registro del mismo archivo -- en vez de que el reintento cuente como un
+        fallo real o (peor) como un envío nuevo.
+        """
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "DUPLICATE_FILE", None,
+                "El archivo ya existe para esta queja (código 556240)",
+                "No reenviar"
+            )
+        )
+        archivo = [{"nombre_archivo": "respuesta_final.pdf", "s3_key": "caso/Y/respuesta_final.pdf", "bytes": b"x"}]
+
+        resultado = await self.service.transferir_lote_s3_a_sfc(
+            sfc_client=sfc_client, sfc_codigo_queja="CASO-Y", adjuntos_crm=archivo
+        )
+
+        self.assertEqual(resultado[0]["status"], "DUPLICATE_OMITTED")
+        # El checkpoint debe quedar marcado también en este camino -- un tercer
+        # reintento del mismo lote ya ni siquiera debe volver a golpear a la SFC.
+        completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-Y")
+        self.assertIn("caso/Y/respuesta_final.pdf", completados)
+
+    async def test_sfc_rechaza_por_mensaje_no_mapeado_no_se_absorbe(self):
+        """
+        Nivel 2: contraprueba deliberada de la fragilidad del mecanismo -- si la SFC
+        rechaza el reenvío con un mensaje que en la práctica significa lo mismo
+        ("duplicado"/"ya procesado") pero con una redacción que NO coincide con
+        ninguna de las subcadenas ya mapeadas (ni DUPLICATE_FILE, ni 'ya existe',
+        ni '556240', ni 'ya cuenta con un documento', ni 'se encuentra cerrada'),
+        el código NO lo reconoce como éxito idempotente y propaga la excepción.
+        Documenta el riesgo real: esta protección depende de que la SFC siga
+        fraseando sus rechazos exactamente como hoy están mapeados.
+        """
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                409, "CONFLICT", None,
+                "El recurso ya fue procesado anteriormente por el sistema",
+                "Verificar estado del caso"
+            )
+        )
+        archivo = [{"nombre_archivo": "respuesta_final.pdf", "s3_key": "caso/Z/respuesta_final.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-Z", adjuntos_crm=archivo
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

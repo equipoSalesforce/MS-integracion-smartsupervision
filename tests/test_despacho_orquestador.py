@@ -363,6 +363,78 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
 
         self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once()
 
+    # ======================================================================
+    # 🟢 Nivel 2 (auditoría adversarial v10, P0-01/P0-03): CASO 11 y 12
+    # ======================================================================
+    # Reproduce el escenario exacto de la sección 7 del informe: "Forzar Redis
+    # down después de SFC=200. Un retry del mismo evento NO vuelve a SFC" -- o si
+    # vuelve, la SFC debe rechazarlo como ya-hecho y el pipeline debe absorberlo
+    # como éxito idempotente, no como un segundo efecto real.
+
+    async def test_11_reintento_de_cierre_ya_aplicado_se_absorbe_como_exito(self):
+        """
+        El caso ya quedó cerrado en la SFC en el intento anterior (Redis no
+        confirmó ese éxito localmente antes de que expirara el candado de
+        idempotencia). El reintento vuelve a llamar a ejecutar_cierre_definitivo;
+        la SFC lo rechaza porque el caso YA está cerrado -- el orquestador debe
+        devolver éxito sintético, no propagar el error ni reintentar de nuevo.
+        """
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Reintento de un cierre ya aplicado.</p>",
+            "archivos_s3": []
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        exc_ya_cerrada = SfcIntegrationException(
+            400, "BUSINESS_RULE_ERROR", None,
+            "La queja se encuentra con estado cerrado y no admite nuevas actualizaciones",
+            "No reenviar"
+        )
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = exc_ya_cerrada
+
+        resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        self.assertIn("ya se encuentra cerrado", resultado["message"])
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_called_once()
+
+    async def test_12_reintento_con_mensaje_sfc_no_mapeado_no_se_absorbe(self):
+        """
+        Contraprueba deliberada de la fragilidad del mecanismo (documentada en la
+        discusión de Nivel 2): _es_error_caso_ya_cerrado() sólo reconoce 5 frases
+        textuales curadas. Si la SFC rechaza el reintento porque el caso ya está
+        cerrado pero con una redacción que NO coincide exactamente con ninguna de
+        esas frases, el orquestador NO lo reconoce como éxito idempotente y
+        propaga la excepción -- un caso genuinamente ya cerrado terminaría
+        reportándose como fallo. Esta es la brecha real: la protección depende de
+        que la SFC nunca cambie/varíe cómo redacta ese rechazo específico.
+        """
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Reintento con mensaje no mapeado.</p>",
+            "archivos_s3": []
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        exc_no_mapeada = SfcIntegrationException(
+            409, "CONFLICT", None,
+            "Esta operación no puede completarse porque el caso ya fue finalizado previamente",
+            "Revisar estado del caso"
+        )
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.side_effect = exc_no_mapeada
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.orquestador.procesar_despacho(payload)
+
 
 if __name__ == "__main__":
     unittest.main()

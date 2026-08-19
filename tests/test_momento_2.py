@@ -162,6 +162,63 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await service.ejecutar_envio_momento_2(payload_pydantic)
 
+    async def test_reintento_tras_creacion_previa_se_absorbe_como_exito(self):
+        """
+        Nivel 2 (auditoría adversarial v10, P0-01/P0-03): reproduce el escenario de
+        cierre de la sección 7 del informe -- "forzar Redis down después de SFC=200,
+        un retry del mismo evento NO vuelve a duplicar en SFC". Aquí el mismo
+        codigo_queja ya fue creado en un intento anterior (Redis no confirmó ese
+        éxito localmente); el reintento vuelve a llamar a post_nueva_queja, la SFC
+        lo rechaza porque el código YA existe (error_type=ALREADY_EXISTS), y el
+        pipeline debe tratarlo como éxito idempotente -- sin crear una segunda
+        queja -- en vez de propagar el error.
+        """
+        exc_ya_existe = SfcIntegrationException(
+            status_code=400,
+            error_type="ALREADY_EXISTS",
+            sfc_field="codigo_queja",
+            raw_message="La queja ya existe con este código",
+            crm_action="No reenviar"
+        )
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=exc_ya_existe)
+
+        service = Momento2SincronizacionService(
+            sfc_client=self.sfc_client_mock,
+            s3_client=self.s3_client_mock
+        )
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+
+        resultado = await service.ejecutar_envio_momento_2(payload_pydantic)
+
+        self.assertEqual(resultado["status"], "success")
+        self.sfc_client_mock.post_nueva_queja.assert_called_once()
+
+    async def test_reintento_por_colision_funcional_no_se_confunde_con_ya_existe(self):
+        """
+        Nivel 2: contraprueba -- un rechazo por duplicidad FUNCIONAL (mismo motivo/
+        producto/canal, una queja DISTINTA que coincide en esos campos) no es el
+        mismo escenario que "el mismo codigo_queja ya fue creado" -- no debe
+        absorberse como éxito idempotente, porque en este caso SÍ sería un error de
+        negocio real que el CRM necesita conocer.
+        """
+        exc_colision_funcional = SfcIntegrationException(
+            status_code=400,
+            error_type="VALIDATION_ERROR",
+            sfc_field=None,
+            raw_message="Ya existe una queja con el mismo motivo y producto para este cliente. Verifique el motivo antes de continuar.",
+            crm_action="Revisar duplicidad funcional"
+        )
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=exc_colision_funcional)
+
+        service = Momento2SincronizacionService(
+            sfc_client=self.sfc_client_mock,
+            s3_client=self.s3_client_mock
+        )
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+
+        with self.assertRaises(SfcIntegrationException):
+            await service.ejecutar_envio_momento_2(payload_pydantic)
+
     def test_missing_smart_code(self):
         """Valida que Pydantic rechace la instanciación si faltan 'Smart_Code__c' y 'Case_id'."""
         payload_invalido = self.mock_datos_consolidados.copy()
