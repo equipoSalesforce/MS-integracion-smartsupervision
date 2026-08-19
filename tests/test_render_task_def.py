@@ -131,6 +131,77 @@ class TestRenderTaskDefinition(unittest.TestCase):
         self.assertIn("XyZ123", crm_secret)
         self.assertNotIn("??????", crm_secret)
 
+    def test_redis_host_sin_override_resuelve_via_elasticache(self):
+        """
+        Sin REDIS_HOST, el render debe resolver el endpoint real consultando
+        ElastiCache -- así nadie tiene que copiar el host a mano a una GitHub
+        Variable después de que Terraform cree el replication group.
+        """
+        if "REDIS_HOST" in os.environ:
+            del os.environ["REDIS_HOST"]
+
+        endpoint_falso = "smartsupervision-dev.abc123.0001.use1.cache.amazonaws.com"
+        with patch("boto3.client") as mock_boto_client:
+            mock_boto_client.return_value.describe_replication_groups.return_value = {
+                "ReplicationGroups": [{
+                    "NodeGroups": [{"PrimaryEndpoint": {"Address": endpoint_falso}}]
+                }]
+            }
+            result = render_task_definition("api", "dev")
+
+        mock_boto_client.return_value.describe_replication_groups.assert_called_once_with(
+            ReplicationGroupId="smartsupervision-dev"
+        )
+        env_vars = {
+            e["name"]: e["value"]
+            for e in result["containerDefinitions"][0]["environment"]
+        }
+        self.assertEqual(env_vars["REDIS_HOST"], endpoint_falso)
+
+    def test_redis_host_cluster_mode_usa_configuration_endpoint(self):
+        """
+        Con REDIS_CLUSTER_MODE=True, el host debe resolverse desde el
+        ConfigurationEndpoint (Cluster Mode Enabled), no del NodeGroup primario
+        -- aioredis.RedisCluster necesita ese endpoint, no el de un solo shard.
+        """
+        if "REDIS_HOST" in os.environ:
+            del os.environ["REDIS_HOST"]
+
+        endpoint_falso = "smartsupervision-prod.abc123.clustercfg.use1.cache.amazonaws.com"
+        with patch.dict(os.environ, {"REDIS_CLUSTER_MODE": "True"}):
+            with patch("boto3.client") as mock_boto_client:
+                mock_boto_client.return_value.describe_replication_groups.return_value = {
+                    "ReplicationGroups": [{
+                        "ConfigurationEndpoint": {"Address": endpoint_falso}
+                    }]
+                }
+                result = render_task_definition("api", "dev")
+
+        env_vars = {
+            e["name"]: e["value"]
+            for e in result["containerDefinitions"][0]["environment"]
+        }
+        self.assertEqual(env_vars["REDIS_HOST"], endpoint_falso)
+        self.assertEqual(env_vars["REDIS_CLUSTER_MODE"], "True")
+
+    def test_redis_host_sin_override_falla_si_elasticache_no_responde(self):
+        """
+        Sin REDIS_HOST y sin poder resolver el replication group en ElastiCache
+        (no existe, sin permisos, etc.), el render debe fallar con un ValueError
+        claro en vez de continuar con un host roto o inventado.
+        """
+        if "REDIS_HOST" in os.environ:
+            del os.environ["REDIS_HOST"]
+
+        with patch("boto3.client") as mock_boto_client:
+            mock_boto_client.return_value.describe_replication_groups.side_effect = Exception(
+                "ReplicationGroupNotFoundFault: replication group not found"
+            )
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("ElastiCache", str(ctx.exception))
+
     def test_missing_image_tag_fails_fast(self):
         """Verifica que se lance un ValueError si IMAGE_TAG no existe en el entorno."""
         if "IMAGE_TAG" in os.environ:
@@ -179,7 +250,6 @@ class TestRenderTaskDefinition(unittest.TestCase):
         env_test = self.env_vars.copy()
         env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
         del env_test["SFC_URL_BASE"]
-        del env_test["REDIS_HOST"]
 
         with patch.dict(os.environ, env_test, clear=True):
             result = render_task_definition("api", "ci")

@@ -38,6 +38,46 @@ def _resolver_secret_suffix(environment: str) -> str:
         )
 
 
+def _resolver_redis_host(environment: str, cluster_mode: bool) -> str:
+    """
+    🟢 Mismo patrón que _resolver_secret_suffix: en vez de depender de que alguien
+    copie a mano el endpoint de ElastiCache a una GitHub Variable después de cada
+    `terraform apply` (un puente manual y frágil entre dos pipelines separados),
+    se resuelve directo contra ElastiCache -- si Terraform ya creó el replication
+    group para este ambiente, su endpoint real siempre gana; si no existe o fue
+    recreado con otro identificador, el render falla ruidosamente en vez de
+    apuntar en silencio a un host viejo.
+
+    REDIS_HOST se conserva como override opcional (no obligatorio) sólo para
+    testing local/offline sin credenciales AWS reales -- si no se define, se
+    resuelve contra el servicio real.
+    """
+    override = os.getenv("REDIS_HOST")
+    if override and override.strip():
+        return override.strip()
+
+    replication_group_id = f"smartsupervision-{environment.lower()}"
+    try:
+        import boto3
+        client = boto3.client("elasticache", region_name=os.getenv("AWS_REGION", "us-east-1"))
+        replication_group = client.describe_replication_groups(
+            ReplicationGroupId=replication_group_id
+        )["ReplicationGroups"][0]
+
+        if cluster_mode:
+            return replication_group["ConfigurationEndpoint"]["Address"]
+        return replication_group["NodeGroups"][0]["PrimaryEndpoint"]["Address"]
+    except Exception as e:
+        raise ValueError(
+            f"🚨 [FAIL-FAST] No se pudo resolver el endpoint de ElastiCache "
+            f"'{replication_group_id}' en la región {os.getenv('AWS_REGION', 'us-east-1')} "
+            f"y no se definió REDIS_HOST como override manual. ¿El replication group ya "
+            f"fue creado por el plan de Terraform en este ambiente con ese identificador y "
+            f"el rol de deploy tiene permiso elasticache:DescribeReplicationGroups sobre él? "
+            f"Error original: {e}"
+        )
+
+
 def render_task_definition(service_type: str, environment: str) -> dict:
     is_prod = environment.lower() in ("prod", "production")
     
@@ -59,6 +99,12 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
     # siendo imposible continuar con un sufijo vacío o sin resolver.
     secret_suffix = _resolver_secret_suffix(environment)
+
+    # 🟢 FIX (revisión despliegue AWS, opción 3): mismo razonamiento que el sufijo
+    # del secreto -- REDIS_HOST ya no depende de una GitHub Variable actualizada a
+    # mano tras cada `terraform apply` (ver _resolver_redis_host).
+    redis_cluster_mode = os.getenv("REDIS_CLUSTER_MODE", "False").strip().lower() == "true"
+    redis_host = _resolver_redis_host(environment, redis_cluster_mode)
 
     # 🟢 FIX HALLAZGO 45: Validación Fail-Fast para IMAGE_TAG inmutable (Sin fallback a 'latest')
     image_tag = os.getenv("IMAGE_TAG")
@@ -83,8 +129,11 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # ningún error, exactamente como el problema ya cerrado de ENVIRONMENT fail-open
     # en app/core/config.py. En 'prod' esto ahora es fail-fast; en el resto de
     # ambientes se advierte para dar visibilidad sin bloquear despliegues de prueba.
+    # REDIS_HOST ya no forma parte de esta lista -- desde la opción 3 se resuelve
+    # siempre contra ElastiCache (o su override manual) vía _resolver_redis_host,
+    # que ya es fail-fast por sí mismo en todos los ambientes, no sólo en 'prod'.
     _campos_criticos_infra = [
-        "SFC_URL_BASE", "CRM_CORS_ORIGINS", "REDIS_HOST", "AWS_S3_BUCKET",
+        "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET",
         "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID",
     ]
     _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
@@ -161,13 +210,13 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", "global66-crm-b2c-ci-files-766452279030"),
         "${SFC_URL_BASE}": os.getenv("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co"),
         "${CRM_CORS_ORIGINS}": os.getenv("CRM_CORS_ORIGINS", "https://crm.global66.com"),
-        "${REDIS_HOST}": os.getenv("REDIS_HOST", f"{environment.lower()}-smartsupervision-redis.cache.amazonaws.com"),
+        "${REDIS_HOST}": redis_host,
         "${REDIS_SSL}": os.getenv("REDIS_SSL", "True"),
         "${GOOGLE_SPREADSHEET_ID}": os.getenv("GOOGLE_SPREADSHEET_ID", "1a2b3c4d5e6f7g8h9i0j"),
         "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a"),
         "${SFC_TIPO_ENTIDAD}": os.getenv("SFC_TIPO_ENTIDAD", "128"),
         "${SFC_ENTIDAD_COD}": os.getenv("SFC_ENTIDAD_COD", "6"),
-        "${REDIS_CLUSTER_MODE}": os.getenv("REDIS_CLUSTER_MODE", "False"),
+        "${REDIS_CLUSTER_MODE}": "True" if redis_cluster_mode else "False",
         "${SFC_SYNC_MAX_PAGINAS}": os.getenv("SFC_SYNC_MAX_PAGINAS", "1000"),
         "${SFC_SYNC_MAX_SEGUNDOS}": os.getenv("SFC_SYNC_MAX_SEGUNDOS", "300"),
         "${SMTP_FROM_EMAIL}": smtp_from_email.strip()

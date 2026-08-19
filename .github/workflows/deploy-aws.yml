@@ -8,8 +8,13 @@
 #      secretsmanager:DescribeSecret sobre
 #      arn:aws:secretsmanager:*:*:secret:*/smartsupervision/app-secrets-* para que
 #      el render pueda resolver el sufijo real del secreto (ya no se pasa
-#      manualmente por SECRET_SUFFIX), además de los permisos ECR/ECS habituales
-#      para build-and-push/deploy (ecr:*, ecs:RegisterTaskDefinition,
+#      manualmente por SECRET_SUFFIX), elasticache:DescribeReplicationGroups sobre
+#      arn:aws:elasticache:*:*:replicationgroup:smartsupervision-* para que
+#      resuelva el endpoint real de ElastiCache (ya no se pasa manualmente por la
+#      GitHub Variable REDIS_HOST -- ver render_task_def.py:_resolver_redis_host,
+#      y el nombre del replication group en Terraform debe seguir el patrón
+#      `smartsupervision-${environment}`), además de los permisos ECR/ECS
+#      habituales para build-and-push/deploy (ecr:*, ecs:RegisterTaskDefinition,
 #      ecs:UpdateService, ecs:DescribeServices, iam:PassRole sobre los roles de
 #      ejecución/tarea de abajo).
 #   1b. Crear el Execution Role (`ecsTaskExecutionRole`, fijo, sin sufijo de
@@ -32,7 +37,9 @@
 #          infrastructure/ms-smartsupervision-task-role-policy.json.tpl.
 #   2. Tener ya provisionados por Terraform (repo central de infraestructura,
 #      NO este repo): ECR, cluster ECS, servicios ECS "api"/"worker",
-#      ElastiCache, Secrets Manager (incluyendo el secreto compuesto
+#      ElastiCache (replication group nombrado "smartsupervision-${environment}",
+#      patrón que _resolver_redis_host en scripts/render_task_def.py da por
+#      sentado), Secrets Manager (incluyendo el secreto compuesto
 #      "{environment}/smartsupervision/app-secrets"), el log group
 #      /ecs/ms-smartsupervision-${ENVIRONMENT}-{api,worker}, ALB/TG, SG y
 #      networking. Este workflow NO crea infraestructura — sólo construye,
@@ -230,7 +237,11 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SFC_URL_BASE: ${{ vars.SFC_URL_BASE }}
       CRM_CORS_ORIGINS: ${{ vars.CRM_CORS_ORIGINS }}
-      REDIS_HOST: ${{ vars.REDIS_HOST }}
+      # 🟢 REDIS_HOST ya no se define aquí -- el render lo resuelve directo contra
+      # ElastiCache (ver _resolver_redis_host en scripts/render_task_def.py). Sólo
+      # definir la Variable REDIS_HOST en el Environment como override manual si
+      # hace falta apuntar a un host fuera del patrón smartsupervision-${environment}.
+      REDIS_CLUSTER_MODE: ${{ vars.REDIS_CLUSTER_MODE }}
       AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
       SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
       GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
