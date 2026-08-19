@@ -194,6 +194,17 @@ class Settings(BaseSettings):
     # --- Webhook CRM ---
     CRM_WEBHOOK_URL: Optional[str] = Field(default=None)
     CRM_WEBHOOK_API_KEY: Optional[str] = Field(default=None)
+    # 🟢 FIX (auditoría adversarial v10, P1-06): CRM_WEBHOOK_URL exige https:// por
+    # defecto en ambientes desplegables -- este flag es la única forma de permitir
+    # http:// explícitamente, y sólo debe declararse si el webhook es un endpoint
+    # interno de confianza (misma VPC/cuenta AWS, sin cruzar a internet). SFC_URL_BASE
+    # no tiene un flag equivalente a propósito: es el endpoint público de un ente
+    # regulador financiero, no existe un escenario legítimo de excepción para él.
+    CRM_WEBHOOK_ALLOW_INSECURE_HTTP: bool = Field(
+        default=False,
+        description="Permite http:// sin cifrar para CRM_WEBHOOK_URL. Declarar sólo si "
+        "el webhook es un endpoint interno de confianza; nunca para un destino externo."
+    )
     
     RUN_SCHEDULER: bool = Field(default=False)
 
@@ -226,10 +237,15 @@ class Settings(BaseSettings):
                     )
 
             # 2. Validación de URL Base de la SFC
+            # 🟢 FIX (auditoría adversarial v10, P1-06): exige https:// -- SFC_URL_BASE
+            # es el endpoint público de un ente regulador financiero (Superintendencia
+            # Financiera de Colombia), nunca un destino interno; no existe razón legítima
+            # para permitir http:// sin cifrar aquí.
             sfc_url = (self.SFC_URL_BASE or "").strip().lower()
-            if not sfc_url.startswith(("http://", "https://")) or "example.com" in sfc_url or "localhost" in sfc_url:
+            if not sfc_url.startswith("https://") or "example.com" in sfc_url or "localhost" in sfc_url:
                 errores_validacion.append(
-                    f"- Campo 'SFC_URL_BASE' ('{self.SFC_URL_BASE}') no es una URL de infraestructura válida para {env_lower}."
+                    f"- Campo 'SFC_URL_BASE' ('{self.SFC_URL_BASE}') debe ser una URL https:// "
+                    f"válida para {env_lower} (endpoint externo de la SFC; no se acepta http:// sin cifrar)."
                 )
 
             # 3. Prohibición estricta del comodín '*' en CRM_CORS_ORIGINS en ambientes desplegables/CI
@@ -241,11 +257,26 @@ class Settings(BaseSettings):
                 )
 
             # 4. Validación de URL y API Key del Webhook del CRM
+            # 🟢 FIX (auditoría adversarial v10, P1-06): exige https:// por defecto --
+            # http:// sólo se acepta si CRM_WEBHOOK_ALLOW_INSECURE_HTTP=true lo declara
+            # explícitamente (para el caso legítimo de un webhook interno a la VPC/cuenta
+            # AWS). El default sigue siendo seguro; nadie hereda permisividad sin pedirla.
             webhook_url = (self.CRM_WEBHOOK_URL or "").strip().lower()
-            if not webhook_url or not webhook_url.startswith(("http://", "https://")) or "example.com" in webhook_url:
+            if not webhook_url or "example.com" in webhook_url:
                 errores_validacion.append(
                     f"- Campo 'CRM_WEBHOOK_URL' ('{self.CRM_WEBHOOK_URL}') es obligatorio y debe ser "
-                    f"una URL HTTPS/HTTP válida en ambiente '{env_lower}'."
+                    f"una URL HTTPS válida en ambiente '{env_lower}'."
+                )
+            elif webhook_url.startswith("http://") and not self.CRM_WEBHOOK_ALLOW_INSECURE_HTTP:
+                errores_validacion.append(
+                    f"- Campo 'CRM_WEBHOOK_URL' ('{self.CRM_WEBHOOK_URL}') usa http:// sin cifrar en "
+                    f"ambiente '{env_lower}'. Si es un endpoint interno de confianza, declárelo "
+                    f"explícitamente con CRM_WEBHOOK_ALLOW_INSECURE_HTTP=true; si no, use https://."
+                )
+            elif not webhook_url.startswith(("http://", "https://")):
+                errores_validacion.append(
+                    f"- Campo 'CRM_WEBHOOK_URL' ('{self.CRM_WEBHOOK_URL}') no es una URL http(s) "
+                    f"válida en ambiente '{env_lower}'."
                 )
             # 🟢 FIX (revisión despliegue AWS): CRM_WEBHOOK_API_KEY no se validaba aquí --
             # si faltaba, crm_webhook_service.py enviaba "X-API-Key": "" en silencio en

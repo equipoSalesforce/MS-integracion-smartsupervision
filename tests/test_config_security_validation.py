@@ -64,6 +64,94 @@ class TestConfigSecurityValidation(unittest.TestCase):
         self.assertEqual(cfg_prod.ENVIRONMENT, "production")
         self.assertEqual(cfg_prod.CRM_API_KEY, "g66_sk_prod_real_key_xyz_987654321")
 
+    def test_sfc_url_base_http_rechazado_en_produccion(self):
+        """
+        P1-06 (auditoría adversarial v10): SFC_URL_BASE es el endpoint público de un
+        ente regulador financiero (Superintendencia Financiera de Colombia) -- http://
+        sin cifrar debe rechazarse siempre en ambientes desplegables, sin excepción.
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            Settings(
+                _env_file=None,
+                ENVIRONMENT="production",
+                CRM_CORS_ORIGINS="https://crm.global66.com",
+                AWS_S3_BUCKET="prod-global66-smartsupervision-attachments",
+                AWS_REGION="us-east-1",
+                SFC_URL_BASE="http://smart.superfinanciera.gov.co",
+                SFC_USERNAME="prod_sfc_user",
+                SFC_PASSWORD="PasswordSeguroProductivo2026#$",
+                SFC_SECRET_KEY="clave_hmac_secreta_real_otorgada_por_sfc_2026",
+                CRM_API_KEY="g66_sk_prod_real_key_xyz_987654321",
+                ADMIN_API_KEY="g66_sk_prod_admin_real_key_abc_123456789",
+                CRM_WEBHOOK_URL="https://crm.global66.com/api/v1/webhooks/sfc",
+                CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
+                SMTP_USER="alertas_prod@global66.com",
+                SMTP_PASSWORD="SmtpPasswordSegura2026!",
+                ALERT_NOTIFY_EMAILS="ops@global66.com",
+                REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+                REDIS_SSL=True
+            )
+        self.assertIn("SFC_URL_BASE", str(ctx.exception))
+
+    def test_crm_webhook_url_http_rechazado_por_defecto(self):
+        """
+        P1-06: CRM_WEBHOOK_URL en http:// debe rechazarse por defecto -- sin
+        CRM_WEBHOOK_ALLOW_INSECURE_HTTP declarado explícitamente, el default seguro
+        (exigir https://) sigue aplicando.
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            Settings(
+                _env_file=None,
+                ENVIRONMENT="production",
+                CRM_CORS_ORIGINS="https://crm.global66.com",
+                AWS_S3_BUCKET="prod-global66-smartsupervision-attachments",
+                AWS_REGION="us-east-1",
+                SFC_URL_BASE="https://smart.superfinanciera.gov.co",
+                SFC_USERNAME="prod_sfc_user",
+                SFC_PASSWORD="PasswordSeguroProductivo2026#$",
+                SFC_SECRET_KEY="clave_hmac_secreta_real_otorgada_por_sfc_2026",
+                CRM_API_KEY="g66_sk_prod_real_key_xyz_987654321",
+                ADMIN_API_KEY="g66_sk_prod_admin_real_key_abc_123456789",
+                CRM_WEBHOOK_URL="http://crm-interno.internal/api/v1/webhooks/sfc",
+                CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
+                SMTP_USER="alertas_prod@global66.com",
+                SMTP_PASSWORD="SmtpPasswordSegura2026!",
+                ALERT_NOTIFY_EMAILS="ops@global66.com",
+                REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+                REDIS_SSL=True
+            )
+        self.assertIn("CRM_WEBHOOK_URL", str(ctx.exception))
+        self.assertIn("CRM_WEBHOOK_ALLOW_INSECURE_HTTP", str(ctx.exception))
+
+    def test_crm_webhook_url_http_permitido_con_flag_explicito(self):
+        """
+        P1-06: si CRM_WEBHOOK_ALLOW_INSECURE_HTTP=true declara explícitamente que el
+        webhook es un endpoint interno de confianza (misma VPC/cuenta AWS), http://
+        debe permitirse.
+        """
+        cfg_prod = Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            CRM_CORS_ORIGINS="https://crm.global66.com",
+            AWS_S3_BUCKET="prod-global66-smartsupervision-attachments",
+            AWS_REGION="us-east-1",
+            SFC_URL_BASE="https://smart.superfinanciera.gov.co",
+            SFC_USERNAME="prod_sfc_user",
+            SFC_PASSWORD="PasswordSeguroProductivo2026#$",
+            SFC_SECRET_KEY="clave_hmac_secreta_real_otorgada_por_sfc_2026",
+            CRM_API_KEY="g66_sk_prod_real_key_xyz_987654321",
+            ADMIN_API_KEY="g66_sk_prod_admin_real_key_abc_123456789",
+            CRM_WEBHOOK_URL="http://crm-interno.internal/api/v1/webhooks/sfc",
+            CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
+            CRM_WEBHOOK_ALLOW_INSECURE_HTTP=True,
+            SMTP_USER="alertas_prod@global66.com",
+            SMTP_PASSWORD="SmtpPasswordSegura2026!",
+            ALERT_NOTIFY_EMAILS="ops@global66.com",
+            REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+            REDIS_SSL=True
+        )
+        self.assertEqual(cfg_prod.CRM_WEBHOOK_URL, "http://crm-interno.internal/api/v1/webhooks/sfc")
+
 
 if __name__ == "__main__":
     unittest.main()
