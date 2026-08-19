@@ -1,7 +1,12 @@
 # ======================================================================
 # FASE 1: Construcción y Compilación de Dependencias (Builder)
 # ======================================================================
-FROM python:3.12-slim AS builder
+# 🟢 FIX (auditoría adversarial v10, P1-10): pin por digest -- python:3.12-slim es un
+# tag mutable, el mismo Dockerfile podía producir binarios distintos según la fecha
+# del build. Renovación explícita: `docker buildx imagetools inspect python:3.12-slim`
+# resuelve el digest actual del índice multi-arquitectura; actualizar aquí y en la
+# FASE 2 (deben coincidir) tras validar la nueva imagen base.
+FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a AS builder
 
 WORKDIR /build
 
@@ -22,7 +27,8 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 # ======================================================================
 # FASE 2: Base común de ejecución (sin HEALTHCHECK ni CMD todavía)
 # ======================================================================
-FROM python:3.12-slim AS base
+# Mismo digest que la FASE 1 -- deben apuntar siempre a la misma imagen base.
+FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a AS base
 
 WORKDIR /code
 

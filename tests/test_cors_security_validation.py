@@ -21,6 +21,7 @@ class TestCorsSecurityValidation(unittest.TestCase):
             "SMTP_USER": "alertas@global66.com",
             "SMTP_PASSWORD": "SmtpPasswordSegura2026!",
             "ALERT_NOTIFY_EMAILS": "ops@global66.com",
+            "REDIS_HOST": "test-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
             "REDIS_PASSWORD": "RedisPasswordSegura2026!",
             "REDIS_SSL": True
         }

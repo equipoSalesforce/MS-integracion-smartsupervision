@@ -58,6 +58,7 @@ class TestConfigSecurityValidation(unittest.TestCase):
             SMTP_USER="alertas_prod@global66.com",
             SMTP_PASSWORD="SmtpPasswordSegura2026!",
             ALERT_NOTIFY_EMAILS="ops@global66.com",
+            REDIS_HOST="prod-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
             REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
             REDIS_SSL=True
         )
@@ -147,10 +148,71 @@ class TestConfigSecurityValidation(unittest.TestCase):
             SMTP_USER="alertas_prod@global66.com",
             SMTP_PASSWORD="SmtpPasswordSegura2026!",
             ALERT_NOTIFY_EMAILS="ops@global66.com",
+            REDIS_HOST="prod-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
             REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
             REDIS_SSL=True
         )
         self.assertEqual(cfg_prod.CRM_WEBHOOK_URL, "http://crm-interno.internal/api/v1/webhooks/sfc")
+
+    def test_redis_host_vacio_rechazado_en_ci(self):
+        """
+        P1-04 residual (auditoría adversarial v10): el renderer ya no puede producir
+        un REDIS_HOST vacío, pero Settings necesita su propia defensa por si alguien
+        inyecta la variable vacía por otra vía (override manual en la consola de ECS,
+        bypass del renderer, etc.) -- con env_ignore_empty=True eso caía en silencio
+        al default 'localhost' en vez de fallar el arranque.
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            Settings(
+                _env_file=None,
+                ENVIRONMENT="ci",
+                CRM_CORS_ORIGINS="https://crm.global66.com",
+                AWS_S3_BUCKET="ci-global66-smartsupervision-attachments",
+                AWS_REGION="us-east-1",
+                SFC_URL_BASE="https://qasmart.superfinanciera.gov.co",
+                SFC_USERNAME="ci_sfc_user",
+                SFC_PASSWORD="PasswordSeguroCi2026#$",
+                SFC_SECRET_KEY="clave_hmac_secreta_real_ci_2026",
+                CRM_API_KEY="g66_sk_ci_real_key_xyz_987654321",
+                ADMIN_API_KEY="g66_sk_ci_admin_real_key_abc_123456789",
+                CRM_WEBHOOK_URL="https://crm.global66.com/api/v1/webhooks/sfc",
+                CRM_WEBHOOK_API_KEY="wh_ci_key_999888777",
+                SMTP_USER="alertas_ci@global66.com",
+                SMTP_PASSWORD="SmtpPasswordSeguraCi2026!",
+                ALERT_NOTIFY_EMAILS="ops@global66.com",
+                REDIS_HOST="",
+                REDIS_PASSWORD="RedisPasswordSeguroCi2026#$",
+                REDIS_SSL=True
+            )
+        self.assertIn("REDIS_HOST", str(ctx.exception))
+
+    def test_redis_host_localhost_permitido_en_dev(self):
+        """
+        P1-04 residual: 'dev' se excluye a propósito de este chequeo (mismo motivo que
+        ya excluye REDIS_PASSWORD/REDIS_SSL) -- docker-compose.yml reutiliza
+        ENVIRONMENT=dev para el Redis local sin auth/TLS, un uso legítimo distinto del
+        ambiente AWS 'dev' real.
+        """
+        cfg_dev = Settings(
+            _env_file=None,
+            ENVIRONMENT="dev",
+            CRM_CORS_ORIGINS="https://crm.global66.com",
+            AWS_S3_BUCKET="dev-global66-smartsupervision-attachments",
+            AWS_REGION="us-east-1",
+            SFC_URL_BASE="https://qasmart.superfinanciera.gov.co",
+            SFC_USERNAME="dev_sfc_user",
+            SFC_PASSWORD="PasswordSeguroDev2026#$",
+            SFC_SECRET_KEY="clave_hmac_secreta_real_dev_2026",
+            CRM_API_KEY="g66_sk_dev_real_key_xyz_987654321",
+            ADMIN_API_KEY="g66_sk_dev_admin_real_key_abc_123456789",
+            CRM_WEBHOOK_URL="https://crm.global66.com/api/v1/webhooks/sfc",
+            CRM_WEBHOOK_API_KEY="wh_dev_key_999888777",
+            SMTP_USER="alertas_dev@global66.com",
+            SMTP_PASSWORD="SmtpPasswordSeguraDev2026!",
+            ALERT_NOTIFY_EMAILS="ops@global66.com",
+            REDIS_HOST="localhost"
+        )
+        self.assertEqual(cfg_dev.REDIS_HOST, "localhost")
 
 
 if __name__ == "__main__":

@@ -308,6 +308,19 @@ class Settings(BaseSettings):
                         f"- Campo 'REDIS_SSL' debe estar en True en ambiente '{env_lower}' "
                         f"para cifrar en tránsito la conexión a ElastiCache."
                     )
+                # 🟢 FIX (auditoría adversarial v10, P1-04 residual): render_task_def.py
+                # ya no puede producir un REDIS_HOST vacío (lo resuelve contra ElastiCache
+                # o falla), pero Settings seguía sin defensa propia -- con
+                # env_ignore_empty=True, un REDIS_HOST vacío/no inyectado (override manual
+                # en la consola de ECS, bypass del renderer, etc.) caía en silencio al
+                # default "localhost" en vez de fallar el arranque.
+                redis_host = (self.REDIS_HOST or "").strip().lower()
+                if not redis_host or redis_host in ("localhost", "127.0.0.1"):
+                    errores_validacion.append(
+                        f"- Campo 'REDIS_HOST' ('{self.REDIS_HOST}') no es válido en ambiente "
+                        f"'{env_lower}' (vacío o localhost cae en silencio al Redis por defecto "
+                        f"en vez de conectar contra ElastiCache real)."
+                    )
 
             # 5. Bloquear exposición accidental de Swagger/ReDoc en Producción / Staging
             if env_lower in ("production", "prod", "staging") and self.ENABLE_DOCS:
