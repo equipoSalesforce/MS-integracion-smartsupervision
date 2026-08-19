@@ -224,6 +224,7 @@ return cjson.encode({success = true})
 MARK_SFC_DONE_LUA_SCRIPT = """
 local item_key = KEYS[1]
 local claim_key = KEYS[2]
+local idempotency_key = KEYS[3]
 
 local worker_id = ARGV[1]
 local expected_version = tonumber(ARGV[2])
@@ -231,6 +232,8 @@ local now_iso = ARGV[3]
 local estado_sfc_done = ARGV[4]
 local has_sfc_response = ARGV[5]
 local sfc_response_json = ARGV[6]
+local idempotency_record_json = ARGV[7]
+local idempotency_ttl_ms = tonumber(ARGV[8])
 
 -- 🟢 FIX P0-01 (auditoría adversarial v9): sólo el worker dueño del lease puede
 -- persistir SFC_DONE. Antes cualquier worker (incluso uno "viejo" cuyo item ya fue
@@ -266,6 +269,17 @@ end
 data["updated_at"] = now_iso
 
 redis.call("SET", item_key, cjson.encode(data))
+
+-- 🟢 Nivel 1 (auditoría adversarial v10, P0-02): el registro de idempotencia
+-- COMPLETED se escribe en la MISMA ejecución atómica que SFC_DONE, después de
+-- superar las validaciones de ownership/versión de arriba -- antes eran dos
+-- llamadas Redis secuenciales e independientes (una desde IdempotencyService, otra
+-- desde QueueService); si la primera tenía éxito y la segunda fallaba (o el propio
+-- worker perdía ownership entre medio), quedaba COMPLETED en idempotencia pero SIN
+-- SFC_DONE en la cola -- el próximo ciclo no consultaba el Idempotency Store antes
+-- de reenviar, y la SFC se volvía a llamar. Con una sola escritura atómica, o
+-- quedan las dos persistidas juntas, o ninguna.
+redis.call("SET", idempotency_key, idempotency_record_json, "PX", idempotency_ttl_ms)
 
 return cjson.encode({success = true})
 """
@@ -538,6 +552,8 @@ class QueueService:
         registro_id: int,
         worker_id: str,
         expected_version: int,
+        smart_code: str,
+        payload_dict: dict,
         sfc_response: Optional[Dict[str, Any]] = None,
         max_intentos_persistencia: int = 3
     ) -> str:
@@ -549,6 +565,20 @@ class QueueService:
         vigente como SFC_DONE usando SU PROPIA respuesta de SFC — scheduler.py usa
         item.sfc_completado para saltar el PASO 1 de despacho, así que el evento nuevo
         podía terminar saltándose el envío real a la SFC.
+
+        🟢 Nivel 1 (auditoría adversarial v10, P0-02): smart_code/payload_dict son
+        nuevos -- se usan para construir, dentro del MISMO script Lua, la clave y el
+        registro COMPLETED del Idempotency Store (ver IdempotencyService.
+        construir_clave_completado/construir_registro_completado). Antes el caller
+        (scheduler.py) llamaba primero a IdempotencyService.registrar_exito() (una
+        escritura Redis independiente) y sólo después a este método: si la primera
+        tenía éxito y la segunda fallaba, quedaba COMPLETED en idempotencia pero sin
+        SFC_DONE en la cola -- un estado dividido que este método ya no puede producir,
+        porque ambas escrituras ahora ocurren atómicamente o no ocurre ninguna. De
+        paso, la escritura de idempotencia queda condicionada a pasar la MISMA
+        validación de ownership/versión que ya protegía a SFC_DONE -- antes
+        registrar_exito() se ejecutaba incondicionalmente, incluso si este método
+        iba a rechazar la transición por "not_owner"/"version_mismatch".
 
         🟢 FIX P0-06 (se conserva): esta sigue siendo la escritura más crítica del
         flujo — si SFC ya recibió y procesó el envío pero esto falla en persistirse
@@ -563,16 +593,27 @@ class QueueService:
         if not self.redis:
             raise RuntimeError("Cliente de Redis no disponible al intentar persistir SFC_DONE.")
 
+        # Import diferido: evita el ciclo de imports entre queue_service e
+        # idempotency_service (mismo patrón ya usado en registrar_fallo, más abajo).
+        from app.services.idempotency_service import IdempotencyService
+
+        idempotency_key = IdempotencyService.construir_clave_completado(smart_code, payload_dict)
+        idempotency_record = IdempotencyService.construir_registro_completado(
+            smart_code, payload_dict, sfc_response
+        )
+
         item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
         claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
-        keys = [item_key, claim_key]
+        keys = [item_key, claim_key, idempotency_key]
         args = [
             worker_id,
             str(expected_version),
             datetime.now(ZoneInfo("America/Bogota")).isoformat(),
             SmartStatus.SFC_DONE.value,
             "1" if sfc_response is not None else "0",
-            json.dumps(sfc_response, ensure_ascii=False) if sfc_response is not None else ""
+            json.dumps(sfc_response, ensure_ascii=False) if sfc_response is not None else "",
+            json.dumps(idempotency_record, ensure_ascii=False),
+            str(IdempotencyService.TTL_SECONDS_DEFAULT * 1000)
         ]
 
         ultimo_error: Optional[Exception] = None

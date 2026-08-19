@@ -10,7 +10,6 @@ from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
-from app.services.idempotency_service import IdempotencyService
 from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.config import settings
@@ -276,7 +275,6 @@ async def reintentar_despachos_pendientes_job():
 
     try:
         worker_id = f"worker_node:{uuid.uuid4()}"
-        idempotency_service = IdempotencyService(redis)
 
         # 1. Control de SLA
         try:
@@ -373,16 +371,25 @@ async def reintentar_despachos_pendientes_job():
                         # SFC. Se aísla en su propio try/except: se alerta como falla crítica de
                         # infraestructura y se deja el item intacto para reintentar sólo la
                         # persistencia en el próximo ciclo, en vez de silenciar el fallo.
+                        #
+                        # 🟢 Nivel 1 (auditoría adversarial v10, P0-02): antes esto eran dos
+                        # escrituras Redis independientes (idempotency_service.registrar_exito()
+                        # y queue_service.marcar_sfc_completado()) -- si la primera tenía éxito y
+                        # la segunda fallaba, quedaba COMPLETED en idempotencia pero sin SFC_DONE
+                        # en la cola, y el próximo ciclo reenviaba a la SFC sin consultar el
+                        # Idempotency Store primero. marcar_sfc_completado ahora persiste ambas
+                        # cosas en un único script Lua atómico -- ver su docstring en
+                        # queue_service.py.
                         try:
-                            await idempotency_service.registrar_exito(
-                                smart_code=item.smart_code,
-                                payload_dict=payload_actual,
-                                sfc_response=resultado
-                            )
                             # 🟢 FIX P0-01: se pasa worker_id + la versión reclamada para que
                             # MARK_SFC_DONE valide ownership y que el registro no fue sobrescrito.
                             resultado_sfc_done = await queue_service.marcar_sfc_completado(
-                                item.id, worker_id=worker_id, expected_version=item.version, sfc_response=resultado
+                                item.id,
+                                worker_id=worker_id,
+                                expected_version=item.version,
+                                smart_code=item.smart_code,
+                                payload_dict=payload_actual,
+                                sfc_response=resultado
                             )
                         except Exception as persist_err:
                             logger.critical(

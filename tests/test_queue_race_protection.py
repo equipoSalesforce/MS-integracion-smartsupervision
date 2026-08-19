@@ -32,6 +32,7 @@ except ImportError:
     redis_asyncio = None
 
 from app.services.queue_service import QueueService
+from app.services.idempotency_service import IdempotencyService
 from app.core.constants import SmartStatus
 
 TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/15")
@@ -215,10 +216,16 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         la SFC e intenta marcar_sfc_completado con SU respuesta de SFC — debe
         rechazarse (version_mismatch) y NO debe persistirse sfc_completado=True
         sobre el contenido de B, que nunca fue enviado a la SFC.
+
+        Nivel 1 (P0-02): tampoco debe quedar escrito el registro de idempotencia
+        de A -- la validación de versión ocurre ANTES de esa escritura dentro del
+        mismo script Lua, así que un rechazo por version_mismatch no deja rastro
+        en el Idempotency Store.
         """
+        payload_a = {"Smart_Code__c": "SC-500", "evento": "A"}
         item_a = await self.queue_service.encolar_despacho(
             smart_code="SC-500", tipo_operacion="AUTO",
-            payload_json={"evento": "A"}, error_inicial="timeout inicial"
+            payload_json=payload_a, error_inicial="timeout inicial"
         )
         worker_1 = "worker_1"
         item_reclamado = await self.queue_service.reclamar_item_para_procesamiento(
@@ -234,6 +241,7 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
 
         resultado = await self.queue_service.marcar_sfc_completado(
             item_a.id, worker_id=worker_1, expected_version=item_reclamado.version,
+            smart_code="SC-500", payload_dict=payload_a,
             sfc_response={"event_processed": "A"}
         )
         self.assertEqual(resultado, "version_mismatch")
@@ -247,15 +255,24 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(data_vigente.get("sfc_response"), {"event_processed": "A"})
         self.assertEqual(await self.queue_service.contar_pendientes(), 1)
 
+        idem_key_a = IdempotencyService.construir_clave_completado("SC-500", payload_a)
+        self.assertIsNone(await self.redis.get(idem_key_a))
+
     async def test_worker_sin_ownership_no_puede_marcar_sfc_done(self):
         """
         P0-01: un worker que perdió su lease no puede persistir SFC_DONE (recibe
         'not_owner'), y el nuevo dueño legítimo sí puede hacerlo con su propia
         respuesta de SFC.
+
+        Nivel 1 (P0-02): el intento rechazado ('not_owner') tampoco debe dejar
+        escrito el registro de idempotencia; sólo la escritura exitosa del nuevo
+        dueño debe persistirlo, con el MISMO contenido y en la misma operación
+        atómica que SFC_DONE.
         """
+        payload = {"Smart_Code__c": "SC-600", "evento": "F"}
         item = await self.queue_service.encolar_despacho(
             smart_code="SC-600", tipo_operacion="AUTO",
-            payload_json={"evento": "F"}, error_inicial="timeout F"
+            payload_json=payload, error_inicial="timeout F"
         )
         worker_viejo = "worker_viejo"
         claim_viejo = await self.queue_service.reclamar_item_para_procesamiento(
@@ -268,14 +285,19 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
             registro_id=item.id, worker_id=worker_nuevo, lease_segundos=60
         )
 
+        idem_key = IdempotencyService.construir_clave_completado("SC-600", payload)
+
         resultado_viejo = await self.queue_service.marcar_sfc_completado(
             item.id, worker_id=worker_viejo, expected_version=claim_viejo.version,
+            smart_code="SC-600", payload_dict=payload,
             sfc_response={"event_processed": "viejo"}
         )
         self.assertEqual(resultado_viejo, "not_owner")
+        self.assertIsNone(await self.redis.get(idem_key))
 
         resultado_nuevo = await self.queue_service.marcar_sfc_completado(
             item.id, worker_id=worker_nuevo, expected_version=claim_nuevo.version,
+            smart_code="SC-600", payload_dict=payload,
             sfc_response={"event_processed": "nuevo"}
         )
         self.assertEqual(resultado_nuevo, "completed")
@@ -285,6 +307,53 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         data = _json.loads(raw_item)
         self.assertTrue(data["sfc_completado"])
         self.assertEqual(data["sfc_response"], {"event_processed": "nuevo"})
+
+        idem_raw = await self.redis.get(idem_key)
+        self.assertIsNotNone(idem_raw, "El registro de idempotencia debe quedar escrito junto con SFC_DONE")
+        idem_data = _json.loads(idem_raw)
+        self.assertEqual(idem_data["status"], "COMPLETED")
+        self.assertEqual(idem_data["sfc_response"], {"event_processed": "nuevo"})
+
+    async def test_marcar_sfc_completado_persiste_idempotencia_atomicamente_con_sfc_done(self):
+        """
+        Nivel 1 (auditoría adversarial v10, P0-02): caso base sin carrera -- un
+        único worker que completa SFC_DONE debe ver el registro de idempotencia
+        COMPLETED aparecer en la MISMA llamada, no como un paso separado que
+        pueda fallar independientemente (que era exactamente el escenario de
+        P0-02: idempotencia COMPLETED sin SFC_DONE, o viceversa).
+        """
+        payload = {"Smart_Code__c": "SC-650", "evento": "atomico"}
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-650", tipo_operacion="AUTO",
+            payload_json=payload, error_inicial="timeout inicial"
+        )
+        worker_id = "worker_atomico"
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id=worker_id, lease_segundos=60
+        )
+
+        idem_key = IdempotencyService.construir_clave_completado("SC-650", payload)
+        self.assertIsNone(await self.redis.get(idem_key), "No debe existir antes de completar")
+
+        resultado = await self.queue_service.marcar_sfc_completado(
+            item.id, worker_id=worker_id, expected_version=claim.version,
+            smart_code="SC-650", payload_dict=payload,
+            sfc_response={"codigo_queja": "SC-650", "estado_cod": 4}
+        )
+        self.assertEqual(resultado, "completed")
+
+        import json as _json
+        idem_raw = await self.redis.get(idem_key)
+        self.assertIsNotNone(idem_raw)
+        idem_data = _json.loads(idem_raw)
+        self.assertEqual(idem_data["status"], "COMPLETED")
+        self.assertEqual(idem_data["smart_code"], "SC-650")
+        self.assertEqual(idem_data["sfc_response"], {"codigo_queja": "SC-650", "estado_cod": 4})
+
+        # TTL real (no -1/persistente ni -2/inexistente) -- confirma que el PX se
+        # aplicó dentro del script Lua, no que quedó sin expiración.
+        ttl = await self.redis.pttl(idem_key)
+        self.assertGreater(ttl, 0)
 
     # ==========================================================================
     # 🟢 Auditoría adversarial v9 (2026-08-17) — P0-02: registrar_fallo

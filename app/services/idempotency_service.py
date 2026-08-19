@@ -108,7 +108,14 @@ class IdempotencyService:
     # request. Se excluyen del hash para todos los llamadores por igual.
     CAMPOS_EXCLUIDOS_DEL_HASH = {"CreatedDate", "ClosedDate"}
 
-    def __init__(self, redis_client=None, ttl_days: int = 30):
+    # Nivel 1 (auditoría adversarial v10, P0-02): TTL por defecto expuesto como
+    # constante de clase -- queue_service.py lo reutiliza directamente al fusionar
+    # la escritura de COMPLETED dentro del mismo script Lua que persiste SFC_DONE,
+    # en vez de instanciar IdempotencyService sólo para leer este número.
+    TTL_DAYS_DEFAULT = 30
+    TTL_SECONDS_DEFAULT = TTL_DAYS_DEFAULT * 86400
+
+    def __init__(self, redis_client=None, ttl_days: int = TTL_DAYS_DEFAULT):
         self.redis = redis_client
         self.ttl_seconds = ttl_days * 86400
 
@@ -127,6 +134,38 @@ class IdempotencyService:
 
     def _get_idempotency_key(self, smart_code: str, operation: str, payload_hash: str) -> str:
         return f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}:{payload_hash}"
+
+    @classmethod
+    def construir_clave_completado(cls, smart_code: str, payload_dict: dict) -> str:
+        """
+        Nivel 1 (auditoría adversarial v10, P0-02): única fuente de verdad para
+        calcular la clave de idempotencia de un registro COMPLETED -- la reutiliza
+        tanto registrar_exito() (camino síncrono, escritura propia) como
+        queue_service.marcar_sfc_completado() (camino del worker, escritura
+        fusionada dentro del mismo script Lua que persiste SFC_DONE). Evita que las
+        dos escrituras deriven la clave con lógica duplicada y potencialmente
+        divergente.
+        """
+        operation = cls.infer_operation_type(payload_dict)
+        payload_hash = cls.compute_payload_hash(payload_dict)
+        return f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}:{payload_hash}"
+
+    @classmethod
+    def construir_registro_completado(cls, smart_code: str, payload_dict: dict, sfc_response: dict) -> dict:
+        """Mismo razonamiento que construir_clave_completado, para el contenido del registro."""
+        operation = cls.infer_operation_type(payload_dict)
+        payload_hash = cls.compute_payload_hash(payload_dict)
+        now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
+        return {
+            "source": "CRM_SALESFORCE",
+            "smart_code": smart_code,
+            "operation": operation,
+            "payload_hash": payload_hash,
+            "status": "COMPLETED",
+            "created_at": now_iso,
+            "completed_at": now_iso,
+            "sfc_response": sfc_response
+        }
 
     @staticmethod
     def infer_operation_type(payload_dict: dict) -> str:
@@ -363,21 +402,10 @@ class IdempotencyService:
         if not self.redis:
             raise RuntimeError("Cliente de Redis no disponible al intentar registrar éxito de idempotencia.")
 
-        operation = self.infer_operation_type(payload_dict)
-        payload_hash = self.compute_payload_hash(payload_dict)
-        key = self._get_idempotency_key(smart_code, operation, payload_hash)
-        now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-
-        record = {
-            "source": "CRM_SALESFORCE",
-            "smart_code": smart_code,
-            "operation": operation,
-            "payload_hash": payload_hash,
-            "status": "COMPLETED",
-            "created_at": now_iso,
-            "completed_at": now_iso,
-            "sfc_response": sfc_response
-        }
+        key = self.construir_clave_completado(smart_code, payload_dict)
+        record = self.construir_registro_completado(smart_code, payload_dict, sfc_response)
+        operation = record["operation"]
+        payload_hash = record["payload_hash"]
 
         ultimo_error: Optional[Exception] = None
         for intento in range(1, max_intentos_persistencia + 1):
