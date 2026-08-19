@@ -34,7 +34,13 @@
 #        - Task Role: lo asume la app ya corriendo, para lo que ella misma llama
 #          por SDK -- hoy sólo S3 (confirmado: la app nunca llama a Secrets Manager
 #          ni a la API de CloudWatch Logs directamente). Ver
-#          infrastructure/ms-smartsupervision-task-role-policy.json.tpl.
+#          infrastructure/ms-smartsupervision-task-role-policy.json.tpl. El
+#          ${AWS_S3_BUCKET} de esa política NO lo fija este repo -- debe ser
+#          sustituido por Terraform con el nombre/ARN real del bucket que ya existe
+#          en ese ambiente (mismo output/convención que alimenta la GitHub Variable
+#          AWS_S3_BUCKET usada en el job deploy más abajo). Terraform es la única
+#          fuente de verdad para ese nombre; este repo no asume ninguna convención
+#          de nomenclatura entre ambientes.
 #   2. Tener ya provisionados por Terraform (repo central de infraestructura,
 #      NO este repo): ECR, cluster ECS, servicios ECS "api"/"worker",
 #      ElastiCache (replication group nombrado "smartsupervision-${environment}",

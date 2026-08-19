@@ -10,8 +10,8 @@
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030",
-        "arn:aws:s3:::global66-crm-b2c-ci-files-766452279030/*"
+        "arn:aws:s3:::${AWS_S3_BUCKET}",
+        "arn:aws:s3:::${AWS_S3_BUCKET}/*"
       ]
     }
   ]
