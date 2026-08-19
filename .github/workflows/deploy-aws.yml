@@ -57,8 +57,12 @@
 # Estructura:
 #   test               -> corre siempre (push y pull_request)
 #   build-and-push      -> sólo en despliegue manual (workflow_dispatch)
-#   deploy              -> registra las Task Definitions (api + worker) y
-#                          actualiza los servicios ECS, esperando estabilidad
+#   deploy              -> registra ambas Task Definitions (api + worker) antes
+#                          de tocar cualquier servicio, despliega API y luego
+#                          worker verificando la revisión real desplegada, y
+#                          revierte AMBOS servicios a su revisión previa si
+#                          worker no estabiliza -- nunca deja una mezcla de
+#                          versiones entre los dos servicios
 # =============================================================================
 
 name: Deploy SSV a AWS ECS
@@ -275,39 +279,127 @@ jobs:
           python scripts/render_task_def.py api ${{ inputs.environment }}
           python scripts/render_task_def.py worker ${{ inputs.environment }}
 
-      - name: Registrar y desplegar servicio API
+      # 🟢 FIX (auditoría adversarial v10, P0-04): deploy coordinado API+worker.
+      # Antes se registraba y actualizaba API, luego se registraba y actualizaba
+      # worker, y sólo al final se esperaba estabilidad de ambos -- si worker
+      # fallaba después de que API ya había avanzado, el job terminaba en FAILED
+      # con API en la release nueva y worker en la vieja, dos servicios que
+      # comparten el mismo esquema de Redis quedando en versiones distintas sin
+      # que nada lo revirtiera. Ahora: se capturan las revisiones actuales de
+      # ambos servicios primero (para poder revertir), se registran AMBAS Task
+      # Definitions nuevas antes de tocar cualquier servicio (si el registro de
+      # una falla, ningún servicio se toca), y cada despliegue verifica
+      # explícitamente que el servicio terminó en la revisión pedida -- no basta
+      # con que `wait services-stable` salga en 0: si el circuit breaker propio
+      # del servicio revierte solo a la revisión anterior, el servicio también
+      # queda "stable" (sólo que en la vieja), y el wait no distingue eso de un
+      # despliegue exitoso. Si worker falla después de que API ya avanzó, se
+      # revierten AMBOS servicios a sus revisiones previas -- nunca queda uno en
+      # la release nueva y el otro en la vieja.
+      - name: Capturar Task Definitions actuales (para rollback coordinado)
+        id: prev
         run: |
-          TD_ARN=$(aws ecs register-task-definition \
+          PREV_API_TD=$(aws ecs describe-services \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }} \
+            --query "services[0].taskDefinition" --output text)
+          PREV_WORKER_TD=$(aws ecs describe-services \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-worker-${{ inputs.environment }} \
+            --query "services[0].taskDefinition" --output text)
+          echo "Revisión previa de api: $PREV_API_TD"
+          echo "Revisión previa de worker: $PREV_WORKER_TD"
+          echo "api=$PREV_API_TD" >> "$GITHUB_OUTPUT"
+          echo "worker=$PREV_WORKER_TD" >> "$GITHUB_OUTPUT"
+
+      - name: Registrar ambas Task Definitions antes de tocar cualquier servicio
+        id: register
+        run: |
+          NEW_API_TD=$(aws ecs register-task-definition \
             --cli-input-json file://ecs-task-def-api-${{ inputs.environment }}.json \
             --query "taskDefinition.taskDefinitionArn" --output text)
-          echo "Registrada: $TD_ARN"
+          NEW_WORKER_TD=$(aws ecs register-task-definition \
+            --cli-input-json file://ecs-task-def-worker-${{ inputs.environment }}.json \
+            --query "taskDefinition.taskDefinitionArn" --output text)
+          echo "Nueva revisión de api: $NEW_API_TD"
+          echo "Nueva revisión de worker: $NEW_WORKER_TD"
+          echo "api=$NEW_API_TD" >> "$GITHUB_OUTPUT"
+          echo "worker=$NEW_WORKER_TD" >> "$GITHUB_OUTPUT"
+
+      - name: Desplegar API y verificar estabilidad en la revisión pedida
+        id: deploy_api
+        run: |
           aws ecs update-service \
             --cluster ms-smartsupervision-${{ inputs.environment }} \
             --service ms-smartsupervision-api-${{ inputs.environment }} \
-            --task-definition "$TD_ARN" \
+            --task-definition "${{ steps.register.outputs.api }}" \
             --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }}
+          DEPLOYED_TD=$(aws ecs describe-services \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }} \
+            --query "services[0].taskDefinition" --output text)
+          if [ "$DEPLOYED_TD" != "${{ steps.register.outputs.api }}" ]; then
+            echo "❌ api quedó estable en $DEPLOYED_TD, no en la revisión pedida ${{ steps.register.outputs.api }} -- probable rollback automático del circuit breaker."
+            exit 1
+          fi
 
-      - name: Registrar y desplegar servicio Worker
+      - name: Rollback de API (si no estabilizó en la revisión pedida)
+        if: failure() && steps.deploy_api.outcome == 'failure'
         run: |
-          TD_ARN=$(aws ecs register-task-definition \
-            --cli-input-json file://ecs-task-def-worker-${{ inputs.environment }}.json \
-            --query "taskDefinition.taskDefinitionArn" --output text)
-          echo "Registrada: $TD_ARN"
+          echo "Revirtiendo api a la revisión previa: ${{ steps.prev.outputs.api }}"
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --task-definition "${{ steps.prev.outputs.api }}" \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-api-${{ inputs.environment }}
+          echo "api revertido -- worker nunca se tocó, ambos siguen en la release anterior."
+          exit 1
+
+      - name: Desplegar Worker y verificar estabilidad en la revisión pedida
+        id: deploy_worker
+        run: |
           aws ecs update-service \
             --cluster ms-smartsupervision-${{ inputs.environment }} \
             --service ms-smartsupervision-worker-${{ inputs.environment }} \
-            --task-definition "$TD_ARN" \
+            --task-definition "${{ steps.register.outputs.worker }}" \
             --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-worker-${{ inputs.environment }}
+          DEPLOYED_TD=$(aws ecs describe-services \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --services ms-smartsupervision-worker-${{ inputs.environment }} \
+            --query "services[0].taskDefinition" --output text)
+          if [ "$DEPLOYED_TD" != "${{ steps.register.outputs.worker }}" ]; then
+            echo "❌ worker quedó estable en $DEPLOYED_TD, no en la revisión pedida ${{ steps.register.outputs.worker }} -- probable rollback automático del circuit breaker."
+            exit 1
+          fi
 
-      # Si el deployment circuit breaker (configurado en el servicio ECS vía
-      # IaC) detecta que las tasks nuevas no estabilizan, revierte solo. Este
-      # wait hace que el job de CI también falle en ese caso, en vez de
-      # reportar éxito prematuramente tras el `update-service`.
-      - name: Esperar estabilidad de los servicios (o rollback del circuit breaker)
+      - name: Rollback coordinado de API + Worker (si worker no estabilizó)
+        if: failure() && steps.deploy_worker.outcome == 'failure'
         run: |
+          echo "worker falló después de que api ya avanzó -- revirtiendo AMBOS servicios a sus revisiones previas para no dejar versiones mixtas."
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --task-definition "${{ steps.prev.outputs.api }}" \
+            --force-new-deployment
+          aws ecs update-service \
+            --cluster ms-smartsupervision-${{ inputs.environment }} \
+            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --task-definition "${{ steps.prev.outputs.worker }}" \
+            --force-new-deployment
           aws ecs wait services-stable \
             --cluster ms-smartsupervision-${{ inputs.environment }} \
             --services ms-smartsupervision-api-${{ inputs.environment }} ms-smartsupervision-worker-${{ inputs.environment }}
+          echo "Ambos servicios revertidos a la release anterior."
+          exit 1
 
   # ===========================================================================
   # (Opcional) TERRAFORM — si el IaC central usa Terraform, el `terraform
