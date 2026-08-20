@@ -9,10 +9,15 @@ es frágil para escapar arrays JSON reales (ECS_SUBNET_IDS/ECS_SECURITY_GROUP_ID
 vienen de GitHub Variables como texto JSON). scripts/post_deploy_smoke.py, en
 cambio, corre DENTRO de la task efímera, ya en la VPC privada.
 
+SSV corre dentro del cluster/ALB COMPARTIDOS de CRM Global66 (no recursos
+dedicados nombrados por convención) -- por eso ECS_CLUSTER_NAME y
+SSV_SMOKE_BASE_URL se leen directo de Variables de GitHub que entrega el IaC
+central, en vez de derivarse de un patrón de nombre propio de SSV.
+
 La task efímera reutiliza la MISMA imagen y Task Definition que el servicio api
 recién desplegado (mismo Task Role, con permiso S3 ya otorgado) -- no requiere
 IAM nuevo para la aplicación, sólo permisos adicionales en el rol de deploy OIDC
-(ecs:RunTask, ecs:DescribeTasks, elasticloadbalancing:DescribeLoadBalancers).
+(ecs:RunTask, ecs:DescribeTasks).
 """
 import json
 import os
@@ -26,10 +31,17 @@ def main() -> int:
         print("Uso: python scripts/run_post_deploy_smoke.py <environment>")
         return 1
 
-    environment = sys.argv[1].strip().lower()
     region = os.environ.get("AWS_REGION", "us-east-1")
-    cluster = f"ms-smartsupervision-{environment}"
-    alb_name = f"ms-smartsupervision-{environment}"
+
+    cluster = os.environ.get("ECS_CLUSTER_NAME", "").strip()
+    if not cluster:
+        print("[SMOKE] [FAIL-FAST] ECS_CLUSTER_NAME no está definido.")
+        return 1
+
+    base_url = os.environ.get("SSV_SMOKE_BASE_URL", "").strip()
+    if not base_url:
+        print("[SMOKE] [FAIL-FAST] SSV_SMOKE_BASE_URL no está definido.")
+        return 1
 
     task_definition = os.environ.get("SMOKE_TASK_DEFINITION_ARN", "").strip()
     if not task_definition:
@@ -47,19 +59,6 @@ def main() -> int:
         return 1
 
     ecs = boto3.client("ecs", region_name=region)
-    elbv2 = boto3.client("elbv2", region_name=region)
-
-    try:
-        alb = elbv2.describe_load_balancers(Names=[alb_name])["LoadBalancers"][0]
-    except Exception as e:
-        print(
-            f"[SMOKE] [FAIL-FAST] No se pudo resolver el ALB '{alb_name}' en {region}. "
-            f"¿Ya lo creó Terraform en este ambiente con ese nombre? Error: {e}"
-        )
-        return 1
-
-    alb_dns = alb["DNSName"]
-    print(f"[SMOKE] ALB interno resuelto: {alb_dns}")
 
     run_response = ecs.run_task(
         cluster=cluster,
@@ -78,7 +77,7 @@ def main() -> int:
                     "name": "api-service",
                     "command": ["python", "scripts/post_deploy_smoke.py"],
                     "environment": [
-                        {"name": "SMOKE_ALB_BASE_URL", "value": f"https://{alb_dns}"}
+                        {"name": "SMOKE_ALB_BASE_URL", "value": base_url}
                     ],
                 }
             ]

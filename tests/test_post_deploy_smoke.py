@@ -14,13 +14,42 @@ class TestPostDeploySmoke(unittest.TestCase):
 
     @patch("scripts.post_deploy_smoke.httpx.get")
     def test_verificar_redis_ok(self, mock_get):
-        mock_get.return_value = MagicMock(status_code=200, text="{}")
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {"servicio": "SSV", "redis": True}
+        )
         self.assertTrue(verificar_redis_via_alb("https://alb.internal"))
-        mock_get.assert_called_once_with("https://alb.internal/health/ready", timeout=10.0)
+        mock_get.assert_called_once_with(
+            "https://alb.internal/api/v1/quejas/_health/ready", timeout=10.0
+        )
 
     @patch("scripts.post_deploy_smoke.httpx.get")
-    def test_verificar_redis_unhealthy(self, mock_get):
+    def test_verificar_redis_unhealthy_status_code(self, mock_get):
         mock_get.return_value = MagicMock(status_code=503, text="unhealthy")
+        self.assertFalse(verificar_redis_via_alb("https://alb.internal"))
+
+    @patch("scripts.post_deploy_smoke.httpx.get")
+    def test_verificar_redis_falla_si_servicio_no_es_ssv(self, mock_get):
+        """
+        200 OK pero de otro servicio detrás del ALB compartido con CRM (routing
+        ambiguo) -- no debe aceptarse como éxito del smoke de SSV.
+        """
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {"servicio": "OTRO_SERVICIO", "redis": True}
+        )
+        self.assertFalse(verificar_redis_via_alb("https://alb.internal"))
+
+    @patch("scripts.post_deploy_smoke.httpx.get")
+    def test_verificar_redis_falla_si_redis_false(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {"servicio": "SSV", "redis": False}
+        )
+        self.assertFalse(verificar_redis_via_alb("https://alb.internal"))
+
+    @patch("scripts.post_deploy_smoke.httpx.get")
+    def test_verificar_redis_falla_si_body_no_es_json(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200, json=MagicMock(side_effect=ValueError("bad json")), text="not json"
+        )
         self.assertFalse(verificar_redis_via_alb("https://alb.internal"))
 
     @patch("scripts.post_deploy_smoke.httpx.get", side_effect=Exception("timeout"))

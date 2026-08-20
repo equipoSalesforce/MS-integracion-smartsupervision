@@ -1,6 +1,6 @@
 # app/api/routes_health.py
 from fastapi import APIRouter, status, Response
-from app.db.redis import get_redis_client
+from app.db.redis import ping_redis
 
 router = APIRouter(tags=["Health"])
 
@@ -12,15 +12,7 @@ async def liveness():
 @router.get("/health/ready")
 async def readiness(response: Response):
     """El contenedor está listo (revisa conexiones clave)."""
-    redis = get_redis_client()
-    redis_ok = False
-    
-    if redis:
-        try:
-            await redis.ping()
-            redis_ok = True
-        except Exception:
-            redis_ok = False
+    redis_ok = await ping_redis()
 
     if not redis_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

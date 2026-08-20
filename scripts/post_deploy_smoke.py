@@ -9,8 +9,12 @@ Este script corre DENTRO de una task efímera lanzada por el job `deploy`
 VPC privada) y valida dos dependencias reales sin sobrecargar /health/ready
 con chequeos que no le corresponden a un liveness/readiness:
 
-  - Redis: pegándole a /health/ready A TRAVÉS del ALB interno -- de punta a
-    punta (routing + target group + contenedor + Redis), no sólo el contenedor.
+  - Redis: pegándole a /api/v1/quejas/_health/ready A TRAVÉS del ALB
+    compartido con CRM Global66 -- de punta a punta (routing + target group +
+    contenedor + Redis), no sólo el contenedor. Se usa esta ruta (y no
+    /health/ready) porque el ALB es compartido: un 200 genérico no confirma
+    que la respuesta venga del target group de SSV, así que además se valida
+    el campo "servicio" del body para descartar un routing equivocado.
   - S3: head_bucket contra el bucket real del ambiente, usando las credenciales
     del propio Task Role -- prueba el permiso IAM real, no lo asume.
 
@@ -26,17 +30,29 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 
 def verificar_redis_via_alb(base_url: str, timeout: float = 10.0) -> bool:
-    url = f"{base_url.rstrip('/')}/health/ready"
+    url = f"{base_url.rstrip('/')}/api/v1/quejas/_health/ready"
     try:
         resp = httpx.get(url, timeout=timeout)
     except Exception as e:
         print(f"[SMOKE][Redis] ERROR al llamar {url}: {e}")
         return False
 
-    ok = resp.status_code == 200
-    print(f"[SMOKE][Redis] GET {url} -> {resp.status_code} {'OK' if ok else 'FAIL'}")
-    if not ok:
+    if resp.status_code != 200:
+        print(f"[SMOKE][Redis] GET {url} -> {resp.status_code} FAIL")
         print(f"[SMOKE][Redis] body: {resp.text[:500]}")
+        return False
+
+    try:
+        body = resp.json()
+    except Exception as e:
+        print(f"[SMOKE][Redis] GET {url} -> 200 pero el body no es JSON válido: {e}")
+        return False
+
+    # Valida el contrato completo, no sólo el status code: en un ALB compartido
+    # con CRM, un 200 por sí solo no confirma que la respuesta venga del target
+    # group de SSV.
+    ok = body.get("servicio") == "SSV" and body.get("redis") is True
+    print(f"[SMOKE][Redis] GET {url} -> 200 {'OK' if ok else 'FAIL'} (body={body})")
     return ok
 
 

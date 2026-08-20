@@ -167,3 +167,19 @@ def get_redis_client():
     if redis_client is None:
         _iniciar_tarea_reconexion()
     return redis_client
+
+
+async def ping_redis() -> bool:
+    """
+    PING contra Redis reutilizable entre /health/ready y otros endpoints de
+    readiness (ej. el de SSV en el ALB compartido). False ante cualquier fallo,
+    incluyendo que redis_client aún sea None.
+    """
+    client = get_redis_client()
+    if not client:
+        return False
+    try:
+        await client.ping()
+        return True
+    except Exception:
+        return False

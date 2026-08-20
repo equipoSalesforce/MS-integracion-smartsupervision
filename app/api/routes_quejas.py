@@ -2,7 +2,7 @@
 import json
 import logging
 import httpx
-from fastapi import APIRouter, Body, Depends, Request, status
+from fastapi import APIRouter, Body, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 
@@ -28,7 +28,7 @@ from app.schemas.crm_payloads import (
 )
 from app.services.idempotency_service import IdempotencyService
 
-from app.db.redis import get_redis_client
+from app.db.redis import get_redis_client, ping_redis
 from app.services.queue_service import QueueService
 
 router = APIRouter()
@@ -384,8 +384,28 @@ async def consultar_cola_local(
 ):
     queue_service = QueueService(get_redis_client())
     registros = await queue_service.obtener_todos_los_encolados(estado=estado)
-    
+
     return [r.to_summary_dict() for r in registros]
+
+
+@router.get(
+    "/_health/ready",
+    status_code=status.HTTP_200_OK,
+    summary="Readiness de SSV para el smoke funcional post-deploy (ALB compartido con CRM)",
+)
+async def health_ready_ssv(response: Response):
+    """
+    Ruta propia dentro del prefijo de SSV (no /health/ready) porque el ALB es
+    compartido con otros servicios de CRM Global66: un 200 en un path genérico
+    no confirma que la respuesta venga del target group de SSV. El campo
+    "servicio" permite al smoke post-deploy detectar un routing equivocado del
+    ALB además de la disponibilidad real de Redis.
+    """
+    redis_ok = await ping_redis()
+    if not redis_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"servicio": "SSV", "redis": False}
+    return {"servicio": "SSV", "redis": True}
 
 
 # ======================================================================
