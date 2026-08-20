@@ -480,6 +480,35 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         import json as _json
         self.assertEqual(_json.loads(raw_item)["estado"], SmartStatus.PENDING.value)
 
+    async def test_registrar_fallo_con_consumir_intento_false_no_incrementa_intentos(self):
+        """
+        Fallo del webhook al CRM clasificado como caída de infraestructura (ver
+        scheduler.py:_es_falla_infraestructura): la SFC ya proceso el caso con
+        éxito, así que este fallo NO debe consumir el presupuesto de reintentos ni
+        poder marcar el registro como definitivo/DLQ.
+        """
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-903", tipo_operacion="AUTO",
+            payload_json={"evento": "J"}, error_inicial="timeout J"
+        )
+        intentos_iniciales = item.intentos
+
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_1", lease_segundos=60
+        )
+
+        resultado = await self.queue_service.registrar_fallo(
+            item=claim, error_msg="CRM Webhook: 503 Service Unavailable",
+            worker_id="worker_1", consumir_intento=False
+        )
+        self.assertEqual(resultado, "failed")
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item.id}")
+        import json as _json
+        data_vigente = _json.loads(raw_item)
+        self.assertEqual(data_vigente["intentos"], intentos_iniciales)
+        self.assertEqual(data_vigente["estado"], SmartStatus.PENDING.value)
+
     async def test_overwrite_no_hereda_estado_processing(self):
         """Si un evento B sobrescribe a A mientras A está PROCESSING, el contenido
         vigente (B) todavía no fue reclamado por nadie -- debe partir en PENDING, no

@@ -19,13 +19,14 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
             case_id_crm="CASE-001",
             smart_code="1286SC001",
             http_client=self.mock_http_client
         )
 
-        self.assertFalse(resultado)
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
 
     async def test_200_ok_json_success_false_rejected(self):
         """Verifica que un HTTP 200 con JSON pero 'success': false sea rechazado."""
@@ -36,13 +37,14 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
             case_id_crm="CASE-001",
             smart_code="1286SC001",
             http_client=self.mock_http_client
         )
 
-        self.assertFalse(resultado)
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
 
     async def test_200_ok_json_empty_body_rejected(self):
         """🟢 FIX P0-07: Un HTTP 200 con JSON vacío {} ya no debe aceptarse como éxito."""
@@ -53,13 +55,14 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
             case_id_crm="CASE-001",
             smart_code="1286SC001",
             http_client=self.mock_http_client
         )
 
-        self.assertFalse(resultado)
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
 
     async def test_200_ok_json_success_true_case_number_incorrecto_rejected(self):
         """🟢 FIX P0-07: success=true para un case_number distinto al notificado debe rechazarse."""
@@ -74,13 +77,14 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
             case_id_crm="CASE-001",
             smart_code="1286SC001",
             http_client=self.mock_http_client
         )
 
-        self.assertFalse(resultado)
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
 
     async def test_200_ok_json_valid_contract_accepted(self):
         """Verifica que un HTTP 200 con JSON y contrato válido sea aceptado."""
@@ -96,13 +100,48 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        resultado = await CrmWebhookService.notificar_resolucion_contingencia(
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
             case_id_crm="CASE-001",
             smart_code="1286SC001",
             http_client=self.mock_http_client
         )
 
-        self.assertTrue(resultado)
+        self.assertTrue(exito)
+        self.assertIsNone(detalle)
+
+    async def test_503_service_unavailable_detalle_permite_clasificar_como_infraestructura(self):
+        """
+        El detalle retornado en una caída de infraestructura del CRM (5xx) debe
+        contener el código HTTP -- scheduler.py lo usa vía _es_falla_infraestructura
+        para decidir si el fallo consume intento de la cola o no.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"error": "Service Unavailable"}
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(exito)
+        self.assertIn("503", detalle)
+
+    async def test_fallo_de_red_detalle_permite_clasificar_como_infraestructura(self):
+        self.mock_http_client.post = AsyncMock(side_effect=Exception("Connection refused"))
+
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(exito)
+        self.assertIn("Connection refused", detalle)
 
 
 if __name__ == "__main__":

@@ -301,6 +301,7 @@ local proximo_reintento_iso = ARGV[7]
 local proximo_reintento_ts = ARGV[8]
 local item_id = ARGV[9]
 local estado_pendiente = ARGV[10]
+local consumir_intento = ARGV[11]
 
 -- 🟢 FIX P0-02 (auditoría adversarial v9): sólo el worker dueño del lease puede
 -- registrar un fallo. Antes cualquier worker (incluso uno "viejo" cuyo item ya fue
@@ -324,7 +325,9 @@ if tonumber(data["version"] or 1) ~= expected_version then
     return cjson.encode({success = false, reason = "version_mismatch"})
 end
 
-data["intentos"] = (tonumber(data["intentos"]) or 0) + 1
+if consumir_intento == "1" then
+    data["intentos"] = (tonumber(data["intentos"]) or 0) + 1
+end
 data["ultimo_error"] = error_msg
 data["updated_at"] = now_iso
 
@@ -831,7 +834,13 @@ class QueueService:
             logger.error(f"❌ [Cola Redis] Excepción al marcar exitoso el registro {registro_id}: {e}")
             raise
 
-    async def registrar_fallo(self, item: "ColaItemRedis", error_msg: str, worker_id: str) -> str:
+    async def registrar_fallo(
+        self,
+        item: "ColaItemRedis",
+        error_msg: str,
+        worker_id: str,
+        consumir_intento: bool = True
+    ) -> str:
         """
         🟢 FIX P0-02 (auditoría adversarial v9): transición atómica Lua con ownership +
         versión, mismo patrón que marcar_exitoso/marcar_sfc_completado. Antes era un
@@ -849,6 +858,13 @@ class QueueService:
         precalculan aquí en Python en vez de reimplementar el formateo de fechas
         ISO/zona horaria dentro de Lua.
 
+        `consumir_intento=False` (ej. fallo del webhook al CRM clasificado como
+        caída de infraestructura, ver `_es_falla_infraestructura` en scheduler.py)
+        registra el error y reprograma el reintento SIN incrementar `intentos` ni
+        poder marcar el registro como definitivo/DLQ en esta llamada -- la SFC ya
+        proceso el caso con éxito en ese escenario, así que agotar el límite de
+        reintentos por una caída puramente del lado del CRM sería un falso FAILED_FINAL.
+
         Retorna "failed" (fallo aplicado), "not_owner", "version_mismatch" o
         "not_found". Nunca lanza — un fallo real de Redis se loguea y se retorna
         como "not_found" para no interrumpir el ciclo del scheduler por un item.
@@ -861,11 +877,16 @@ class QueueService:
         claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
 
-        intentos_after = item.intentos + 1
-        max_intentos = item.max_intentos or settings.QUEUE_MAX_RETRIES
-        es_definitivo = intentos_after >= max_intentos
+        if consumir_intento:
+            intentos_after = item.intentos + 1
+            max_intentos = item.max_intentos or settings.QUEUE_MAX_RETRIES
+            es_definitivo = intentos_after >= max_intentos
+            espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES * intentos_after
+        else:
+            intentos_after = item.intentos
+            es_definitivo = False
+            espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES
 
-        espera_minutos = settings.QUEUE_RETRY_INTERVAL_MINUTES * intentos_after
         proximo_at = now_bogota + timedelta(minutes=espera_minutos)
 
         keys = [
@@ -885,7 +906,8 @@ class QueueService:
             proximo_at.isoformat(),
             str(proximo_at.timestamp()),
             str(registro_id),
-            SmartStatus.PENDING.value
+            SmartStatus.PENDING.value,
+            "1" if consumir_intento else "0"
         ]
 
         try:

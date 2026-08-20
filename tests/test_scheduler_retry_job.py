@@ -97,7 +97,7 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
              patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
              patch("app.workers.scheduler.get_sfc_client"), \
              patch("app.workers.scheduler.get_s3_client"), \
-             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=True) as mock_webhook, \
+             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=(True, None)) as mock_webhook, \
              patch("app.workers.scheduler.QueueService") as MockQueueService, \
              patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
 
@@ -139,7 +139,7 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
              patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
              patch("app.workers.scheduler.get_sfc_client"), \
              patch("app.workers.scheduler.get_s3_client"), \
-             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=True), \
+             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=(True, None)), \
              patch("app.workers.scheduler.QueueService") as MockQueueService, \
              patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
 
@@ -165,6 +165,95 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
                 smart_code=reg.smart_code,
                 payload_dict=reg.payload_json,
                 sfc_response=resultado_sfc
+            )
+
+    async def test_webhook_falla_por_infraestructura_no_consume_intento(self):
+        """
+        Si el webhook al CRM falla por una caída de infraestructura (5xx/timeout/
+        red -- detectable vía _es_falla_infraestructura sobre el detalle que ahora
+        retorna CrmWebhookService), registrar_fallo debe llamarse con
+        consumir_intento=False: la SFC ya proceso el caso con éxito, así que agotar
+        el límite de reintentos por una caída puramente del CRM sería un falso
+        FAILED_FINAL/DLQ.
+        """
+        reg = self._item_base(
+            sfc_completado=True,
+            sfc_response={"status": "success", "message": "Ya procesado en SFC"}
+        )
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock,
+                 return_value=(False, "Fallo de red/comunicación al notificar al CRM: 503 Service Unavailable")
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            await reintentar_despachos_pendientes_job()
+
+            instance_qs.registrar_fallo.assert_called_once_with(
+                item=reg, error_msg=ANY, worker_id=ANY, consumir_intento=False
+            )
+
+    async def test_webhook_falla_por_negocio_si_consume_intento(self):
+        """
+        Un rechazo del webhook por contrato de negocio (ej. success!=true, WAF,
+        correlación de caso) no es una caída de infraestructura -- debe seguir
+        consumiendo intento como cualquier otro fallo.
+        """
+        reg = self._item_base(
+            sfc_completado=True,
+            sfc_response={"status": "success", "message": "Ya procesado en SFC"}
+        )
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock,
+                 return_value=(False, "El CRM no confirmó éxito explícito (success=False).")
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            await reintentar_despachos_pendientes_job()
+
+            instance_qs.registrar_fallo.assert_called_once_with(
+                item=reg, error_msg=ANY, worker_id=ANY, consumir_intento=True
             )
 
 

@@ -418,7 +418,7 @@ async def reintentar_despachos_pendientes_job():
 
                     # PASO 2: Notificación al CRM Webhook (utiliza automáticamente get_correlation_id())
                     case_id_crm = payload_actual.get("Case_id") or item.smart_code
-                    crm_notificado = await CrmWebhookService.notificar_resolucion_contingencia(
+                    crm_notificado, webhook_error_detalle = await CrmWebhookService.notificar_resolucion_contingencia(
                         case_id_crm=case_id_crm,
                         smart_code=item.smart_code
                     )
@@ -426,11 +426,18 @@ async def reintentar_despachos_pendientes_job():
                     if not crm_notificado:
                         error_msg = (
                             f"SFC procesó la queja exitosamente ({resultado.get('message', '')}), "
-                            f"pero la notificación hacia el CRM Webhook falló."
+                            f"pero la notificación hacia el CRM Webhook falló: {webhook_error_detalle}"
                         )
                         logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+                        # 🟢 La SFC ya proceso el caso con éxito en este punto -- si el webhook
+                        # falló por una caída de infraestructura del CRM (ver
+                        # _es_falla_infraestructura), no se consume intento: agotar el límite
+                        # de reintentos por eso empujaría el caso a FAILED_FINAL/DLQ aunque el
+                        # trámite ante la SFC ya esté resuelto.
+                        consumir_intento = not _es_falla_infraestructura(webhook_error_detalle)
                         resultado_fallo = await queue_service.registrar_fallo(
-                            item=item, error_msg=error_msg, worker_id=worker_id
+                            item=item, error_msg=error_msg, worker_id=worker_id,
+                            consumir_intento=consumir_intento
                         )
                         if resultado_fallo == "failed":
                             casos_fallidos += 1
