@@ -2,6 +2,8 @@
 import asyncio
 import json
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
@@ -125,9 +127,15 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
             orquestador = DespachoQuejaOrquestador(sfc_client=sfc_mock, s3_client=MagicMock())
 
             smart_code = "999000111222"
+            # Fecha relativa a "hoy" para que la validación de ventana de 30 días
+            # (CreatedDate) no dependa de cuándo corra el test -- ver el mismo
+            # patrón en tests/test_despacho_orquestador.py.
+            fecha_creacion_reciente = (
+                datetime.now(ZoneInfo("America/Bogota")) - timedelta(days=5)
+            ).strftime("%Y-%m-%dT%H:%M:%S")
             payload_dict = {
                 "Case_id": smart_code,
-                "CreatedDate": "2026-07-21T10:00:00",
+                "CreatedDate": fecha_creacion_reciente,
                 "Status": "New",
                 "SuppliedName": "Juan Perez",
                 "SC_id_type__c": "CC",
