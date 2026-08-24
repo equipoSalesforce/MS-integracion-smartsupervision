@@ -379,6 +379,43 @@ end
 return cjson.encode({success = true})
 """
 
+# 🟢 FIX (hallazgo de code review, 2026-08-24): diferir_pendientes_por_caida_sfc
+# hacía GET + mutar en Python + SET como pasos separados (no atómico). Si un
+# evento nuevo del mismo smart_code sobrescribía el item (ENQUEUE_LUA_SCRIPT)
+# entre el GET y el SET de este método, el SET final pisaba esa sobrescritura
+# con el snapshot viejo -- payload_json/version/sfc_completado/intentos
+# volvían al contenido ANTERIOR, misma clase de pérdida silenciosa de datos
+# que el bug ya corregido en la rama de sobrescritura de ENQUEUE_LUA_SCRIPT.
+# Se mueve a un script Lua para que GET+mutar+SET sea una única operación
+# atómica en Redis, sin ventana donde otro cliente pueda intercalarse.
+DIFERIR_ITEM_LUA_SCRIPT = """
+local item_key = KEYS[1]
+local claim_key = KEYS[2]
+local pending_zset_key = KEYS[3]
+
+local registro_id = ARGV[1]
+local proximo_reintento_iso = ARGV[2]
+local now_iso = ARGV[3]
+local ultimo_error = ARGV[4]
+local proximo_reintento_ts = tonumber(ARGV[5])
+
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    return 0
+end
+
+local data = cjson.decode(raw_item)
+data["proximo_reintento_at"] = proximo_reintento_iso
+data["updated_at"] = now_iso
+data["ultimo_error"] = ultimo_error
+
+redis.call("SET", item_key, cjson.encode(data))
+redis.call("ZADD", pending_zset_key, proximo_reintento_ts, registro_id)
+redis.call("DEL", claim_key)
+
+return 1
+"""
+
 
 class ColaItemRedis:
     def __init__(self, data: dict):
@@ -1098,23 +1135,16 @@ class QueueService:
         for registro_id in registro_ids:
             item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
             claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
+            pending_zset_key = f"{QUEUE_PREFIX}:pending_zset"
             try:
-                raw_item = await self.redis.get(item_key)
-                if not raw_item:
-                    continue
-
-                data = json.loads(raw_item, strict=False)
-                data["proximo_reintento_at"] = proximo_at.isoformat()
-                data["updated_at"] = now_bogota.isoformat()
-                data["ultimo_error"] = "Reintento pospuesto automáticamente por caída de plataforma SFC."
-
-                async with self._crear_pipeline_compatible() as pipe:
-                    pipe.set(item_key, json.dumps(data, ensure_ascii=False))
-                    pipe.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(registro_id): proximo_ts})
-                    pipe.delete(claim_key)
-                    await pipe.execute()
-
-                modificados += 1
+                resultado = await self.redis.eval(
+                    DIFERIR_ITEM_LUA_SCRIPT, 3, item_key, claim_key, pending_zset_key,
+                    str(registro_id), proximo_at.isoformat(), now_bogota.isoformat(),
+                    "Reintento pospuesto automáticamente por caída de plataforma SFC.",
+                    str(proximo_ts)
+                )
+                if int(resultado) == 1:
+                    modificados += 1
             except Exception as e:
                 logger.error(f"Error difiriendo registro {registro_id} por caída SFC: {e}")
 

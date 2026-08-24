@@ -170,6 +170,43 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         data = json.loads(raw_item)
         self.assertIn("pospuesto automáticamente", data["ultimo_error"])
 
+    async def test_diferir_es_atomico_y_no_pisa_un_campo_actualizado_por_otra_escritura(self):
+        """
+        Regresión de un hallazgo de code review (2026-08-24): antes, diferir hacía
+        GET + mutar en Python + SET como pasos separados (no atómico) -- si un
+        evento nuevo del mismo smart_code sobrescribía el item entre el GET y el
+        SET de este método, el SET final pisaba esa sobrescritura con el snapshot
+        viejo (payload_json/version/sfc_completado/intentos volvían al contenido
+        ANTERIOR). Ahora es un único script Lua (GET+mutar+SET atómico en Redis),
+        así que el SET final siempre parte del estado MÁS RECIENTE, sin ventana
+        para que otro cliente se intercale. Se prueba marcando sfc_completado=true
+        (vía marcar_sfc_completado, una escritura real e independiente) y
+        verificando que diferir preserve ese valor -- no lo resetea ni lo pisa con
+        nada, sólo toca ultimo_error/updated_at/proximo_reintento_at.
+        """
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-DIFERIR-ATOMICO", tipo_operacion="AUTO", payload_json={"a": 1}, error_inicial="timeout"
+        )
+        reclamado = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_1", lease_segundos=60
+        )
+        await self.queue_service.marcar_sfc_completado(
+            reclamado.id, worker_id="worker_1", expected_version=reclamado.version,
+            smart_code="SC-DIFERIR-ATOMICO", payload_dict=reclamado.payload_json,
+            sfc_response={"status": "success"}
+        )
+
+        modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(
+            registro_ids=[item.id], minutos_delay=30
+        )
+
+        self.assertEqual(modificados, 1)
+        raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}")
+        data = json.loads(raw_item)
+        self.assertTrue(data["sfc_completado"])
+        self.assertEqual(data["sfc_response"], {"status": "success"})
+        self.assertIn("pospuesto automáticamente", data["ultimo_error"])
+
     async def test_diferir_ignora_ids_inexistentes_sin_lanzar(self):
         modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[999999])
         self.assertEqual(modificados, 0)
