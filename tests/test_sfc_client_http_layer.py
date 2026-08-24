@@ -15,6 +15,7 @@ se está probando aquí (ya cubierto en test_auth_flow_interceptor.py).
 """
 import json
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch, AsyncMock
 
 import httpx
@@ -32,6 +33,16 @@ def _client_con_transport(handler) -> SfcClient:
     transport = httpx.MockTransport(handler)
     http_client = httpx.AsyncClient(transport=transport)
     return SfcClient(interceptor=None, http_client=http_client)
+
+
+@contextmanager
+def _traductor_de_errores_mockeado():
+    """Mismo doble patch que usan test_fetch_quejas_pagina_error_http_se_traduce /
+    test_error_de_red_se_traduce_a_503 para no golpear Google Sheets/SMTP reales
+    al traducir un error de la SFC."""
+    with patch("app.core.exceptions.SfcErrorTranslator.obtener_matriz_errores", new_callable=AsyncMock, return_value=[]), \
+         patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+        yield
 
 
 class TestSanitizarYValidarNextUrl(unittest.TestCase):
@@ -202,6 +213,27 @@ class TestSfcClientMetodosHttp(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(capturado["url"].endswith("/SC-1/"))
         await client.close()
 
+    async def test_get_adjuntos_list_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"detail": "Internal error"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.get_adjuntos_list("SC-1")
+        await client.close()
+
+    async def test_get_adjuntos_list_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.get_adjuntos_list("SC-1")
+        self.assertEqual(ctx.exception.status_code, 503)
+        await client.close()
+
     async def test_get_adjuntos_list_envia_codigo_queja_en_query(self):
         capturado = {}
 
@@ -230,6 +262,27 @@ class TestSfcClientMetodosHttp(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(capturado["body"], {"pqrs": ["SC-1", "SC-2"]})
         await client.close()
 
+    async def test_send_ack_batch_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"detail": "pqrs inválidos"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.send_ack_batch(["SC-1"])
+        await client.close()
+
+    async def test_send_ack_batch_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.send_ack_batch(["SC-1"])
+        self.assertEqual(ctx.exception.status_code, 503)
+        await client.close()
+
     async def test_fetch_usuarios_pagina_exito(self):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"results": [], "next": None})
@@ -238,6 +291,27 @@ class TestSfcClientMetodosHttp(unittest.IsolatedAsyncioTestCase):
         resultado = await client.fetch_usuarios_pagina()
 
         self.assertEqual(resultado, {"results": [], "next": None})
+        await client.close()
+
+    async def test_fetch_usuarios_pagina_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"detail": "Internal error"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.fetch_usuarios_pagina()
+        await client.close()
+
+    async def test_fetch_usuarios_pagina_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.fetch_usuarios_pagina()
+        self.assertEqual(ctx.exception.status_code, 503)
         await client.close()
 
     async def test_send_user_ack_batch_envia_numeros_id_cf(self):
@@ -252,6 +326,106 @@ class TestSfcClientMetodosHttp(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(resultado, {"status": "ok"})
         self.assertEqual(capturado["body"], {"numero_id_CF": ["123", "456"]})
+        await client.close()
+
+    async def test_send_user_ack_batch_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"detail": "numeros invalidos"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.send_user_ack_batch(["123"])
+        await client.close()
+
+    async def test_send_user_ack_batch_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.send_user_ack_batch(["123"])
+        self.assertEqual(ctx.exception.status_code, 503)
+        await client.close()
+
+    async def test_post_nueva_queja_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"detail": "payload invalido"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.post_nueva_queja({"codigo_queja": "SC-1"})
+        await client.close()
+
+    async def test_post_nueva_queja_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.post_nueva_queja({"codigo_queja": "SC-1"})
+        self.assertEqual(ctx.exception.status_code, 503)
+        await client.close()
+
+    async def test_post_adjunto_queja_sin_nombre_genera_uno_por_defecto(self):
+        capturado = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado["content_type"] = request.headers.get("content-type", "")
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = _client_con_transport(handler)
+        resultado = await client.post_adjunto_queja(
+            sfc_codigo_queja="SC-1", file_data=b"%PDF-1.4 contenido", file_type="pdf", file_name=None
+        )
+
+        self.assertEqual(resultado, {"status": "ok"})
+        self.assertTrue(capturado["content_type"].startswith("multipart/form-data"))
+        await client.close()
+
+    async def test_post_adjunto_queja_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"detail": "archivo rechazado"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.post_adjunto_queja(sfc_codigo_queja="SC-1", file_data=b"contenido", file_type="pdf")
+        await client.close()
+
+    async def test_post_adjunto_queja_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.post_adjunto_queja(sfc_codigo_queja="SC-1", file_data=b"contenido", file_type="pdf")
+        self.assertEqual(ctx.exception.status_code, 503)
+        await client.close()
+
+    async def test_put_actualizar_queja_error_http_se_traduce(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"detail": "estado invalido"})
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException):
+                await client.put_actualizar_queja("SC-1", {"estado_cod": 4})
+        await client.close()
+
+    async def test_put_actualizar_queja_error_de_red_se_traduce_a_503(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        client = _client_con_transport(handler)
+        with _traductor_de_errores_mockeado():
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await client.put_actualizar_queja("SC-1", {"estado_cod": 4})
+        self.assertEqual(ctx.exception.status_code, 503)
         await client.close()
 
     async def test_close_cierra_solo_si_el_cliente_es_propio(self):
@@ -280,6 +454,22 @@ class TestLogRequestResponse(unittest.IsolatedAsyncioTestCase):
         )
         await log_request(request)  # No debe lanzar; sólo se verifica ausencia de crash.
 
+    async def test_log_request_agrega_headers_de_correlacion_si_estan_presentes(self):
+        request = httpx.Request(
+            "POST", "https://sfc.test/api/queja/",
+            content=json.dumps({"a": 1}).encode("utf-8"),
+        )
+        with patch("app.integrations.sfc_client.get_correlation_id", return_value="cid-123"), \
+             patch("app.integrations.sfc_client.get_aws_trace_id", return_value="trace-456"):
+            await log_request(request)
+
+        self.assertEqual(request.headers["X-Correlation-ID"], "cid-123")
+        self.assertEqual(request.headers["X-Amzn-Trace-Id"], "trace-456")
+
+    async def test_log_request_sin_contenido_no_crashea(self):
+        request = httpx.Request("GET", "https://sfc.test/api/queja/")
+        await log_request(request)
+
     async def test_log_request_archivo_se_omite_sin_crashear(self):
         request = httpx.Request(
             "POST", "https://sfc.test/api/storage/",
@@ -299,6 +489,11 @@ class TestLogRequestResponse(unittest.IsolatedAsyncioTestCase):
     async def test_log_response_no_json_usa_texto_plano_sin_crashear(self):
         request = httpx.Request("GET", "https://sfc.test/api/queja/")
         response = httpx.Response(200, content=b"<html>error</html>", request=request)
+        await log_response(response)
+
+    async def test_log_response_sin_contenido_no_crashea(self):
+        request = httpx.Request("GET", "https://sfc.test/api/queja/")
+        response = httpx.Response(204, content=b"", request=request)
         await log_response(response)
 
     async def test_log_response_pdf_se_omite_sin_crashear(self):
