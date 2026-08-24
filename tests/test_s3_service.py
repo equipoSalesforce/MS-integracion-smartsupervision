@@ -187,8 +187,13 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado[0]["status"], "DUPLICATE_OMITTED")
         # El checkpoint debe quedar marcado también en este camino -- un tercer
         # reintento del mismo lote ya ni siquiera debe volver a golpear a la SFC.
+        # La identidad incluye un hash del contenido inline (bytes) para que un
+        # reintento con contenido DISTINTO no se confunda con este mismo checkpoint
+        # -- ver test_s3_checkpoint_content_aware.py -- así que se verifica el
+        # prefijo en vez de la key exacta.
         completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-Y")
-        self.assertIn("caso/Y/respuesta_final.pdf", completados)
+        self.assertEqual(len(completados), 1)
+        self.assertTrue(completados[0].startswith("caso/Y/respuesta_final.pdf:"))
 
     async def test_sfc_rechaza_por_mensaje_no_mapeado_no_se_absorbe(self):
         """

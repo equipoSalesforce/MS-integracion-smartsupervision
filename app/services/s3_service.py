@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import logging
 import tempfile
@@ -720,7 +721,26 @@ class S3StorageService:
                 return None
             s3_key, bucket, original_name = resuelto
 
-            identificador_archivo = s3_key or original_name
+            # 🟢 FIX (hallazgo de code review, 2026-08-24): el PDF de respuesta final
+            # (momento_3_sync._generar_y_enviar_pdf_respuesta_final) usa una s3_key
+            # DETERMINISTA basada sólo en case_id -- siempre la misma sin importar el
+            # contenido del PDF. Si un reintento regeneraba el PDF con contenido
+            # distinto (ej. un evento nuevo cambió cuerpo_respuesta_final antes de que
+            # terminara un reintento anterior), el checkpoint por s3_key lo veía como
+            # "ya confirmado" y NUNCA llamaba a post_adjunto_queja con el contenido
+            # nuevo -- la SFC se quedaba con el PDF viejo aunque el cierre reportara
+            # éxito. Para adjuntos con bytes inline (hoy, sólo este PDF generado) se
+            # incorpora un hash del contenido a la identidad del checkpoint, para que
+            # un contenido distinto produzca una identidad distinta y sí se reenvíe.
+            # Los adjuntos referenciados por s3_key real (subidos por el CRM) no se
+            # tocan: ese s3_key ya identifica el contenido real en S3.
+            raw_bytes_inline = item.get("bytes") if isinstance(item, dict) else None
+            if raw_bytes_inline:
+                contenido_hash = hashlib.sha256(raw_bytes_inline).hexdigest()[:16]
+                identificador_archivo = f"{s3_key or original_name}:{contenido_hash}"
+            else:
+                identificador_archivo = s3_key or original_name
+
             if identificador_archivo in ctx.archivos_ya_completados:
                 logger.info(
                     f"⏭️ [S3 Storage] Archivo '{original_name}' ya estaba confirmado por checkpoint "
