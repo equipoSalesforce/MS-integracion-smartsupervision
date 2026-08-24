@@ -1,22 +1,28 @@
 # tests/test_queue_overwrite_resets_sfc_completado.py
 """
-Regresión de un hallazgo de code review (2026-08-24): la rama de sobrescritura
-de ENQUEUE_LUA_SCRIPT (encolar_despacho sobre un smart_code que ya tenía un
-item PENDIENTE) reseteaba 'payload_json'/'estado'/'version'/'ultimo_error',
-pero dejaba 'sfc_completado'/'sfc_response' intactos.
+Regresión de dos hallazgos de code review (2026-08-24) en la misma rama de
+sobrescritura de ENQUEUE_LUA_SCRIPT (encolar_despacho sobre un smart_code que
+ya tenía un item PENDIENTE): reseteaba 'payload_json'/'estado'/'version'/
+'ultimo_error', pero dejaba 'sfc_completado'/'sfc_response'/'intentos'
+intactos, heredados del contenido ANTERIOR.
 
-Eso rompía la garantía documentada en FLUJO_MOMENTOS.md ("el contenido más
-reciente siempre termina llegando a la SFC"): si el contenido ANTERIOR ya
-había sido despachado con éxito (SFC_DONE -- que sigue en el set PENDIENTE
-porque aún falta el webhook al CRM, ver SmartStatus.SFC_DONE) y llegaba un
-evento nuevo del mismo smart_code antes de que ese webhook terminara, el item
-sobrescrito heredaba sfc_completado=true. El scheduler (_ejecutar_paso_sfc en
-scheduler.py) lee ese flag y se salta por completo el envío real del
-contenido nuevo a la SFC, reutilizando la respuesta vieja como si el
-contenido nuevo ya hubiera sido transmitido -- pérdida silenciosa de datos.
+1. sfc_completado/sfc_response: si el contenido anterior ya había sido
+   despachado con éxito (SFC_DONE -- que sigue en el set PENDIENTE porque aún
+   falta el webhook al CRM, ver SmartStatus.SFC_DONE) y llegaba un evento
+   nuevo del mismo smart_code antes de que ese webhook terminara, el item
+   sobrescrito heredaba sfc_completado=true. El scheduler
+   (_ejecutar_paso_sfc en scheduler.py) lee ese flag y se salta por completo
+   el envío real del contenido nuevo a la SFC, reutilizando la respuesta
+   vieja como si el contenido nuevo ya hubiera sido transmitido -- pérdida
+   silenciosa de datos que contradecía la garantía documentada en
+   FLUJO_MOMENTOS.md.
 
-Se prueba contra Redis real: el bug vivía en el script Lua, no en el wrapper
-de Python, así que un mock del cliente Redis no lo habría detectado.
+2. intentos: heredar los reintentos fallidos del contenido ANTERIOR podía
+   agotar max_intentos y mandar el contenido NUEVO a FAILED_FINAL/DLQ en su
+   primer fallo real, sin haberle dado sus propios reintentos.
+
+Se prueba contra Redis real: el bug vivía en los scripts Lua, no en el
+wrapper de Python, así que un mock del cliente Redis no lo habría detectado.
 """
 import os
 import unittest
@@ -112,6 +118,45 @@ class TestSobrescrituraReseteaSfcCompletado(unittest.IsolatedAsyncioTestCase):
         #    contenido anterior sí lo haya sido.
         self.assertFalse(item_v2.sfc_completado)
         self.assertIsNone(item_v2.sfc_response)
+
+    async def test_evento_nuevo_tras_fallos_previos_resetea_intentos(self):
+        from unittest.mock import patch
+
+        from app.core.config import settings
+
+        with patch.object(settings, "QUEUE_MAX_RETRIES", 5):
+            item_v1 = await self.queue_service.encolar_despacho(
+                smart_code="SC-BUG-2", tipo_operacion="AUTO",
+                payload_json={"Smart_Code__c": "SC-BUG-2", "Description": "contenido ORIGINAL"},
+                error_inicial="timeout inicial"
+            )
+
+            # Simula varios fallos reales del contenido ORIGINAL (sin llegar al DLQ).
+            for _ in range(3):
+                reclamado = await self.queue_service.reclamar_item_para_procesamiento(
+                    registro_id=item_v1.id, worker_id="worker-1", lease_segundos=60
+                )
+                resultado_fallo = await self.queue_service.registrar_fallo(
+                    item=reclamado, error_msg="fallo simulado", worker_id="worker-1"
+                )
+                self.assertEqual(resultado_fallo, "failed")
+
+            # encolar_despacho ya arranca en intentos=1; cada fallo suma uno más.
+            registros = await self.queue_service.obtener_todos_los_encolados()
+            self.assertEqual(registros[0].intentos, 4)
+
+            # Llega un evento NUEVO del mismo smart_code -- no debe heredar los 3
+            # intentos fallidos de un contenido que nunca se le dio la oportunidad
+            # de intentar.
+            item_v2 = await self.queue_service.encolar_despacho(
+                smart_code="SC-BUG-2", tipo_operacion="AUTO",
+                payload_json={"Smart_Code__c": "SC-BUG-2", "Description": "contenido NUEVO"},
+                error_inicial="nuevo evento"
+            )
+
+        self.assertEqual(item_v2.id, item_v1.id)
+        self.assertTrue(item_v2.es_duplicado)
+        self.assertEqual(item_v2.intentos, 1)
 
 
 if __name__ == "__main__":

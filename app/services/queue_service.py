@@ -86,6 +86,13 @@ if existing_id then
             -- como un despacho pendiente igual que cualquier item recién encolado.
             data["sfc_completado"] = false
             data["sfc_response"] = nil
+            -- 🟢 FIX P0-XX (hallazgo de code review, 2026-08-24): 'intentos' tampoco se
+            -- reseteaba -- un caso que ya venía con varios reintentos fallidos del
+            -- contenido ANTERIOR podía agotar max_intentos y caer a FAILED_FINAL/DLQ en
+            -- el primer fallo real del contenido NUEVO, sin haberle dado sus propios
+            -- reintentos. El contenido nuevo nunca fue intentado; debe arrancar en 1,
+            -- igual que cualquier item recién encolado (ver rama de inserción abajo).
+            data["intentos"] = 1
 
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
