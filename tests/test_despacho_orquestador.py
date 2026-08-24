@@ -430,6 +430,142 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await self.orquestador.procesar_despacho(payload)
 
+    async def test_13_procesar_despacho_raw_json_rehidrata_y_despacha(self):
+        """procesar_despacho_raw_json es el punto de entrada que usa el scheduler al
+        reintentar un item de la cola Redis (dict crudo, no un QuejaUnificadaCrmInput)."""
+        resultado = await self.orquestador.procesar_despacho_raw_json(self.base_payload_dict)
+
+        self.assertEqual(resultado["status"], "success")
+        self.orquestador.m2_service.ejecutar_envio_momento_2.assert_called_once()
+
+    async def test_14_procesar_despacho_raw_json_payload_corrupto_lanza_error_infra(self):
+        """Un ítem de la cola Redis con datos corruptos/incompletos debe fallar como
+        error de infraestructura (REDIS_PAYLOAD_INVALIDO), no como 400 de validación
+        de negocio -- el problema es la cola, no lo que envió el CRM."""
+        payload_corrupto = {"Smart_Code__c": "SC-1"}  # Faltan campos obligatorios.
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.orquestador.procesar_despacho_raw_json(payload_corrupto)
+
+        self.assertEqual(ctx.exception.error_type, "REDIS_PAYLOAD_INVALIDO")
+        self.assertEqual(ctx.exception.status_code, 500)
+
+    async def test_15_directorio_s3_encontrado_asigna_archivos_dinamicamente(self):
+        """Si el payload trae sólo 'directorio_s3' (sin 'archivos_s3'), el orquestador
+        debe listar el directorio en S3 y poblar archivos_s3 dinámicamente."""
+        tramite_dict = self.base_payload_dict.copy()
+        tramite_dict.update({"directorio_s3": "caso/SC-1/", "archivos_s3": []})
+        payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
+
+        self.orquestador.m3_service.s3_service = MagicMock()
+        self.orquestador.m3_service.s3_service.listar_archivos_en_directorio = AsyncMock(
+            return_value=[{"nombre_archivo": "soporte.pdf", "s3_key": "caso/SC-1/soporte.pdf", "bucket": "b1"}]
+        )
+
+        await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(len(payload.archivos_s3), 1)
+        self.assertEqual(payload.archivos_s3[0].nombre_archivo, "soporte.pdf")
+
+    async def test_16_directorio_s3_vacio_no_asigna_archivos_y_continua(self):
+        tramite_dict = self.base_payload_dict.copy()
+        tramite_dict.update({"directorio_s3": "caso/SC-vacio/", "archivos_s3": []})
+        payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
+
+        self.orquestador.m3_service.s3_service = MagicMock()
+        self.orquestador.m3_service.s3_service.listar_archivos_en_directorio = AsyncMock(return_value=[])
+
+        resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(payload.archivos_s3, [])
+        self.assertEqual(resultado["status"], "success")
+
+    async def test_17_fraude_sin_archivos_tras_listar_directorio_vacio_lanza_400(self):
+        """El caso pasó la validación de Pydantic porque traía 'directorio_s3' (fraude
+        con directorio en vez de archivos_s3 explícitos), pero al listar el directorio
+        en S3 no se encontró ningún archivo -- el orquestador debe rechazar el envío
+        en vez de transmitir un fraude sin soporte documental."""
+        fraude_dict = self.base_payload_dict.copy()
+        fraude_dict.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "directorio_s3": "caso/SC-fraude-sin-soporte/",
+            "archivos_s3": [],
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(fraude_dict)
+
+        self.orquestador.m3_service.s3_service = MagicMock()
+        self.orquestador.m3_service.s3_service.listar_archivos_en_directorio = AsyncMock(return_value=[])
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.sfc_field, "archivos_s3")
+
+    async def test_18_fraude_ya_cerrado_se_absorbe_y_continua_con_cierre(self):
+        """Si el sub-paso de Fraude falla porque el caso ya cuenta con respuesta final
+        (ya cerrado) y el payload también trae Cierre, el orquestador debe omitir esa
+        falla intermedia y proceder con el Cierre en vez de propagar el error."""
+        completo_dict = self.base_payload_dict.copy()
+        completo_dict.update({
+            "Status": "Closed",
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "nombre_archivo_fraude": "dictamen_fraude.pdf",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre tras fraude ya reportado.</p>",
+            "archivos_s3": [
+                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}
+            ],
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
+
+        self.orquestador.m3_service.ejecutar_gestion_fraude.side_effect = SfcIntegrationException(
+            409, "CONFLICT", None, "La queja ya cuenta con un documento de respuesta final", "N/A"
+        )
+
+        resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_called_once()
+
+    async def test_19_fraude_retorna_error_de_negocio_sin_lanzar_no_ejecuta_cierre(self):
+        """Si el sub-paso de Fraude retorna un dict {'status': 'error'} (no una
+        excepción), el pipeline debe cortar ahí y no seguir con el Cierre."""
+        completo_dict = self.base_payload_dict.copy()
+        completo_dict.update({
+            "Status": "Closed",
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "nombre_archivo_fraude": "dictamen_fraude.pdf",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Fraude con error de negocio.</p>",
+            "archivos_s3": [
+                {"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}
+            ],
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
+
+        self.orquestador.m3_service.ejecutar_gestion_fraude = AsyncMock(
+            return_value={"status": "error", "message": "Catálogo de fraude inválido"}
+        )
+
+        resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "error")
+        self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
