@@ -202,6 +202,74 @@ class TestSfcClientMetodosHttp(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(capturado["url"].endswith("/SC-1/"))
         await client.close()
 
+    async def test_get_adjuntos_list_envia_codigo_queja_en_query(self):
+        capturado = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado["url"] = str(request.url)
+            return httpx.Response(200, json={"results": []})
+
+        client = _client_con_transport(handler)
+        resultado = await client.get_adjuntos_list("SC-1")
+
+        self.assertEqual(resultado, {"results": []})
+        self.assertIn("codigo_queja__codigo_queja=SC-1", capturado["url"])
+        await client.close()
+
+    async def test_send_ack_batch_envia_lista_de_pqrs(self):
+        capturado = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = _client_con_transport(handler)
+        resultado = await client.send_ack_batch(["SC-1", "SC-2"])
+
+        self.assertEqual(resultado, {"status": "ok"})
+        self.assertEqual(capturado["body"], {"pqrs": ["SC-1", "SC-2"]})
+        await client.close()
+
+    async def test_fetch_usuarios_pagina_exito(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"results": [], "next": None})
+
+        client = _client_con_transport(handler)
+        resultado = await client.fetch_usuarios_pagina()
+
+        self.assertEqual(resultado, {"results": [], "next": None})
+        await client.close()
+
+    async def test_send_user_ack_batch_envia_numeros_id_cf(self):
+        capturado = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = _client_con_transport(handler)
+        resultado = await client.send_user_ack_batch(["123", "456"])
+
+        self.assertEqual(resultado, {"status": "ok"})
+        self.assertEqual(capturado["body"], {"numero_id_CF": ["123", "456"]})
+        await client.close()
+
+    async def test_close_cierra_solo_si_el_cliente_es_propio(self):
+        transport = httpx.MockTransport(lambda r: httpx.Response(200))
+        http_client_externo = httpx.AsyncClient(transport=transport)
+        client_no_propio = SfcClient(interceptor=None, http_client=http_client_externo)
+
+        await client_no_propio.close()
+        self.assertFalse(http_client_externo.is_closed)
+        await http_client_externo.aclose()
+
+    async def test_close_cierra_cliente_propio(self):
+        client_propio = SfcClient(interceptor=None)
+        self.assertTrue(client_propio._owns_client)
+
+        await client_propio.close()
+        self.assertTrue(client_propio.client.is_closed)
+
 
 class TestLogRequestResponse(unittest.IsolatedAsyncioTestCase):
 
