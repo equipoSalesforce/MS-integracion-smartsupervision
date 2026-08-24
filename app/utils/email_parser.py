@@ -1,8 +1,7 @@
 # app/utils/email_parser.py
-import html
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 from bs4 import BeautifulSoup
 
 from app.core.security.sanitizer import sanitizar_html_para_pdf

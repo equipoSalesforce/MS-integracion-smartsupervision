@@ -1,7 +1,5 @@
-import time
-import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 from app.core.mapping import SfcSalesforceMapper
 from app.core.exceptions import SfcErrorTranslator
@@ -58,7 +56,7 @@ class TestGoogleSheetsCacheBackoff(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(len(reglas_1) > 0)
 
             # Petición 2 (Inmediata): Debe usar la matriz en RAM sin llamar a Google Sheets
-            reglas_2 = await SfcErrorTranslator.obtener_matriz_errores()
+            await SfcErrorTranslator.obtener_matriz_errores()
             self.assertEqual(
                 mock_oauth.call_count, 1, 
                 "El traductor intentó volver a llamar a Google Sheets a pesar de estar en ventana de caché."

@@ -1,7 +1,7 @@
 # tests/test_scheduler_lock.py
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from app.workers.scheduler import SchedulerJobLock, RELEASE_LOCK_LUA_SCRIPT, EXTEND_LOCK_LUA_SCRIPT
 
 

@@ -2,7 +2,7 @@
 import json
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from app.services.queue_service import QueueService
 from app.workers.scheduler import QueueLockWatchdog
 

@@ -1,5 +1,4 @@
 # tests/test_auth_resource_leak.py
-import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 import httpx

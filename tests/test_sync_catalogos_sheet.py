@@ -1,8 +1,6 @@
 import asyncio
-import json
 from pathlib import Path
 import sys
-import os
 from dotenv import load_dotenv
 
 root_dir = Path(__file__).resolve().parent.parent

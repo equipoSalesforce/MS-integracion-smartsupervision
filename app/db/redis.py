@@ -93,6 +93,8 @@ async def init_redis() -> bool:
             try:
                 await cliente_fallido.aclose()
             except Exception:
+                # Best-effort: el cliente ya está inutilizable, sólo se intenta liberar
+                # su pool de conexiones. Un fallo aquí no debe impedir la reconexión.
                 pass
         _iniciar_tarea_reconexion()
         return False
@@ -132,6 +134,8 @@ async def _reintentar_conexion_background():
                 try:
                     await candidate_client.aclose()
                 except Exception:
+                    # Best-effort: el candidato falló al conectar, sólo se intenta liberar
+                    # su pool antes del próximo reintento. Un fallo aquí no es crítico.
                     pass
 
 

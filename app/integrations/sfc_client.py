@@ -6,11 +6,11 @@ from urllib.parse import urlparse
 import httpx
 import json
 import logging
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager
-from app.core.constants import SfcEndpoints, SmartStatus
+from app.core.constants import SfcEndpoints
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 from app.core.middleware import get_aws_trace_id, get_correlation_id
 # 🟢 FIX (revisión despliegue AWS): antes este módulo redefinía su propio

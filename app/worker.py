@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import signal
-import sys
 import time
 from app.core.config import settings
 from app.core.logging_config import setup_logging

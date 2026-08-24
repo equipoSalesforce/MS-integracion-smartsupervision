@@ -237,7 +237,10 @@ def _base_mandatory_payload(case_id: str, doc_number: str, secuencia: int) -> Di
 # ==============================================================================
 # 🧪 GENERADOR DINÁMICO DE CASOS (ESTÁNDAR + FUZZING + CASOS EXTREMOS)
 # ==============================================================================
-def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:
+# NOSONAR: script generador de datos de prueba (fuzzing/stress), no código de
+# producción -- el dispatch por tipo_escenario es deliberadamente exhaustivo y
+# lineal (un bloque por escenario), no vale la pena partirlo en sub-funciones.
+def generar_caso(secuencia: int, tipo_escenario: int) -> Dict[str, Any]:  # NOSONAR
     cid, doc = _generar_ids(secuencia)
     payload = _base_mandatory_payload(cid, doc, secuencia)
     precargar: List[Tuple[str, bytes]] = []

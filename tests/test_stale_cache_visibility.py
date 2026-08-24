@@ -2,7 +2,7 @@
 import asyncio
 import time
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 from app.core.mapping import SfcSalesforceMapper
 
 

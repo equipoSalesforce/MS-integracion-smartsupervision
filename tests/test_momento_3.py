@@ -1,7 +1,7 @@
 # tests/test_momento_3.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -256,7 +256,6 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
                 await servicio_1.ejecutar_cierre_definitivo(payload=input_pydantic)
 
             self.sfc_client_mock.post_adjunto_queja.assert_called_once()
-            nombre_pdf_intento_1 = self.sfc_client_mock.post_adjunto_queja.call_args[1]["file_name"]
 
             # Intento 2 (retry): el PATCH ahora sí funciona. El PDF regenerado usa la
             # MISMA s3_key/nombre determinística (función del case_id) que el intento 1,

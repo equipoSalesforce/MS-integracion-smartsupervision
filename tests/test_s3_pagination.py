@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 from unittest.mock import MagicMock
 from app.services.s3_service import S3StorageService

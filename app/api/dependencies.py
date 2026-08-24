@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 import boto3
 import httpx
-from fastapi import Header, Security, HTTPException, status, Request
+from fastapi import Header, HTTPException, status, Request
 from fastapi.security.api_key import APIKeyHeader
 
 from app.core.config import settings

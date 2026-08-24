@@ -1,11 +1,10 @@
 import os
-import re
 import json
 import random
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 from zoneinfo import ZoneInfo
 import httpx
 from dotenv import load_dotenv

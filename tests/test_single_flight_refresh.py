@@ -1,7 +1,7 @@
 # tests/test_single_flight_refresh.py
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 from app.core.mapping import SfcSalesforceMapper
 from app.core.exceptions import SfcErrorTranslator
 

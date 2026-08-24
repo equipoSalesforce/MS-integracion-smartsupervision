@@ -46,7 +46,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
             "Smart_Code__c": "999000111222",
             "CreatedDate": fecha_creacion_reciente,
             "Status": "New",
-            "Status": "New",
             "SuppliedName": "Juan Perez",
             "SC_id_type__c": "CC",
             "id_number__c": "123456789",
@@ -96,7 +95,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         tramite_dict = self.base_payload_dict.copy()
         tramite_dict.update({
             "Status": "In Progress",
-            "Status": "In Progress",
             "sc_genero__c": "Masculino"  # Inyecta campo M3
         })
         payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
@@ -139,7 +137,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
             "Status": "Closed",
-            "Status": "Closed",
             "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",
             "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
@@ -161,7 +158,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         """Valida que si viene Fraude y Cierre, se ejecuten ambos sub-pasos en orden regulatorio."""
         completo_dict = self.base_payload_dict.copy()
         completo_dict.update({
-            "Status": "Closed",
             "Status": "Closed",
             "tipo_fraude__c": "Externo",
             "modalidad_fraude__c": "Phishing",
@@ -237,7 +233,6 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         """Si salta el 404 pero la creación en M2 falla, aborta el proceso sin reintentar M3."""
         cierre_dict = self.base_payload_dict.copy()
         cierre_dict.update({
-            "Status": "Closed",
             "Status": "Closed",
             "ClosedDate": self.fecha_cierre_reciente,
             "Favorabilidad__c": "No favorable",

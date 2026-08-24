@@ -1,10 +1,9 @@
 # tests/test_auth_and_signatures.py
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 import datetime
 import jwt
 
-from app.core.config import settings
 from app.core.auth import SfcAuthManager
 from app.core.security.signatures import (
     SfcSignatureContext,

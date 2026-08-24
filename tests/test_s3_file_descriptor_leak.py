@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 from unittest.mock import MagicMock
 from botocore.exceptions import BotoCoreError

@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from pydantic import ValidationError
 
 from app.schemas.crm_payloads import Momento2QuejaCrmInput

@@ -5,7 +5,6 @@ from app.core.security.sanitizer import (
     sanitizar_payload,
     sanitizar_headers,
     sanitizar_texto_plano,
-    mask_value,
 )
 
 
