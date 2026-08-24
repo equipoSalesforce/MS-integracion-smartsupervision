@@ -1,8 +1,7 @@
 # app/services/crm_webhook_service.py
-import json
 import logging
 import httpx
-from typing import Optional
+from typing import Any, Optional, Tuple
 from app.core.config import settings
 from app.core.middleware import get_correlation_id
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
@@ -123,81 +122,7 @@ class CrmWebhookService:
             })
 
             if response.status_code in (200, 201, 202):
-                # 🟢 FIX HALLAZGO 14: Validación estricta de Content-Type JSON
-                if "application/json" not in content_type:
-                    logger.warning(
-                        f"⚠️ [CRM Webhook] El CRM respondió HTTP {response.status_code} pero el "
-                        f"Content-Type no es 'application/json' (recibido: '{content_type}'). "
-                        "Rechazando respuesta por posible interceptación de Proxy, WAF o página HTML."
-                    )
-                    return False, (
-                        f"El CRM respondió HTTP {response.status_code} con Content-Type "
-                        f"inesperado ('{content_type}'), posible interceptación de Proxy/WAF."
-                    )
-
-                # 🟢 FIX HALLAZGO 14: Validación de parseo estricto de estructura JSON
-                if raw_json is None:
-                    try:
-                        raw_json = response.json()
-                    except Exception as json_err:
-                        logger.warning(
-                            f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero falló "
-                            f"la decodificación del JSON: {json_err}"
-                        )
-                        return False, (
-                            f"El CRM respondió HTTP {response.status_code} pero el JSON no se "
-                            f"pudo decodificar: {json_err}"
-                        )
-
-                if not isinstance(raw_json, dict):
-                    logger.warning(
-                        f"⚠️ [CRM Webhook] La respuesta JSON del CRM no es un objeto válido "
-                        f"(recibido tipo: {type(raw_json).__name__})."
-                    )
-                    return False, (
-                        f"La respuesta JSON del CRM no es un objeto válido "
-                        f"(recibido tipo: {type(raw_json).__name__})."
-                    )
-
-                # 🟢 FIX HALLAZGO 14 / P0-07: Se exige éxito EXPLÍCITO (success === true), no
-                # sólo "no es false". Un {}, un {"error": "..."} o cualquier JSON sin el campo
-                # 'success' ya no se aceptan como éxito (antes pasaban porque `.get(...) is
-                # False` es False para None).
-                if raw_json.get("success") is not True:
-                    logger.warning(
-                        f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero la "
-                        f"respuesta no cumple el contrato esperado (se requiere 'success': true "
-                        f"explícito; recibido: {raw_json.get('success')!r})."
-                    )
-                    return False, (
-                        f"El CRM no confirmó éxito explícito (success={raw_json.get('success')!r})."
-                    )
-
-                # 🟢 FIX P0-07: Correlación de caso — la confirmación debe corresponder al MISMO
-                # caso notificado (el mismo 'case_number' que se envió), no sólo cualquier
-                # success=true. Evita aceptar como éxito una respuesta cruzada de otro caso.
-                crm_case_number = raw_json.get("case_number")
-                if crm_case_number != case_id_crm:
-                    logger.warning(
-                        f"⚠️ [CRM Webhook] El CRM confirmó éxito pero para un caso distinto al "
-                        f"notificado (enviado: {case_id_crm!r}, confirmado: {crm_case_number!r}). "
-                        "Rechazando por falta de correlación."
-                    )
-                    return False, (
-                        f"El CRM confirmó éxito para un caso distinto al notificado "
-                        f"(enviado={case_id_crm!r}, confirmado={crm_case_number!r})."
-                    )
-
-                crm_case_id = raw_json.get("case_id", "N/A")
-                is_idempotent = raw_json.get("idempotent", False)
-                is_reconciled = raw_json.get("reconciled", False)
-
-                logger.info(
-                    f"✅ [CRM Webhook] Confirmación recibida con éxito y contrato JSON validado. "
-                    f"Case Number: {crm_case_number} | Case ID: {crm_case_id} | "
-                    f"Idempotent: {is_idempotent} | Reconciled: {is_reconciled}"
-                )
-                return True, None
+                return CrmWebhookService._validar_respuesta_exitosa(response, content_type, raw_json, case_id_crm)
             else:
                 logger.warning(
                     f"⚠️ [CRM Webhook] El CRM respondió con código HTTP de error {response.status_code}."
@@ -207,3 +132,83 @@ class CrmWebhookService:
         except Exception as exc:
             logger.error(f"❌ [CRM Webhook] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
             return False, f"Fallo de red/comunicación al notificar al CRM: {str(exc)}"
+
+    @staticmethod
+    def _validar_respuesta_exitosa(
+        response: httpx.Response, content_type: str, raw_json: Any, case_id_crm: str
+    ) -> Tuple[bool, Optional[str]]:
+        # 🟢 FIX HALLAZGO 14: Validación estricta de Content-Type JSON
+        if "application/json" not in content_type:
+            logger.warning(
+                f"⚠️ [CRM Webhook] El CRM respondió HTTP {response.status_code} pero el "
+                f"Content-Type no es 'application/json' (recibido: '{content_type}'). "
+                "Rechazando respuesta por posible interceptación de Proxy, WAF o página HTML."
+            )
+            return False, (
+                f"El CRM respondió HTTP {response.status_code} con Content-Type "
+                f"inesperado ('{content_type}'), posible interceptación de Proxy/WAF."
+            )
+
+        # 🟢 FIX HALLAZGO 14: Validación de parseo estricto de estructura JSON
+        if raw_json is None:
+            try:
+                raw_json = response.json()
+            except Exception as json_err:
+                logger.warning(
+                    f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero falló "
+                    f"la decodificación del JSON: {json_err}"
+                )
+                return False, (
+                    f"El CRM respondió HTTP {response.status_code} pero el JSON no se "
+                    f"pudo decodificar: {json_err}"
+                )
+
+        if not isinstance(raw_json, dict):
+            logger.warning(
+                f"⚠️ [CRM Webhook] La respuesta JSON del CRM no es un objeto válido "
+                f"(recibido tipo: {type(raw_json).__name__})."
+            )
+            return False, (
+                f"La respuesta JSON del CRM no es un objeto válido "
+                f"(recibido tipo: {type(raw_json).__name__})."
+            )
+
+        # 🟢 FIX HALLAZGO 14 / P0-07: Se exige éxito EXPLÍCITO (success === true), no
+        # sólo "no es false". Un {}, un {"error": "..."} o cualquier JSON sin el campo
+        # 'success' ya no se aceptan como éxito (antes pasaban porque `.get(...) is
+        # False` es False para None).
+        if raw_json.get("success") is not True:
+            logger.warning(
+                f"⚠️ [CRM Webhook] El CRM devolvió HTTP {response.status_code} pero la "
+                f"respuesta no cumple el contrato esperado (se requiere 'success': true "
+                f"explícito; recibido: {raw_json.get('success')!r})."
+            )
+            return False, (
+                f"El CRM no confirmó éxito explícito (success={raw_json.get('success')!r})."
+            )
+
+        # 🟢 FIX P0-07: Correlación de caso — la confirmación debe corresponder al MISMO
+        # caso notificado (el mismo 'case_number' que se envió), no sólo cualquier
+        # success=true. Evita aceptar como éxito una respuesta cruzada de otro caso.
+        crm_case_number = raw_json.get("case_number")
+        if crm_case_number != case_id_crm:
+            logger.warning(
+                f"⚠️ [CRM Webhook] El CRM confirmó éxito pero para un caso distinto al "
+                f"notificado (enviado: {case_id_crm!r}, confirmado: {crm_case_number!r}). "
+                "Rechazando por falta de correlación."
+            )
+            return False, (
+                f"El CRM confirmó éxito para un caso distinto al notificado "
+                f"(enviado={case_id_crm!r}, confirmado={crm_case_number!r})."
+            )
+
+        crm_case_id = raw_json.get("case_id", "N/A")
+        is_idempotent = raw_json.get("idempotent", False)
+        is_reconciled = raw_json.get("reconciled", False)
+
+        logger.info(
+            f"✅ [CRM Webhook] Confirmación recibida con éxito y contrato JSON validado. "
+            f"Case Number: {crm_case_number} | Case ID: {crm_case_id} | "
+            f"Idempotent: {is_idempotent} | Reconciled: {is_reconciled}"
+        )
+        return True, None

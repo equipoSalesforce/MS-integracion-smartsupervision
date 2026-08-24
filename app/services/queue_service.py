@@ -992,9 +992,52 @@ class QueueService:
             logger.error(f"Error consultando registros encolados en Redis: {e}")
             return []
 
+    async def _purgar_estado(self, set_key: str, limite_dt: datetime) -> int:
+        """Purga los items de un único set de estado (COMPLETED/FAILED_FINAL) más antiguos que limite_dt."""
+        if hasattr(self.redis, "sscan_iter"):
+            item_ids = [
+                m if isinstance(m, str) else m.decode("utf-8")
+                async for m in self.redis.sscan_iter(set_key, count=100)
+            ]
+        else:
+            raw_members = await self.redis.smembers(set_key)
+            item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
+
+        a_eliminar = []
+        inconsistentes = []
+
+        for item_id in item_ids:
+            item_key = f"{QUEUE_PREFIX}:item:{item_id}"
+            raw_item = await self.redis.get(item_key)
+            if not raw_item:
+                inconsistentes.append(str(item_id))
+                continue
+
+            data = json.loads(raw_item, strict=False)
+            updated_dt = datetime.fromisoformat(data["updated_at"])
+
+            if updated_dt <= limite_dt:
+                a_eliminar.append(str(item_id))
+
+        if not (a_eliminar or inconsistentes):
+            return 0
+
+        async with self._crear_pipeline_compatible() as pipe:
+            for item_id in inconsistentes:
+                pipe.srem(set_key, item_id)
+
+            for item_id in a_eliminar:
+                pipe.delete(f"{QUEUE_PREFIX}:item:{item_id}")
+                pipe.srem(set_key, item_id)
+                pipe.zrem(f"{QUEUE_PREFIX}:created_zset", item_id)
+
+            await pipe.execute()
+
+        return len(a_eliminar)
+
     async def purgar_registros_antiguos(
-        self, 
-        dias_retencion: int = settings.QUEUE_RETENTION_DAYS, 
+        self,
+        dias_retencion: int = settings.QUEUE_RETENTION_DAYS,
         dias_retencion_dlq: int = settings.QUEUE_RETENTION_DAYS_DLQ
     ) -> int:
         if not self.redis:
@@ -1004,52 +1047,15 @@ class QueueService:
         limite_exitoso = now_bogota - timedelta(days=dias_retencion)
         limite_dlq = now_bogota - timedelta(days=dias_retencion_dlq)
 
-        total_purgados = 0
-
         estados_a_evaluar = [
             (f"{QUEUE_PREFIX}:status:{SmartStatus.COMPLETED.value}", limite_exitoso),
             (f"{QUEUE_PREFIX}:status:{SmartStatus.FAILED_FINAL.value}", limite_dlq)
         ]
 
         try:
+            total_purgados = 0
             for set_key, limite_dt in estados_a_evaluar:
-                if hasattr(self.redis, "sscan_iter"):
-                    item_ids = [
-                        m if isinstance(m, str) else m.decode("utf-8")
-                        async for m in self.redis.sscan_iter(set_key, count=100)
-                    ]
-                else:
-                    raw_members = await self.redis.smembers(set_key)
-                    item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
-
-                a_eliminar = []
-                inconsistentes = []
-
-                for item_id in item_ids:
-                    item_key = f"{QUEUE_PREFIX}:item:{item_id}"
-                    raw_item = await self.redis.get(item_key)
-                    if not raw_item:
-                        inconsistentes.append(str(item_id))
-                        continue
-
-                    data = json.loads(raw_item, strict=False)
-                    updated_dt = datetime.fromisoformat(data["updated_at"])
-
-                    if updated_dt <= limite_dt:
-                        a_eliminar.append(str(item_id))
-
-                if a_eliminar or inconsistentes:
-                    async with self._crear_pipeline_compatible() as pipe:
-                        for item_id in inconsistentes:
-                            pipe.srem(set_key, item_id)
-
-                        for item_id in a_eliminar:
-                            pipe.delete(f"{QUEUE_PREFIX}:item:{item_id}")
-                            pipe.srem(set_key, item_id)
-                            pipe.zrem(f"{QUEUE_PREFIX}:created_zset", item_id)
-                            total_purgados += 1
-
-                        await pipe.execute()
+                total_purgados += await self._purgar_estado(set_key, limite_dt)
 
             if total_purgados > 0:
                 logger.info(f"🧹 [Cola Redis] Purga completada: {total_purgados} registros antiguos (Exitosos/DLQ) eliminados.")

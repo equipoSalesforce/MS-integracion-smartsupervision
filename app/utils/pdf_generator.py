@@ -30,6 +30,45 @@ def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 90) -> str:
     return "\n".join(lineas_formateadas)
 
 
+def _marcar_campos_formulario_solo_lectura(writer: PdfWriter) -> None:
+    if "/AcroForm" not in writer._root_object:
+        return
+    acro = writer._root_object["/AcroForm"].get_object()
+    if "/Fields" not in acro:
+        return
+
+    for field_ref in acro["/Fields"]:
+        field_obj = field_ref.get_object()
+        if "/T" in field_obj:
+            f_flags = field_obj.get("/Ff", 0)
+            field_obj[NameObject("/Ff")] = NumberObject(f_flags | 1)
+        if "/Kids" in field_obj:
+            for kid_ref in field_obj["/Kids"]:
+                k = kid_ref.get_object()
+                f_flags = k.get("/Ff", 0)
+                k[NameObject("/Ff")] = NumberObject(f_flags | 1)
+
+
+def _marcar_widgets_pagina_solo_lectura(page) -> None:
+    if "/Annots" not in page:
+        return
+
+    for annot in page["/Annots"]:
+        obj = annot.get_object()
+        if obj.get("/Subtype") != "/Widget":
+            continue
+
+        if "/Parent" in obj:
+            parent = obj["/Parent"].get_object()
+            p_flags = parent.get("/Ff", 0)
+            parent[NameObject("/Ff")] = NumberObject(p_flags | 1)
+        else:
+            obj_flags = obj.get("/Ff", 0)
+            obj[NameObject("/Ff")] = NumberObject(obj_flags | 1)
+
+        obj[NameObject("/F")] = NumberObject(4)
+
+
 def generar_pdf_respuesta_final(
     caso_nombre: str, 
     smart_code: str, 
@@ -59,33 +98,8 @@ def generar_pdf_respuesta_final(
 
     writer.update_page_form_field_values(writer.pages[0], datos_formulario)
 
-    if "/AcroForm" in writer._root_object:
-        acro = writer._root_object["/AcroForm"].get_object()
-        if "/Fields" in acro:
-            for field_ref in acro["/Fields"]:
-                field_obj = field_ref.get_object()
-                if "/T" in field_obj:
-                    f_flags = field_obj.get("/Ff", 0)
-                    field_obj[NameObject("/Ff")] = NumberObject(f_flags | 1)
-                if "/Kids" in field_obj:
-                    for kid_ref in field_obj["/Kids"]:
-                        k = kid_ref.get_object()
-                        f_flags = k.get("/Ff", 0)
-                        k[NameObject("/Ff")] = NumberObject(f_flags | 1)
-
-    if "/Annots" in writer.pages[0]:
-        for annot in writer.pages[0]["/Annots"]:
-            obj = annot.get_object()
-            if obj.get("/Subtype") == "/Widget":
-                if "/Parent" in obj:
-                    parent = obj["/Parent"].get_object()
-                    p_flags = parent.get("/Ff", 0)
-                    parent[NameObject("/Ff")] = NumberObject(p_flags | 1)
-                else:
-                    obj_flags = obj.get("/Ff", 0)
-                    obj[NameObject("/Ff")] = NumberObject(obj_flags | 1)
-
-                obj[NameObject("/F")] = NumberObject(4)
+    _marcar_campos_formulario_solo_lectura(writer)
+    _marcar_widgets_pagina_solo_lectura(writer.pages[0])
 
     buffer = io.BytesIO()
     writer.write(buffer)

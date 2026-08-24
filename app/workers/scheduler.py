@@ -2,7 +2,8 @@
 import asyncio
 import uuid
 import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -241,6 +242,248 @@ async def _emitir_metricas_cola(
         logger.warning(f"⚠️ [Scheduler Job] No se pudieron emitir métricas de la cola: {e}")
 
 
+@dataclass
+class _ResultadoItemReintento:
+    """Acumuladores de lo ocurrido al procesar un único item ya reclamado del ciclo de reintentos."""
+    despachado_exito: bool = False
+    fallido: bool = False
+    es_falla_infraestructura: bool = False
+
+
+async def _ejecutar_paso_sfc(
+    orquestador: DespachoQuejaOrquestador,
+    queue_service: QueueService,
+    item,
+    worker_id: str,
+    payload_actual: Dict[str, Any],
+    resultado: "_ResultadoItemReintento",
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    PASO 1: Procesamiento en SFC (solo si no fue completado previamente).
+    Retorna (continuar_a_paso_2, resultado_sfc).
+    """
+    sfc_ya_completado = item.sfc_completado or payload_actual.get("_sfc_completado", False)
+    resultado_sfc = item.sfc_response or payload_actual.get("_sfc_resultado", {})
+
+    if sfc_ya_completado:
+        return True, resultado_sfc
+
+    resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual)
+
+    if resultado_sfc.get("status") == "error":
+        error_msg = resultado_sfc.get("message") or "Error en el despacho a la SFC"
+        # 🟢 FIX P0-02: se pasa el item completo (no sólo el id) + worker_id
+        # para que registrar_fallo valide ownership/versión atómicamente.
+        resultado_fallo = await queue_service.registrar_fallo(
+            item=item, error_msg=error_msg, worker_id=worker_id
+        )
+        if resultado_fallo == "failed":
+            resultado.fallido = True
+        else:
+            logger.warning(
+                f"⚠️ [Scheduler Job] Caso {item.smart_code} falló en SFC pero el fallo no se "
+                f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
+            )
+        resultado.es_falla_infraestructura = _es_falla_infraestructura(error_msg)
+        return False, resultado_sfc
+
+    # 🟢 FIX P0-06: SFC ya recibió y procesó el envío en este punto. Si la
+    # persistencia durable de ese hecho falla (tras los reintentos internos de
+    # cada método), NO se debe tratar como un fallo normal de la operación —
+    # registrar_fallo incrementaría intentos y el próximo retry reenviaría a
+    # SFC. Se aísla en su propio try/except: se alerta como falla crítica de
+    # infraestructura y se deja el item intacto para reintentar sólo la
+    # persistencia en el próximo ciclo, en vez de silenciar el fallo.
+    #
+    # 🟢 Nivel 1 (auditoría adversarial v10, P0-02): antes esto eran dos
+    # escrituras Redis independientes (idempotency_service.registrar_exito()
+    # y queue_service.marcar_sfc_completado()) -- si la primera tenía éxito y
+    # la segunda fallaba, quedaba COMPLETED en idempotencia pero sin SFC_DONE
+    # en la cola, y el próximo ciclo reenviaba a la SFC sin consultar el
+    # Idempotency Store primero. marcar_sfc_completado ahora persiste ambas
+    # cosas en un único script Lua atómico -- ver su docstring en
+    # queue_service.py.
+    try:
+        # 🟢 FIX P0-01: se pasa worker_id + la versión reclamada para que
+        # MARK_SFC_DONE valide ownership y que el registro no fue sobrescrito.
+        resultado_sfc_done = await queue_service.marcar_sfc_completado(
+            item.id,
+            worker_id=worker_id,
+            expected_version=item.version,
+            smart_code=item.smart_code,
+            payload_dict=payload_actual,
+            sfc_response=resultado_sfc
+        )
+    except Exception as persist_err:
+        logger.critical(
+            f"🔥 [Scheduler Job] SFC procesó exitosamente el caso {item.smart_code} pero no fue "
+            f"posible persistir el estado durable (idempotencia/SFC_DONE): {persist_err}. "
+            f"Riesgo de reenvío duplicado a la SFC en el próximo reintento."
+        )
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code=item.smart_code,
+            error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+        )
+        return False, resultado_sfc
+
+    if resultado_sfc_done != "completed":
+        # "not_owner"/"version_mismatch"/"not_found": el envío a SFC sí
+        # ocurrió, pero este worker ya no tiene autoridad sobre el registro
+        # (otro evento del mismo caso lo sobrescribió, o el lease se perdió).
+        # No se trata como fallo de reintentos: el contenido vigente se
+        # procesará en su propio turno.
+        logger.warning(
+            f"⚠️ [Scheduler Job] Caso {item.smart_code} enviado a SFC pero SFC_DONE no se "
+            f"persistió sobre el contenido vigente (motivo: {resultado_sfc_done})."
+        )
+        return False, resultado_sfc
+
+    return True, resultado_sfc
+
+
+async def _ejecutar_paso_notificacion_crm(
+    queue_service: QueueService,
+    item,
+    worker_id: str,
+    payload_actual: Dict[str, Any],
+    resultado_sfc: Dict[str, Any],
+    cid_guardado: str,
+    resultado: "_ResultadoItemReintento",
+) -> None:
+    """PASO 2: Notificación al CRM Webhook (utiliza automáticamente get_correlation_id())."""
+    case_id_crm = payload_actual.get("Case_id") or item.smart_code
+    crm_notificado, webhook_error_detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+        case_id_crm=case_id_crm,
+        smart_code=item.smart_code
+    )
+
+    if not crm_notificado:
+        error_msg = (
+            f"SFC procesó la queja exitosamente ({resultado_sfc.get('message', '')}), "
+            f"pero la notificación hacia el CRM Webhook falló: {webhook_error_detalle}"
+        )
+        logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+        # 🟢 La SFC ya proceso el caso con éxito en este punto -- si el webhook
+        # falló por una caída de infraestructura del CRM (ver
+        # _es_falla_infraestructura), no se consume intento: agotar el límite
+        # de reintentos por eso empujaría el caso a FAILED_FINAL/DLQ aunque el
+        # trámite ante la SFC ya esté resuelto.
+        consumir_intento = not _es_falla_infraestructura(webhook_error_detalle)
+        resultado_fallo = await queue_service.registrar_fallo(
+            item=item, error_msg=error_msg, worker_id=worker_id,
+            consumir_intento=consumir_intento
+        )
+        if resultado_fallo == "failed":
+            resultado.fallido = True
+        else:
+            logger.warning(
+                f"⚠️ [Scheduler Job] Caso {item.smart_code} falló el webhook pero el fallo no se "
+                f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
+            )
+        return
+
+    try:
+        # 🟢 FIX P0-04/P0-05: se pasa worker_id + la versión reclamada para que
+        # MARK_SUCCESS verifique ownership y que el registro no fue sobrescrito.
+        resultado_mark = await queue_service.marcar_exitoso(
+            item.id, worker_id=worker_id, expected_version=item.version
+        )
+        if resultado_mark == "completed":
+            resultado.despachado_exito = True
+            logger.info(
+                f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC "
+                f"y confirmado al CRM desde Redis [CID: {cid_guardado}]."
+            )
+        else:
+            # "not_owner"/"version_mismatch"/"not_found": el envío a SFC/CRM sí
+            # ocurrió, pero este worker ya no tiene autoridad sobre el registro.
+            # No es un fallo de reintentos: no se llama a registrar_fallo.
+            logger.warning(
+                f"⚠️ [Scheduler Job] Caso {item.smart_code} procesado en SFC/CRM pero no "
+                f"completado en Redis (motivo: {resultado_mark}). Ver contenido vigente."
+            )
+    except Exception as redis_err:
+        logger.critical(
+            f"🔥 [Scheduler Job] ERROR CRÍTICO DE PERSISTENCIA: Caso {item.smart_code} (ID: {item.id}) "
+            f"se procesó en SFC y CRM, pero falló la actualización en Redis: {redis_err}"
+        )
+
+
+async def _verificar_sla_vencido(queue_service: QueueService) -> None:
+    """1. Control de SLA."""
+    try:
+        casos_vencidos = await queue_service.obtener_casos_vencidos_sla(horas_limite=12)
+        if casos_vencidos:
+            logger.warning(f"⏳ [Scheduler Job] {len(casos_vencidos)} caso(s) superan las 12h en la cola.")
+            await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos_vencidos)
+    except Exception as e:
+        logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
+
+
+async def _notificar_autorrecuperacion_si_aplica(queue_service: QueueService, casos_despachados_exito: int) -> None:
+    """3. Notificación de Autorrecuperación."""
+    try:
+        totales_restantes = await queue_service.contar_pendientes()
+        if casos_despachados_exito > 0 and totales_restantes == 0:
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=casos_despachados_exito)
+    except Exception as e:
+        logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
+
+
+async def _procesar_item_reclamado(
+    orquestador: DespachoQuejaOrquestador,
+    queue_service: QueueService,
+    item,
+    worker_id: str,
+) -> "_ResultadoItemReintento":
+    """Procesa un único item ya reclamado (lock/lease adquirido) del ciclo de reintentos: PASO 1 (SFC) + PASO 2 (CRM)."""
+    item_data = item.to_dict()
+
+    # 🟢 FIX HALLAZGO 47: Extraer el correlation_id preservado del modelo ColaItemRedis
+    cid_guardado = (
+        item.correlation_id
+        or item_data.get("correlation_id")
+        or item.payload_json.get("correlation_id")
+        or str(uuid.uuid4())
+    )
+
+    # Inyectar el correlation_id original al ContextVar para que logs y HTTP client lo utilicen
+    token = correlation_id_ctx.set(cid_guardado)
+    resultado = _ResultadoItemReintento()
+
+    async with QueueLockWatchdog(
+        queue_service=queue_service,
+        registro_id=item.id,
+        worker_id=worker_id,
+        lease_segundos=60,
+        intervalo_segundos=15
+    ):
+        try:
+            payload_actual = item.payload_json
+            continuar, resultado_sfc = await _ejecutar_paso_sfc(
+                orquestador, queue_service, item, worker_id, payload_actual, resultado
+            )
+            if not continuar:
+                return resultado
+
+            await _ejecutar_paso_notificacion_crm(
+                queue_service, item, worker_id, payload_actual, resultado_sfc, cid_guardado, resultado
+            )
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
+            resultado_fallo = await queue_service.registrar_fallo(
+                item=item, error_msg=error_msg, worker_id=worker_id
+            )
+            if resultado_fallo == "failed":
+                resultado.fallido = True
+            resultado.es_falla_infraestructura = _es_falla_infraestructura(error_msg)
+        finally:
+            correlation_id_ctx.reset(token)
+
+    return resultado
+
+
 async def reintentar_despachos_pendientes_job():
     # 🟡 P1-02 (aceptado, no se corrige): el lock es global por diseño — un solo
     # nodo procesa el ciclo de reintentos a la vez, aunque haya varias réplicas.
@@ -277,13 +520,7 @@ async def reintentar_despachos_pendientes_job():
         worker_id = f"worker_node:{uuid.uuid4()}"
 
         # 1. Control de SLA
-        try:
-            casos_vencidos = await queue_service.obtener_casos_vencidos_sla(horas_limite=12)
-            if casos_vencidos:
-                logger.warning(f"⏳ [Scheduler Job] {len(casos_vencidos)} caso(s) superan las 12h en la cola.")
-                await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos_vencidos)
-        except Exception as e:
-            logger.error(f"❌ [Scheduler Job] Error al verificar SLA de la cola: {str(e)}")
+        await _verificar_sla_vencido(queue_service)
 
         # 2. Obtener registros pendientes vencidos
         # 🟢 FIX P1-15: obtener_pendientes_para_reintento ya no traga excepciones de
@@ -316,176 +553,13 @@ async def reintentar_despachos_pendientes_job():
             if item_reclamado is None:
                 continue
 
-            item = item_reclamado
-            item_data = item.to_dict()
-
-            # 🟢 FIX HALLAZGO 47: Extraer el correlation_id preservado del modelo ColaItemRedis
-            cid_guardado = (
-                item.correlation_id
-                or item_data.get("correlation_id")
-                or item.payload_json.get("correlation_id")
-                or str(uuid.uuid4())
+            resultado_item = await _procesar_item_reclamado(
+                orquestador, queue_service, item_reclamado, worker_id
             )
+            casos_despachados_exito += int(resultado_item.despachado_exito)
+            casos_fallidos += int(resultado_item.fallido)
 
-            # Inyectar el correlation_id original al ContextVar para que logs y HTTP client lo utilicen
-            token = correlation_id_ctx.set(cid_guardado)
-            es_falla_infraestructura = False
-
-            async with QueueLockWatchdog(
-                queue_service=queue_service, 
-                registro_id=item.id, 
-                worker_id=worker_id, 
-                lease_segundos=60, 
-                intervalo_segundos=15
-            ):
-                try:
-                    payload_actual = item.payload_json
-                    sfc_ya_completado = item.sfc_completado or payload_actual.get("_sfc_completado", False)
-                    resultado = item.sfc_response or payload_actual.get("_sfc_resultado", {})
-
-                    # PASO 1: Procesamiento en SFC (solo si no fue completado previamente)
-                    if not sfc_ya_completado:
-                        resultado = await orquestador.procesar_despacho_raw_json(payload_actual)
-
-                        if resultado.get("status") == "error":
-                            error_msg = resultado.get("message") or "Error en el despacho a la SFC"
-                            # 🟢 FIX P0-02: se pasa el item completo (no sólo el id) + worker_id
-                            # para que registrar_fallo valide ownership/versión atómicamente.
-                            resultado_fallo = await queue_service.registrar_fallo(
-                                item=item, error_msg=error_msg, worker_id=worker_id
-                            )
-                            if resultado_fallo == "failed":
-                                casos_fallidos += 1
-                            else:
-                                logger.warning(
-                                    f"⚠️ [Scheduler Job] Caso {item.smart_code} falló en SFC pero el fallo no se "
-                                    f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
-                                )
-                            es_falla_infraestructura = _es_falla_infraestructura(error_msg)
-                            continue
-
-                        # 🟢 FIX P0-06: SFC ya recibió y procesó el envío en este punto. Si la
-                        # persistencia durable de ese hecho falla (tras los reintentos internos de
-                        # cada método), NO se debe tratar como un fallo normal de la operación —
-                        # registrar_fallo incrementaría intentos y el próximo retry reenviaría a
-                        # SFC. Se aísla en su propio try/except: se alerta como falla crítica de
-                        # infraestructura y se deja el item intacto para reintentar sólo la
-                        # persistencia en el próximo ciclo, en vez de silenciar el fallo.
-                        #
-                        # 🟢 Nivel 1 (auditoría adversarial v10, P0-02): antes esto eran dos
-                        # escrituras Redis independientes (idempotency_service.registrar_exito()
-                        # y queue_service.marcar_sfc_completado()) -- si la primera tenía éxito y
-                        # la segunda fallaba, quedaba COMPLETED en idempotencia pero sin SFC_DONE
-                        # en la cola, y el próximo ciclo reenviaba a la SFC sin consultar el
-                        # Idempotency Store primero. marcar_sfc_completado ahora persiste ambas
-                        # cosas en un único script Lua atómico -- ver su docstring en
-                        # queue_service.py.
-                        try:
-                            # 🟢 FIX P0-01: se pasa worker_id + la versión reclamada para que
-                            # MARK_SFC_DONE valide ownership y que el registro no fue sobrescrito.
-                            resultado_sfc_done = await queue_service.marcar_sfc_completado(
-                                item.id,
-                                worker_id=worker_id,
-                                expected_version=item.version,
-                                smart_code=item.smart_code,
-                                payload_dict=payload_actual,
-                                sfc_response=resultado
-                            )
-                        except Exception as persist_err:
-                            logger.critical(
-                                f"🔥 [Scheduler Job] SFC procesó exitosamente el caso {item.smart_code} pero no fue "
-                                f"posible persistir el estado durable (idempotencia/SFC_DONE): {persist_err}. "
-                                f"Riesgo de reenvío duplicado a la SFC en el próximo reintento."
-                            )
-                            await EmailAlertService.notificar_falla_infraestructura(
-                                smart_code=item.smart_code,
-                                error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}"
-                            )
-                            continue
-
-                        if resultado_sfc_done != "completed":
-                            # "not_owner"/"version_mismatch"/"not_found": el envío a SFC sí
-                            # ocurrió, pero este worker ya no tiene autoridad sobre el registro
-                            # (otro evento del mismo caso lo sobrescribió, o el lease se perdió).
-                            # No se trata como fallo de reintentos: el contenido vigente se
-                            # procesará en su propio turno.
-                            logger.warning(
-                                f"⚠️ [Scheduler Job] Caso {item.smart_code} enviado a SFC pero SFC_DONE no se "
-                                f"persistió sobre el contenido vigente (motivo: {resultado_sfc_done})."
-                            )
-                            continue
-                        sfc_ya_completado = True
-
-                    # PASO 2: Notificación al CRM Webhook (utiliza automáticamente get_correlation_id())
-                    case_id_crm = payload_actual.get("Case_id") or item.smart_code
-                    crm_notificado, webhook_error_detalle = await CrmWebhookService.notificar_resolucion_contingencia(
-                        case_id_crm=case_id_crm,
-                        smart_code=item.smart_code
-                    )
-
-                    if not crm_notificado:
-                        error_msg = (
-                            f"SFC procesó la queja exitosamente ({resultado.get('message', '')}), "
-                            f"pero la notificación hacia el CRM Webhook falló: {webhook_error_detalle}"
-                        )
-                        logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
-                        # 🟢 La SFC ya proceso el caso con éxito en este punto -- si el webhook
-                        # falló por una caída de infraestructura del CRM (ver
-                        # _es_falla_infraestructura), no se consume intento: agotar el límite
-                        # de reintentos por eso empujaría el caso a FAILED_FINAL/DLQ aunque el
-                        # trámite ante la SFC ya esté resuelto.
-                        consumir_intento = not _es_falla_infraestructura(webhook_error_detalle)
-                        resultado_fallo = await queue_service.registrar_fallo(
-                            item=item, error_msg=error_msg, worker_id=worker_id,
-                            consumir_intento=consumir_intento
-                        )
-                        if resultado_fallo == "failed":
-                            casos_fallidos += 1
-                        else:
-                            logger.warning(
-                                f"⚠️ [Scheduler Job] Caso {item.smart_code} falló el webhook pero el fallo no se "
-                                f"aplicó sobre el contenido vigente (motivo: {resultado_fallo})."
-                            )
-                    else:
-                        try:
-                            # 🟢 FIX P0-04/P0-05: se pasa worker_id + la versión reclamada para que
-                            # MARK_SUCCESS verifique ownership y que el registro no fue sobrescrito.
-                            resultado_mark = await queue_service.marcar_exitoso(
-                                item.id, worker_id=worker_id, expected_version=item.version
-                            )
-                            if resultado_mark == "completed":
-                                casos_despachados_exito += 1
-                                logger.info(
-                                    f"✅ [Scheduler Job] Caso {item.smart_code} entregado exitosamente a la SFC "
-                                    f"y confirmado al CRM desde Redis [CID: {cid_guardado}]."
-                                )
-                            else:
-                                # "not_owner"/"version_mismatch"/"not_found": el envío a SFC/CRM sí
-                                # ocurrió, pero este worker ya no tiene autoridad sobre el registro.
-                                # No es un fallo de reintentos: no se llama a registrar_fallo.
-                                logger.warning(
-                                    f"⚠️ [Scheduler Job] Caso {item.smart_code} procesado en SFC/CRM pero no "
-                                    f"completado en Redis (motivo: {resultado_mark}). Ver contenido vigente."
-                                )
-                        except Exception as redis_err:
-                            logger.critical(
-                                f"🔥 [Scheduler Job] ERROR CRÍTICO DE PERSISTENCIA: Caso {item.smart_code} (ID: {item.id}) "
-                                f"se procesó en SFC y CRM, pero falló la actualización en Redis: {redis_err}"
-                            )
-
-                except Exception as exc:
-                    error_msg = str(exc)
-                    logger.warning(f"⚠️ [Scheduler Job] Reintento fallido para el caso {item.smart_code}: {error_msg}")
-                    resultado_fallo = await queue_service.registrar_fallo(
-                        item=item, error_msg=error_msg, worker_id=worker_id
-                    )
-                    if resultado_fallo == "failed":
-                        casos_fallidos += 1
-                    es_falla_infraestructura = _es_falla_infraestructura(error_msg)
-                finally:
-                    correlation_id_ctx.reset(token)
-
-            if es_falla_infraestructura:
+            if resultado_item.es_falla_infraestructura:
                 casos_restantes = pendientes[index + 1:]
                 if casos_restantes:
                     ids_restantes = [r.id for r in casos_restantes]
@@ -496,12 +570,7 @@ async def reintentar_despachos_pendientes_job():
                 break
 
         # 3. Notificación de Autorrecuperación
-        try:
-            totales_restantes = await queue_service.contar_pendientes()
-            if casos_despachados_exito > 0 and totales_restantes == 0:
-                await EmailAlertService.notificar_recuperacion_sfc(total_despachados=casos_despachados_exito)
-        except Exception as e:
-            logger.error(f"❌ [Scheduler Job] Error al verificar estado de autorrecuperación: {str(e)}")
+        await _notificar_autorrecuperacion_si_aplica(queue_service, casos_despachados_exito)
 
     finally:
         await _emitir_metricas_cola(queue_service, casos_despachados_exito, casos_fallidos)

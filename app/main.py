@@ -28,22 +28,12 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Ciclo de vida de la aplicación.
-    Inicializa y destruye ordenadamente los recursos globales del sistema.
-    """
-    logger.info(
-        f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
-        f"con Centralizada Redis + APScheduler activos."
-    )
-
+async def _iniciar_recursos_globales(app: FastAPI) -> None:
     timeout_sfc = httpx.Timeout(connect=3.0, read=15.0, write=10.0, pool=10.0)
     limits_sfc = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-    
+
     app.state.http_client = httpx.AsyncClient(
-        timeout=timeout_sfc, 
+        timeout=timeout_sfc,
         limits=limits_sfc,
         verify=ssl_context,
         event_hooks={
@@ -69,7 +59,7 @@ async def lifespan(app: FastAPI):
             logger.error(f"Fallo al arrancar el scheduler de reintentos: {str(e)}")
     else:
         logger.info("ℹ️ Scheduler desactivado para esta instancia Web (Modo Stateless API).")
-    
+
     try:
         await SfcErrorTranslator.obtener_matriz_errores()
         await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
@@ -85,10 +75,10 @@ async def lifespan(app: FastAPI):
         logger.critical(f"🔥 Fallo crítico al precargar catálogos/errores en RAM: {str(e)}")
         raise
 
-    yield
 
+async def _detener_recursos_globales(app: FastAPI) -> None:
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
-    
+
     try:
         await detener_scheduler()
     except Exception as e:
@@ -117,13 +107,26 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error al cerrar http_client global: {e}")
 
     logger.info(f"Apagando {settings.PROJECT_NAME} de manera limpia y segura.")
-    
+
     await EmailAlertService.shutdown(timeout_segundos=3.0)
 
-    try:
-        await detener_scheduler()
-    except Exception as e:
-        logger.error(f"Error al detener scheduler: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Ciclo de vida de la aplicación.
+    Inicializa y destruye ordenadamente los recursos globales del sistema.
+    """
+    logger.info(
+        f"Arrancando {settings.PROJECT_NAME} en ambiente: {settings.ENVIRONMENT} "
+        f"con Centralizada Redis + APScheduler activos."
+    )
+
+    await _iniciar_recursos_globales(app)
+
+    yield
+
+    await _detener_recursos_globales(app)
 
 
 # 🟢 FIX HALLAZGO 28: Deshabilitar Swagger UI (/docs), ReDoc (/redoc) y esquema OpenAPI (/openapi.json)

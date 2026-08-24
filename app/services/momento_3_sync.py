@@ -1,9 +1,7 @@
 # app/services/momento_3_sync.py
 import asyncio
 import logging
-import tempfile
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -43,15 +41,9 @@ class Momento3SincronizacionService:
             afijo_regulatorio="RESP_FINAL_SFC"
         )
 
-    async def _orquestar_pipeline_momento_3(
-        self, 
-        payload: Any, 
-        target_file_name: Optional[str] = None, 
-        afijo_regulatorio: Optional[str] = None,
-        generar_pdf_cierre: bool = False,
-        afijo_masivo: bool = False
-    ) -> Dict[str, Any]:
-        # 🟢 EXTRACCIÓN SEGURO DE PROPIEDADES (Pydantic Model vs Dict)
+    @staticmethod
+    def _extraer_datos_payload(payload: Any) -> Tuple[Dict[str, Any], str, str, list, Optional[str], str]:
+        """🟢 EXTRACCIÓN SEGURA DE PROPIEDADES (Pydantic Model vs Dict)."""
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c") or payload.get("Case_id")
@@ -67,9 +59,10 @@ class Momento3SincronizacionService:
             cuerpo_correo = getattr(payload, "cuerpo_respuesta_final", None)
             cliente_nombre = getattr(payload, "SuppliedName", "Consumidor Financiero")
 
-        sfc_id_largo = smart_code
-        sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict, momento=3)
+        return crm_dict, smart_code, case_id_crm, archivos_s3_raw, cuerpo_correo, cliente_nombre
 
+    @staticmethod
+    def _aplicar_estado_inicial_sfc(sfc_raw_payload: Dict[str, Any], generar_pdf_cierre: bool) -> None:
         if generar_pdf_cierre:
             sfc_raw_payload["estado_cod"] = 4
             sfc_raw_payload["documentacion_rta_final"] = True
@@ -82,6 +75,43 @@ class Momento3SincronizacionService:
             sfc_raw_payload["a_favor_de"] = None
             sfc_raw_payload["aceptacion_queja"] = None
 
+    @staticmethod
+    def _aplicar_defaults_finales_sfc(
+        sfc_raw_payload: Dict[str, Any], afijo_regulatorio: Optional[str], crm_dict: Dict[str, Any]
+    ) -> None:
+        es_pipeline_fraude = (afijo_regulatorio == "INV_FRAUDE_SFC") or (
+            crm_dict.get("tipo_fraude__c") is not None or crm_dict.get("modalidad_fraude__c") is not None
+        )
+
+        if not es_pipeline_fraude:
+            sfc_raw_payload["tipo_fraude"] = None
+            sfc_raw_payload["modalidad_fraude"] = None
+            sfc_raw_payload["monto_reclamado"] = None
+            sfc_raw_payload["monto_reconocido"] = None
+
+        sfc_defaults = {
+            "condicion_especial": 98, "queja_expres": 2,
+            "tutela": 2, "ente_control": 99, "producto_digital": 1, "admision": 1,
+            "desistimiento_queja": 2
+        }
+        for campo, valor_defecto in sfc_defaults.items():
+            if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
+                sfc_raw_payload[campo] = valor_defecto
+
+    async def _orquestar_pipeline_momento_3(
+        self,
+        payload: Any,
+        target_file_name: Optional[str] = None,
+        afijo_regulatorio: Optional[str] = None,
+        generar_pdf_cierre: bool = False,
+        afijo_masivo: bool = False
+    ) -> Dict[str, Any]:
+        crm_dict, smart_code, case_id_crm, archivos_s3_raw, cuerpo_correo, cliente_nombre = self._extraer_datos_payload(payload)
+
+        sfc_id_largo = smart_code
+        sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict, momento=3)
+
+        self._aplicar_estado_inicial_sfc(sfc_raw_payload, generar_pdf_cierre)
         estado_cod = sfc_raw_payload.get("estado_cod", 2)
 
         try:
@@ -113,25 +143,8 @@ class Momento3SincronizacionService:
 
             if pdf_generado_exito:
                 sfc_raw_payload["documentacion_rta_final"] = True
-                
-            es_pipeline_fraude = (afijo_regulatorio == "INV_FRAUDE_SFC") or (
-                crm_dict.get("tipo_fraude__c") is not None or crm_dict.get("modalidad_fraude__c") is not None
-            )
-            
-            if not es_pipeline_fraude:
-                sfc_raw_payload["tipo_fraude"] = None
-                sfc_raw_payload["modalidad_fraude"] = None
-                sfc_raw_payload["monto_reclamado"] = None
-                sfc_raw_payload["monto_reconocido"] = None
-            
-            sfc_defaults = {
-                "condicion_especial": 98, "queja_expres": 2, 
-                "tutela": 2, "ente_control": 99, "producto_digital": 1, "admision": 1, 
-                "desistimiento_queja": 2
-            }
-            for campo, valor_defecto in sfc_defaults.items():
-                if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
-                    sfc_raw_payload[campo] = valor_defecto
+
+            self._aplicar_defaults_finales_sfc(sfc_raw_payload, afijo_regulatorio, crm_dict)
 
             payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
 
@@ -147,7 +160,7 @@ class Momento3SincronizacionService:
             }
 
         except SfcIntegrationException as exc:
-            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
+            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_SFC_ERROR":
                 await EmailAlertService.notificar_error_no_mapeado(
                     status_code=getattr(exc, "status_code", 500),
                     raw_message=str(exc),

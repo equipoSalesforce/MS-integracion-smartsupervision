@@ -89,6 +89,87 @@ class SfcErrorTranslator:
         return None
 
     @classmethod
+    async def _manejar_falla_sincronizacion_matriz(cls, e: Exception, ahora: float) -> None:
+        # 🟢 FIX P1-04: antigüedad calculada sobre ULTIMO_EXITO_TIMESTAMP (último
+        # éxito real), no sobre ULTIMA_ACTUALIZACION (que avanza en cada intento,
+        # exitoso o no, para el backoff). Antes compartían variable y la alerta de
+        # 24h nunca podía dispararse.
+        edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
+        edad_horas = edad_segundos / 3600.0
+
+        logger.warning(
+            f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. "
+            f"Antigüedad de la matriz en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
+        )
+
+        if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+            logger.critical(
+                f"🚨 [SfcErrorTranslator] ALERTA CRÍTICA: La matriz de errores en RAM tiene {edad_horas:.1f}h "
+                f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
+            )
+            try:
+                from app.services.email_service import EmailAlertService
+                asyncio.create_task(
+                    EmailAlertService.notificar_catalogo_stale(
+                        nombre_componente="SfcErrorTranslator (Matriz de Errores)",
+                        edad_horas=edad_horas,
+                        error_msg=str(e)
+                    )
+                )
+            except Exception as alert_err:
+                logger.warning(f"No se pudo disparar la alerta por matriz stale: {alert_err}")
+
+    @classmethod
+    async def _refrescar_matriz_desde_sheets(cls, spreadsheet_id: str, sheet_range: str, ahora: float) -> bool:
+        """Intenta refrescar MATRIZ_ERRORES_TEXTO desde Google Sheets. Si retorna True, ya dejó todo el estado actualizado."""
+        try:
+            logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz mediante Google Sheets API v4...")
+
+            access_token = await cls._obtener_google_access_token()
+            if not access_token:
+                raise ValueError("No se pudo obtener el Access Token de Google OAuth.")
+
+            headers = {"Authorization": f"Bearer {access_token}"}
+            url_api_v4 = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{sheet_range}"
+
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.get(url_api_v4, headers=headers)
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
+                    )
+                    return False
+
+                data = response.json()
+                rows = data.get("values", [])
+
+                reglas = []
+                for row in rows[1:]:
+                    if not row or not row[0]:
+                        continue
+                    reglas.append({
+                        "subcadena": str(row[0]).strip(),
+                        "tipo": str(row[1]).strip() if len(row) > 1 else "UNKNOWN_SFC_ERROR",
+                        "accion": str(row[2]).strip() if len(row) > 2 else "Revisar logs del payload."
+                    })
+
+                if not reglas:
+                    return False
+
+                cls.MATRIZ_ERRORES_TEXTO = reglas
+                cls.ULTIMA_ACTUALIZACION = ahora
+                cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
+                logger.info(
+                    f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
+                    f"{len(reglas)} reglas cargadas."
+                )
+                return True
+        except Exception as e:
+            await cls._manejar_falla_sincronizacion_matriz(e, ahora)
+            return False
+
+    @classmethod
     async def obtener_matriz_errores(cls) -> List[Dict[str, str]]:
         """
         Retorna la matriz en RAM. Si la caché expiró o está vacía, realiza una
@@ -112,75 +193,8 @@ class SfcErrorTranslator:
             sheet_range = settings.GOOGLE_SHEET_RANGE
 
             if spreadsheet_id:
-                try:
-                    logger.info("🔄 [SfcErrorTranslator] Sincronizando matriz mediante Google Sheets API v4...")
-
-                    access_token = await cls._obtener_google_access_token()
-                    if not access_token:
-                        raise ValueError("No se pudo obtener el Access Token de Google OAuth.")
-
-                    headers = {"Authorization": f"Bearer {access_token}"}
-                    url_api_v4 = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{sheet_range}"
-
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        response = await client.get(url_api_v4, headers=headers)
-
-                        if response.status_code == 200:
-                            data = response.json()
-                            rows = data.get("values", [])
-
-                            reglas = []
-                            for row in rows[1:]:
-                                if not row or not row[0]:
-                                    continue
-                                reglas.append({
-                                    "subcadena": str(row[0]).strip(),
-                                    "tipo": str(row[1]).strip() if len(row) > 1 else "UNKNOWN_SFC_ERROR",
-                                    "accion": str(row[2]).strip() if len(row) > 2 else "Revisar logs del payload."
-                                })
-
-                            if reglas:
-                                cls.MATRIZ_ERRORES_TEXTO = reglas
-                                cls.ULTIMA_ACTUALIZACION = ahora
-                                cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
-                                logger.info(
-                                    f"✅ [SfcErrorTranslator] Matriz actualizada desde Google Sheets API v4: "
-                                    f"{len(reglas)} reglas cargadas."
-                                )
-                                return cls.MATRIZ_ERRORES_TEXTO
-                        else:
-                            logger.warning(
-                                f"⚠️ [SfcErrorTranslator] Google Sheets API devolvió HTTP {response.status_code}: {response.text}"
-                            )
-                except Exception as e:
-                    # 🟢 FIX P1-04: antigüedad calculada sobre ULTIMO_EXITO_TIMESTAMP (último
-                    # éxito real), no sobre ULTIMA_ACTUALIZACION (que avanza en cada intento,
-                    # exitoso o no, para el backoff). Antes compartían variable y la alerta de
-                    # 24h nunca podía dispararse.
-                    edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
-                    edad_horas = edad_segundos / 3600.0
-
-                    logger.warning(
-                        f"⚠️ [SfcErrorTranslator] Falló la sincronización con Google Sheets API v4: {e}. "
-                        f"Antigüedad de la matriz en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
-                    )
-
-                    if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
-                        logger.critical(
-                            f"🚨 [SfcErrorTranslator] ALERTA CRÍTICA: La matriz de errores en RAM tiene {edad_horas:.1f}h "
-                            f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
-                        )
-                        try:
-                            from app.services.email_service import EmailAlertService
-                            asyncio.create_task(
-                                EmailAlertService.notificar_catalogo_stale(
-                                    nombre_componente="SfcErrorTranslator (Matriz de Errores)",
-                                    edad_horas=edad_horas,
-                                    error_msg=str(e)
-                                )
-                            )
-                        except Exception as alert_err:
-                            logger.warning(f"No se pudo disparar la alerta por matriz stale: {alert_err}")
+                if await cls._refrescar_matriz_desde_sheets(spreadsheet_id, sheet_range, ahora):
+                    return cls.MATRIZ_ERRORES_TEXTO
 
             if not cls.MATRIZ_ERRORES_TEXTO:
                 cls.cargar_matriz_local()

@@ -38,10 +38,10 @@ class QuejaMapeadaCrmResponse(BaseModel):
     SuppliedPhone: Optional[str] = Field(None, description="telefono traducido")
     SuppliedEmail: Optional[str] = Field(None, description="correo traducido")
     tipo_de_persona__c: str = Field(..., description="tipo_persona traducido a texto")
-    sc_genero__c: str = Field(..., description="sexo traducido a texto")
-    sc_LGBTIQ__c: str = Field(..., description="lgbtiq traducido")
+    sc_genero__c: Optional[str] = Field(None, description="sexo traducido a texto, puede ser None")
+    sc_LGBTIQ__c: Optional[str] = Field(None, description="lgbtiq traducido, puede ser None")
     canal__c: Optional[str] = Field(None, description="canal_cod traducido a texto, Puede ser None")
-    sc_Condicion_especial__c: str = Field(..., description="condicion_especial traducido a texto")
+    sc_Condicion_especial__c: Optional[str] = Field(None, description="condicion_especial traducido a texto, puede ser None")
     Product__c: str = Field(..., description="producto_cod traducido")
     smart_Producto_nombre__c: Optional[str] = Field(None, description="producto_nombre traducido")
     Categorias_COL__c: str = Field(..., description="macro_motivo_cod traducido")
@@ -236,8 +236,8 @@ class Momento2QuejaCrmInput(BaseModel):
         if isinstance(v, str) and v.strip():
             try:
                 datetime.fromisoformat(v.replace("Z", "+00:00"))
-            except ValueError:
-                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.")
+            except ValueError as e:
+                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.") from e
         return v
 
     @field_validator("Smart_Code__c", "Case_id", mode="before")
@@ -338,8 +338,8 @@ class Momento2QuejaCrmInput(BaseModel):
         if isinstance(v, str):
             try:
                 datetime.fromisoformat(v.replace("Z", "+00:00"))
-            except ValueError:
-                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.")
+            except ValueError as e:
+                raise ValueError(f"El campo 'CreatedDate' con valor '{v}' debe cumplir con un formato ISO 8601 válido.") from e
         return v
 
 
@@ -435,10 +435,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
             try:
                 return date.fromisoformat(v_clean)
-            except ValueError:
+            except ValueError as e:
                 raise ValueError(
                     f"El campo 'ClosedDate' con valor '{v}' debe cumplir con un formato de fecha válido (YYYY-MM-DD o ISO 8601)."
-                )
+                ) from e
         return v
 
     @field_validator("Favorabilidad__c", "Aceptacion__c", "Status", mode="before")
@@ -471,95 +471,104 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
             )
         return value
 
+    def _validar_closed_date(self, hoy_bogota: date, limite_30_dias: date) -> None:
+        if not self.ClosedDate:
+            self.ClosedDate = hoy_bogota
+
+        if self.ClosedDate > hoy_bogota:
+            raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
+
+        if self.ClosedDate < limite_30_dias:
+            raise ValueError(
+                f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
+                f"no puede ser anterior a 30 días respecto a la fecha actual ({hoy_bogota})."
+            )
+
+        if self.CreatedDate and self.ClosedDate:
+            dt_created = None
+            try:
+                dt_created = datetime.fromisoformat(self.CreatedDate.replace("Z", "+00:00")).date()
+            except (ValueError, TypeError):
+                pass
+
+            if dt_created and self.ClosedDate < dt_created:
+                raise ValueError(
+                    f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
+                    f"no puede ser anterior a la fecha de creación 'CreatedDate' ({dt_created})."
+                )
+
+    def _validar_reglas_cierre(self) -> None:
+        status_clean = (self.Status or "").strip().lower()
+        if not self.Status or status_clean not in ("closed", "cerrado"):
+            self.Status = "Closed"
+
+        if not self.Favorabilidad__c and not self.Aceptacion__c:
+            raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
+        elif not self.Favorabilidad__c:
+            raise ValueError("Falta el campo obligatorio 'Favorabilidad__c' para el cierre del caso.")
+        elif not self.Aceptacion__c:
+            raise ValueError("Falta el campo obligatorio 'Aceptacion__c' para el cierre del caso.")
+
+        hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
+        limite_30_dias = hoy_bogota - timedelta(days=30)
+        self._validar_closed_date(hoy_bogota, limite_30_dias)
+
+        if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
+            self.cuerpo_respuesta_final = (
+                "Se emite respuesta formal y cierre definitivo al caso de reclamación "
+                "conforme a los términos de ley y políticas de la entidad."
+            )
+
+    def _validar_reglas_fraude(self, num_archivos: int, tiene_directorio: bool) -> None:
+        if num_archivos == 0 and not tiene_directorio:
+            raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
+
+        # 🟢 FIX HALLAZGO 26: un monto ausente ya no se reescribe silenciosamente a 0.0.
+        # "$0 reclamado" y "monto no informado" son hechos distintos para un reporte
+        # regulatorio de fraude; se exige que el CRM envíe el valor explícitamente
+        # (incluido 0.0 si de verdad no hubo impacto económico).
+        if self.card_amount__c is None:
+            raise ValueError(
+                "Falta el campo obligatorio 'card_amount__c' (monto reclamado) para un caso de fraude. "
+                "Envíe 0.0 explícitamente si no hubo impacto económico."
+            )
+        if self.Total_Devuelto_por_Desconocimiento__c is None:
+            raise ValueError(
+                "Falta el campo obligatorio 'Total_Devuelto_por_Desconocimiento__c' (monto devuelto) "
+                "para un caso de fraude. Envíe 0.0 explícitamente si no hubo impacto económico."
+            )
+
+        if not tiene_directorio and num_archivos > 0:
+            if not self.nombre_archivo_fraude:
+                if num_archivos == 1:
+                    self.nombre_archivo_fraude = self.archivos_s3[0].nombre_archivo
+                else:
+                    raise ValueError(f"Se recibieron {num_archivos} archivos. Es obligatorio especificar 'nombre_archivo_fraude'.")
+            else:
+                nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
+                if self.nombre_archivo_fraude not in nombres_en_lista:
+                    raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
+
     @model_validator(mode="after")
     def validar_reglas_segun_datos_presentes(self) -> "QuejaUnificadaCrmInput":
         num_archivos = len(self.archivos_s3)
         tiene_directorio = bool(self.directorio_s3 and self.directorio_s3.strip())
-        
+
         status_clean = (self.Status or "").strip().lower()
-        
+
         es_estado_cierre = (
-            status_clean in ("closed", "cerrado") or 
-            self.ClosedDate is not None or 
+            status_clean in ("closed", "cerrado") or
+            self.ClosedDate is not None or
             self.Favorabilidad__c is not None or
             self.Aceptacion__c is not None
         )
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
         if es_estado_cierre:
-            if not self.Status or status_clean not in ("closed", "cerrado"):
-                self.Status = "Closed"
-
-            if not self.Favorabilidad__c and not self.Aceptacion__c:
-                raise ValueError("Para ejecutar un Cierre Definitivo es obligatorio proveer 'Favorabilidad__c' y 'Aceptacion__c'.")
-            elif not self.Favorabilidad__c:
-                raise ValueError("Falta el campo obligatorio 'Favorabilidad__c' para el cierre del caso.")
-            elif not self.Aceptacion__c:
-                raise ValueError("Falta el campo obligatorio 'Aceptacion__c' para el cierre del caso.")
-            
-            hoy_bogota = datetime.now(ZoneInfo("America/Bogota")).date()
-            limite_30_dias = hoy_bogota - timedelta(days=30)
-            
-            if not self.ClosedDate:
-                self.ClosedDate = hoy_bogota
-
-            if self.ClosedDate > hoy_bogota:
-                raise ValueError(f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) no puede ser posterior a la fecha actual.")
-
-            if self.ClosedDate < limite_30_dias:
-                raise ValueError(
-                    f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
-                    f"no puede ser anterior a 30 días respecto a la fecha actual ({hoy_bogota})."
-                )
-
-            if self.CreatedDate and self.ClosedDate:
-                dt_created = None
-                try:
-                    dt_created = datetime.fromisoformat(self.CreatedDate.replace("Z", "+00:00")).date()
-                except (ValueError, TypeError):
-                    pass
-
-                if dt_created and self.ClosedDate < dt_created:
-                    raise ValueError(
-                        f"La fecha de cierre 'ClosedDate' ({self.ClosedDate}) "
-                        f"no puede ser anterior a la fecha de creación 'CreatedDate' ({dt_created})."
-                    )
-
-            if not self.cuerpo_respuesta_final or not self.cuerpo_respuesta_final.strip():
-                self.cuerpo_respuesta_final = (
-                    "Se emite respuesta formal y cierre definitivo al caso de reclamación "
-                    "conforme a los términos de ley y políticas de la entidad."
-                )
+            self._validar_reglas_cierre()
 
         if es_evento_fraude:
-            if num_archivos == 0 and not tiene_directorio:
-                raise ValueError("No se envió un documento de investigación de fraude (INV_FRAUDE_SFC).")
-
-            # 🟢 FIX HALLAZGO 26: un monto ausente ya no se reescribe silenciosamente a 0.0.
-            # "$0 reclamado" y "monto no informado" son hechos distintos para un reporte
-            # regulatorio de fraude; se exige que el CRM envíe el valor explícitamente
-            # (incluido 0.0 si de verdad no hubo impacto económico).
-            if self.card_amount__c is None:
-                raise ValueError(
-                    "Falta el campo obligatorio 'card_amount__c' (monto reclamado) para un caso de fraude. "
-                    "Envíe 0.0 explícitamente si no hubo impacto económico."
-                )
-            if self.Total_Devuelto_por_Desconocimiento__c is None:
-                raise ValueError(
-                    "Falta el campo obligatorio 'Total_Devuelto_por_Desconocimiento__c' (monto devuelto) "
-                    "para un caso de fraude. Envíe 0.0 explícitamente si no hubo impacto económico."
-                )
-
-            if not tiene_directorio and num_archivos > 0:
-                if not self.nombre_archivo_fraude:
-                    if num_archivos == 1:
-                        self.nombre_archivo_fraude = self.archivos_s3[0].nombre_archivo
-                    else:
-                        raise ValueError(f"Se recibieron {num_archivos} archivos. Es obligatorio especificar 'nombre_archivo_fraude'.")
-                else:
-                    nombres_en_lista = [a.nombre_archivo for a in self.archivos_s3]
-                    if self.nombre_archivo_fraude not in nombres_en_lista:
-                        raise ValueError(f"El archivo especificado '{self.nombre_archivo_fraude}' no se encuentra dentro de archivos_s3.")
+            self._validar_reglas_fraude(num_archivos, tiene_directorio)
 
         return self
 

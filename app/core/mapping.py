@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, date
-from typing import Dict, Any, Optional, Set, List
+from typing import Dict, Any, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 import httpx
 
@@ -16,6 +16,10 @@ from app.core.exceptions import SfcIntegrationException
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload, SfcActualizarQuejaPayload
 
 logger = logging.getLogger(__name__)
+
+# Sentinela para los helpers de traducción campo-por-campo: distingue "esta llave no
+# aplica a este catálogo, seguir probando" de "sí aplica y el valor resuelto es None".
+_NO_MATCH = object()
 
 
 class SfcSalesforceMapper:
@@ -132,6 +136,132 @@ class SfcSalesforceMapper:
 
         return None
 
+    @staticmethod
+    def _parsear_value_ranges(value_ranges: list) -> Tuple[Dict[str, Dict[str, str]], Dict[str, str], Dict[str, str]]:
+        """Parsea la respuesta de batchGet de Sheets en (catalogos, mapeo_momento_1, mapeo_momento_4)."""
+        nuevos_catalogos: Dict[str, Dict[str, str]] = {}
+        m1_map: Dict[str, str] = {}
+        m4_map: Dict[str, str] = {}
+
+        for vr in value_ranges:
+            range_str = vr.get("range", "")
+            tab_title = range_str.split("!")[0].replace("'", "").strip()
+            rows = vr.get("values", [])[1:]
+
+            if tab_title.lower() == "mapeo_campos":
+                for row in rows:
+                    if len(row) >= 3 and row[0] and row[1] and row[2]:
+                        momento = str(row[0]).strip().upper()
+                        campo_sfc = str(row[1]).strip()
+                        campo_crm = str(row[2]).strip()
+
+                        if "MOMENTO_1" in momento or "M1" in momento:
+                            m1_map[campo_sfc] = campo_crm
+                        elif "MOMENTO_4" in momento or "M4" in momento:
+                            m4_map[campo_sfc] = campo_crm
+            else:
+                cat_key = tab_title.lower()
+                cat_dict = {}
+                for row in rows:
+                    if len(row) >= 2 and row[0] and row[1]:
+                        code = str(row[0]).strip()
+                        val = str(row[1]).strip()
+                        cat_dict[code] = val
+
+                if cat_dict:
+                    nuevos_catalogos[cat_key] = cat_dict
+
+        return nuevos_catalogos, m1_map, m4_map
+
+    @classmethod
+    async def _manejar_falla_sincronizacion_sheets(cls, e: Exception, ahora: float) -> None:
+        # 🟢 FIX P1-04: la antigüedad se calcula sobre ULTIMO_EXITO_TIMESTAMP (el
+        # último éxito real), no sobre ULTIMA_ACTUALIZACION (que se actualiza en
+        # cada intento, exitoso o no, para el backoff del fast-path). Antes ambos
+        # propósitos compartían la misma variable y la alerta de 24h nunca podía
+        # dispararse: cada fallo "rejuvenecía" la antigüedad reportada.
+        edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
+        edad_horas = edad_segundos / 3600.0
+
+        logger.warning(
+            f"⚠️ [SfcSalesforceMapper] Falló la sincronización con Google Sheets: {e}. "
+            f"Antigüedad de la caché en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
+        )
+
+        if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
+            logger.critical(
+                f"🚨 [SfcSalesforceMapper] ALERTA CRÍTICA: La caché de catálogos en RAM tiene {edad_horas:.1f}h "
+                f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
+            )
+            try:
+                from app.services.email_service import EmailAlertService
+                asyncio.create_task(
+                    EmailAlertService.notificar_catalogo_stale(
+                        nombre_componente="SfcSalesforceMapper (Catálogos)",
+                        edad_horas=edad_horas,
+                        error_msg=str(e)
+                    )
+                )
+            except Exception as alert_err:
+                logger.warning(f"No se pudo disparar la alerta por catálogo stale: {alert_err}")
+
+    @classmethod
+    async def _refrescar_catalogos_desde_sheets(
+        cls, http_client: Optional[httpx.AsyncClient], spreadsheet_id: str, ahora: float
+    ) -> bool:
+        """Intenta refrescar CATALOGOS/mapeos desde Google Sheets. Si retorna True, ya dejó todo el estado actualizado."""
+        try:
+            access_token = await cls._obtener_google_access_token(client=http_client)
+            if not access_token:
+                return False
+
+            headers = {"Authorization": f"Bearer {access_token}"}
+            url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
+
+            async def _fetch_sheets(client_to_use: httpx.AsyncClient):
+                res_meta = await client_to_use.get(url_meta, headers=headers)
+                if res_meta.status_code != 200:
+                    return None
+
+                sheet_titles = [
+                    s["properties"]["title"]
+                    for s in res_meta.json().get("sheets", [])
+                    if "properties" in s and "title" in s["properties"]
+                ]
+
+                params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
+                url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
+                return await client_to_use.get(url_batch, headers=headers, params=params)
+
+            if http_client is not None:
+                res_batch = await _fetch_sheets(http_client)
+            else:
+                async with httpx.AsyncClient(timeout=10.0) as local_client:
+                    res_batch = await _fetch_sheets(local_client)
+
+            if not res_batch or res_batch.status_code != 200:
+                return False
+
+            nuevos_catalogos, m1_map, m4_map = cls._parsear_value_ranges(res_batch.json().get("valueRanges", []))
+
+            if not nuevos_catalogos:
+                return False
+
+            cls.CATALOGOS = nuevos_catalogos
+            cls._construir_indices_inversos()
+            cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
+            cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
+            cls.ULTIMA_ACTUALIZACION = ahora
+            cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
+            logger.info(
+                f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
+                f"cargados desde pestañas de Google Sheets."
+            )
+            return True
+        except Exception as e:
+            await cls._manejar_falla_sincronizacion_sheets(e, ahora)
+            return False
+
     @classmethod
     async def obtener_catalogos_y_mapeos(cls, http_client: Optional[httpx.AsyncClient] = None) -> None:
         """
@@ -155,110 +285,8 @@ class SfcSalesforceMapper:
             spreadsheet_id = settings.GOOGLE_CATALOGS_SPREADSHEET_ID
 
             if spreadsheet_id:
-                try:
-                    access_token = await cls._obtener_google_access_token(client=http_client)
-
-                    if access_token:
-                        headers = {"Authorization": f"Bearer {access_token}"}
-                        url_meta = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title"
-                        
-                        async def _fetch_sheets(client_to_use: httpx.AsyncClient):
-                            res_meta = await client_to_use.get(url_meta, headers=headers)
-                            if res_meta.status_code != 200:
-                                return None
-                            
-                            sheet_titles = [
-                                s["properties"]["title"] 
-                                for s in res_meta.json().get("sheets", []) 
-                                if "properties" in s and "title" in s["properties"]
-                            ]
-
-                            params = [("ranges", f"'{title}'!A:C") for title in sheet_titles]
-                            url_batch = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
-                            return await client_to_use.get(url_batch, headers=headers, params=params)
-
-                        if http_client is not None:
-                            res_batch = await _fetch_sheets(http_client)
-                        else:
-                            async with httpx.AsyncClient(timeout=10.0) as local_client:
-                                res_batch = await _fetch_sheets(local_client)
-
-                        if res_batch and res_batch.status_code == 200:
-                            value_ranges = res_batch.json().get("valueRanges", [])
-                            
-                            nuevos_catalogos: Dict[str, Dict[str, str]] = {}
-                            m1_map, m4_map = {}, {}
-
-                            for vr in value_ranges:
-                                range_str = vr.get("range", "")
-                                tab_title = range_str.split("!")[0].replace("'", "").strip()
-                                rows = vr.get("values", [])[1:]
-
-                                if tab_title.lower() == "mapeo_campos":
-                                    for row in rows:
-                                        if len(row) >= 3 and row[0] and row[1] and row[2]:
-                                            momento = str(row[0]).strip().upper()
-                                            campo_sfc = str(row[1]).strip()
-                                            campo_crm = str(row[2]).strip()
-                                            
-                                            if "MOMENTO_1" in momento or "M1" in momento:
-                                                m1_map[campo_sfc] = campo_crm
-                                            elif "MOMENTO_4" in momento or "M4" in momento:
-                                                m4_map[campo_sfc] = campo_crm
-                                else:
-                                    cat_key = tab_title.lower()
-                                    cat_dict = {}
-                                    for row in rows:
-                                        if len(row) >= 2 and row[0] and row[1]:
-                                            code = str(row[0]).strip()
-                                            val = str(row[1]).strip()
-                                            cat_dict[code] = val
-                                            
-                                    if cat_dict:
-                                        nuevos_catalogos[cat_key] = cat_dict
-
-                            if nuevos_catalogos:
-                                cls.CATALOGOS = nuevos_catalogos
-                                cls._construir_indices_inversos()
-                                cls.MAPPING_MOMENTO_1_SFC_TO_CRM = m1_map or cls.DEFAULT_MAPPING_M1
-                                cls.MAPPING_MOMENTO_4_SFC_TO_CRM = m4_map or cls.DEFAULT_MAPPING_M4
-                                cls.ULTIMA_ACTUALIZACION = ahora
-                                cls.ULTIMO_EXITO_TIMESTAMP = ahora  # 🟢 FIX P1-04
-                                logger.info(
-                                    f"✅ [SfcSalesforceMapper] {len(nuevos_catalogos)} catálogos y mapeos "
-                                    f"cargados desde pestañas de Google Sheets."
-                                )
-                                return
-                except Exception as e:
-                    # 🟢 FIX P1-04: la antigüedad se calcula sobre ULTIMO_EXITO_TIMESTAMP (el
-                    # último éxito real), no sobre ULTIMA_ACTUALIZACION (que se actualiza en
-                    # cada intento, exitoso o no, para el backoff del fast-path). Antes ambos
-                    # propósitos compartían la misma variable y la alerta de 24h nunca podía
-                    # dispararse: cada fallo "rejuvenecía" la antigüedad reportada.
-                    edad_segundos = (ahora - cls.ULTIMO_EXITO_TIMESTAMP) if cls.ULTIMO_EXITO_TIMESTAMP > 0 else 0
-                    edad_horas = edad_segundos / 3600.0
-
-                    logger.warning(
-                        f"⚠️ [SfcSalesforceMapper] Falló la sincronización con Google Sheets: {e}. "
-                        f"Antigüedad de la caché en RAM: {edad_horas:.1f} horas ({int(edad_segundos)}s)."
-                    )
-
-                    if cls.ULTIMO_EXITO_TIMESTAMP > 0 and edad_segundos > cls.MAX_STALE_TTL_SEGUNDOS:
-                        logger.critical(
-                            f"🚨 [SfcSalesforceMapper] ALERTA CRÍTICA: La caché de catálogos en RAM tiene {edad_horas:.1f}h "
-                            f"de antigüedad (supera el umbral máximo de {cls.MAX_STALE_TTL_SEGUNDOS // 3600}h)."
-                        )
-                        try:
-                            from app.services.email_service import EmailAlertService
-                            asyncio.create_task(
-                                EmailAlertService.notificar_catalogo_stale(
-                                    nombre_componente="SfcSalesforceMapper (Catálogos)",
-                                    edad_horas=edad_horas,
-                                    error_msg=str(e)
-                                )
-                            )
-                        except Exception as alert_err:
-                            logger.warning(f"No se pudo disparar la alerta por catálogo stale: {alert_err}")
+                if await cls._refrescar_catalogos_desde_sheets(http_client, spreadsheet_id, ahora):
+                    return
             else:
                 logger.info("ℹ️ [SfcSalesforceMapper] GOOGLE_CATALOGS_SPREADSHEET_ID no está configurado. Usando respaldo local.")
 
@@ -360,24 +388,25 @@ class SfcSalesforceMapper:
         return allowed
 
     @classmethod
-    def _get_sf_field_value(cls, entity: Any, field_name: str) -> Any:
-        if isinstance(entity, dict):
-            if field_name in ("Smart_Code__c", "codigo_queja"):
-                for k in ("Smart_Code__c", "codigo_queja", "Case_id", "case_id"):
-                    if k in entity and entity[k] is not None:
-                        return entity[k]
+    def _get_sf_field_value_from_dict(cls, entity: Dict[str, Any], field_name: str) -> Any:
+        if field_name in ("Smart_Code__c", "codigo_queja"):
+            for k in ("Smart_Code__c", "codigo_queja", "Case_id", "case_id"):
+                if k in entity and entity[k] is not None:
+                    return entity[k]
 
-            if field_name in ("Status", "status", "estado_cod"):
-                for k in ("Status", "status", "Estado__c", "estado", "estado_cod"):
-                    if k in entity and entity[k] is not None:
-                        return entity[k]
+        if field_name in ("Status", "status", "estado_cod"):
+            for k in ("Status", "status", "Estado__c", "estado", "estado_cod"):
+                if k in entity and entity[k] is not None:
+                    return entity[k]
 
-            if field_name in entity and entity[field_name] is not None:
-                return entity[field_name]
+        if field_name in entity and entity[field_name] is not None:
+            return entity[field_name]
 
-            lower_map = {str(k).lower(): v for k, v in entity.items() if v is not None}
-            return lower_map.get(field_name.lower())
+        lower_map = {str(k).lower(): v for k, v in entity.items() if v is not None}
+        return lower_map.get(field_name.lower())
 
+    @classmethod
+    def _get_sf_field_value_from_object(cls, entity: Any, field_name: str) -> Any:
         if field_name in ("Smart_Code__c", "codigo_queja"):
             for attr in ("Smart_Code__c", "codigo_queja", "Case_id", "CaseNumber", "case_id"):
                 if hasattr(entity, attr) and getattr(entity, attr) is not None:
@@ -394,27 +423,24 @@ class SfcSalesforceMapper:
         return None
 
     @classmethod
+    def _get_sf_field_value(cls, entity: Any, field_name: str) -> Any:
+        if isinstance(entity, dict):
+            return cls._get_sf_field_value_from_dict(entity, field_name)
+        return cls._get_sf_field_value_from_object(entity, field_name)
+
+    @classmethod
     def _strip_html(cls, text: str) -> str:
         if not text:
             return ""
         return cls.HTML_REGEX.sub('', str(text)).strip()
 
     @classmethod
-    def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
-        if sfc_value is None: 
-            return None
-        
-        str_key = str(sfc_value).strip()
-        if not str_key:
-            return None
-        
-        if sfc_key == "codigo_pais":
-            cat_paises = cls.CATALOGOS.get("codigo_pais", {})
-            if str_key in cat_paises:
-                return cat_paises[str_key]
-            logger.warning(f"⚠️ [Mapping M1] Código de país no mapeado recibido de SFC: '{str_key}'")
-            return str_key
-        
+    def _traducir_via_catalogo_crm(cls, sfc_key: str, str_key: str) -> Any:
+        """
+        Resuelve sfc_key contra CATALOGOS por mapeo directo de llave (con offset especial
+        para macro_motivo). Retorna _NO_MATCH si sfc_key no pertenece a este grupo (ver
+        _translate_value_to_crm para el resto de campos).
+        """
         key_to_cat = {
             "sexo": "genero",
             "tipo_id_CF": "tipo_id",
@@ -437,20 +463,42 @@ class SfcSalesforceMapper:
             "Categorias_COL__c": "macro_motivo"
         }
 
-        if sfc_key in key_to_cat:
-            cat_key = key_to_cat[sfc_key]
-            cat_dict = cls.CATALOGOS.get(cat_key, {})
+        if sfc_key not in key_to_cat:
+            return _NO_MATCH
 
-            if str_key in cat_dict:
-                return cat_dict[str_key]
+        cat_key = key_to_cat[sfc_key]
+        cat_dict = cls.CATALOGOS.get(cat_key, {})
 
-            if cat_key == "macro_motivo" and str_key.isdigit():
-                offset_key = str(int(str_key) + 900)
-                if offset_key in cat_dict:
-                    return cat_dict[offset_key]
+        if str_key in cat_dict:
+            return cat_dict[str_key]
 
-            logger.warning(f"⚠️ [Mapping M1] Código no reconocido en catálogo '{cat_key}' para la llave '{sfc_key}': '{str_key}'")
+        if cat_key == "macro_motivo" and str_key.isdigit():
+            offset_key = str(int(str_key) + 900)
+            if offset_key in cat_dict:
+                return cat_dict[offset_key]
+
+        logger.warning(f"⚠️ [Mapping M1] Código no reconocido en catálogo '{cat_key}' para la llave '{sfc_key}': '{str_key}'")
+        return str_key
+
+    @classmethod
+    def _translate_value_to_crm(cls, sfc_key: str, sfc_value: Any) -> Any:
+        if sfc_value is None:
+            return None
+
+        str_key = str(sfc_value).strip()
+        if not str_key:
+            return None
+
+        if sfc_key == "codigo_pais":
+            cat_paises = cls.CATALOGOS.get("codigo_pais", {})
+            if str_key in cat_paises:
+                return cat_paises[str_key]
+            logger.warning(f"⚠️ [Mapping M1] Código de país no mapeado recibido de SFC: '{str_key}'")
             return str_key
+
+        resultado_catalogo = cls._traducir_via_catalogo_crm(sfc_key, str_key)
+        if resultado_catalogo is not _NO_MATCH:
+            return resultado_catalogo
 
         if sfc_key in ("departamento_cod", "Departamento__c"):
             return cls.DEPT_DIVIPOLA_INV.get(str_key, str(sfc_value))
@@ -490,10 +538,11 @@ class SfcSalesforceMapper:
 
 
     @classmethod
-    def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
-        if sf_value is None: 
-            return None
-        
+    def _traducir_valor_especial_a_sfc(cls, sf_key: str, sf_value: Any) -> Any:
+        """
+        Casos de _translate_value_to_sfc que no siguen el patrón normalize+catálogo (booleanos
+        de texto, constantes). Retorna _NO_MATCH si sf_key no pertenece a este grupo.
+        """
         if sf_key == "codigo_pais__c":
             normalized_country = cls._normalize_text(str(sf_value))
             cat_inverse_pais = cls.INVERSE_CATALOGS.get("codigo_pais", {})
@@ -512,8 +561,15 @@ class SfcSalesforceMapper:
         if sf_key == "Product__c":
             return 207
 
-        normalized = cls._normalize_text(str(sf_value))
+        return _NO_MATCH
 
+    @classmethod
+    def _traducir_via_catalogo_sfc(cls, sf_key: str, sf_value: Any, normalized: str) -> Any:
+        """
+        Resuelve sf_key contra INVERSE_CATALOGS/DIVIPOLA (hard-fail o soft-fail según el campo).
+        Retorna _NO_MATCH si sf_key no pertenece a ninguno de estos catálogos (ver
+        _translate_value_to_sfc para el resto de campos).
+        """
         # Campos regulatorios sin una capa de default explícita aguas abajo: un valor no
         # reconocido en el catálogo rechaza el caso (HALLAZGO 23) en vez de inventar un dato.
         sf_to_cat = {
@@ -571,10 +627,27 @@ class SfcSalesforceMapper:
         if sf_key == "SC_municipio__c":
             return cls._lookup_or_fail(cls.MUNI_DIVIPOLA, normalized, sf_key, sf_value, "DIVIPOLA municipio")
 
+        return _NO_MATCH
+
+    @classmethod
+    def _translate_value_to_sfc(cls, sf_key: str, sf_value: Any) -> Any:
+        if sf_value is None:
+            return None
+
+        resultado_especial = cls._traducir_valor_especial_a_sfc(sf_key, sf_value)
+        if resultado_especial is not _NO_MATCH:
+            return resultado_especial
+
+        normalized = cls._normalize_text(str(sf_value))
+
+        resultado_catalogo = cls._traducir_via_catalogo_sfc(sf_key, sf_value, normalized)
+        if resultado_catalogo is not _NO_MATCH:
+            return resultado_catalogo
+
         if sf_key == "Status":
             status_map = {
-                "new": 1, "nuevo": 1, 
-                "in progress": 2, "en progreso": 2, "stand by": 2, "espera": 2, 
+                "new": 1, "nuevo": 1,
+                "in progress": 2, "en progreso": 2, "stand by": 2, "espera": 2,
                 "closed": 4, "cerrado": 4, "resolved": 4, "resuelto": 4
             }
             return status_map.get(normalized, 2)
@@ -587,7 +660,7 @@ class SfcSalesforceMapper:
 
         if sf_key in ("id_number__c", "SuppliedPhone"):
             return cls.CLEAN_PHONE_DOC_REGEX.sub('', str(sf_value))[:15]
-        
+
         if sf_key == "Prorroga__c":
             return int(sf_value)
 

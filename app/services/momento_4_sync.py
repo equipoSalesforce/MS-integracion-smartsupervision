@@ -1,8 +1,7 @@
 # app/services/momento_4_sync.py
-import asyncio
 import logging
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from app.integrations.sfc_client import SfcClient
 from app.core.mapping import SfcSalesforceMapper
@@ -16,9 +15,78 @@ class UserSync:
     def __init__(self, sfc_client: SfcClient):
         self.sfc_client = sfc_client
 
+    async def _verificar_limite_paginacion(self, pagina_actual: int, inicio: float, usuarios_acumulados: int) -> bool:
+        """
+        🟢 FIX P1-12: cota de páginas/tiempo, mismo riesgo que en Momento 1 (enlace
+        'next' de la SFC sin fin). Retorna True si el ciclo de paginación debe cortarse.
+        """
+        if pagina_actual <= settings.SFC_SYNC_MAX_PAGINAS and (time.monotonic() - inicio) <= settings.SFC_SYNC_MAX_SEGUNDOS:
+            return False
+
+        logger.critical(
+            f"🔥 [Momento 4] Ciclo de paginación cortado tras {pagina_actual - 1} página(s) "
+            f"({usuarios_acumulados} usuarios acumulados): se alcanzó el límite de "
+            f"páginas/tiempo configurado. Posible enlace 'next' inválido o backlog anómalo en la SFC."
+        )
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code="SYNC_M4_PAGINACION",
+            error_msg=(
+                f"Ciclo de paginación M4 cortado tras {pagina_actual - 1} página(s) "
+                f"({usuarios_acumulados} usuarios acumulados) por exceder el límite de "
+                f"páginas/tiempo configurado."
+            )
+        )
+        return True
+
+    @staticmethod
+    def _extraer_lista_usuarios(response_data: Any) -> list:
+        if isinstance(response_data, dict):
+            lista_usuarios = response_data.get("results", [])
+            if not lista_usuarios and "numero_id_CF" in response_data:
+                lista_usuarios = [response_data]
+            return lista_usuarios
+        if isinstance(response_data, list):
+            return response_data
+        return []
+
+    def _procesar_usuario_sfc(
+        self,
+        usuario_sfc: Any,
+        num_id: str,
+        vistos_ids: set,
+        usuarios_finales_crm: List[Dict[str, Any]],
+        failed_items: List[Dict[str, Any]],
+    ) -> None:
+        try:
+            if not isinstance(usuario_sfc, dict):
+                raise ValueError("El registro de usuario recibido de la SFC no es un diccionario válido.")
+
+            # 🟢 FIX HALLAZGO 50: Deduplicación explícita de usuarios en lote por numero_id_CF
+            if num_id != "DESCONOCIDO" and num_id in vistos_ids:
+                logger.info(f"ℹ️ [Momento 4] Registro duplicado del usuario '{num_id}' omitido.")
+                return
+
+            usuario_traducido = SfcSalesforceMapper.sfc_user_payload_to_db_dict(usuario_sfc)
+            if not usuario_traducido or "id_number__c" not in usuario_traducido:
+                raise ValueError(f"Fallo en el mapeo de campos o 'id_number__c' ausente para el usuario {num_id}.")
+
+            if num_id != "DESCONOCIDO":
+                vistos_ids.add(num_id)
+
+            usuarios_finales_crm.append(usuario_traducido)
+
+        except Exception as err_map:
+            err_msg = str(err_map)
+            logger.error(f"❌ [Momento 4] Error mapeando usuario '{num_id}': {err_msg}")
+            failed_items.append({
+                "numero_id_CF": num_id,
+                "raw_payload": usuario_sfc,
+                "error": err_msg
+            })
+
     async def sincronizar_usuarios(self) -> Dict[str, Any]:
         """
-        Orquesta de forma síncrona en memoria la descarga y traducción de la 
+        Orquesta de forma síncrona en memoria la descarga y traducción de la
         información actualizada de consumidores financieros (Momento 4).
         Deduplica usuarios por numero_id_CF y reporta errores parciales en failed_items.
         """
@@ -29,42 +97,19 @@ class UserSync:
         vistos_ids = set()
         total_procesados = 0
         url_actual = None
-        # 🟢 FIX P1-12: cota de páginas/tiempo, mismo riesgo que en Momento 1 (enlace
-        # 'next' de la SFC sin fin).
         pagina_actual = 0
         inicio = time.monotonic()
         paginacion_incompleta = False
 
         while True:
             pagina_actual += 1
-            if pagina_actual > settings.SFC_SYNC_MAX_PAGINAS or (time.monotonic() - inicio) > settings.SFC_SYNC_MAX_SEGUNDOS:
-                logger.critical(
-                    f"🔥 [Momento 4] Ciclo de paginación cortado tras {pagina_actual - 1} página(s) "
-                    f"({len(usuarios_finales_crm)} usuarios acumulados): se alcanzó el límite de "
-                    f"páginas/tiempo configurado. Posible enlace 'next' inválido o backlog anómalo en la SFC."
-                )
-                await EmailAlertService.notificar_falla_infraestructura(
-                    smart_code="SYNC_M4_PAGINACION",
-                    error_msg=(
-                        f"Ciclo de paginación M4 cortado tras {pagina_actual - 1} página(s) "
-                        f"({len(usuarios_finales_crm)} usuarios acumulados) por exceder el límite de "
-                        f"páginas/tiempo configurado."
-                    )
-                )
+            if await self._verificar_limite_paginacion(pagina_actual, inicio, len(usuarios_finales_crm)):
                 paginacion_incompleta = True
                 break
 
             respuesta = await self.sfc_client.fetch_usuarios_pagina(url=url_actual)
             response_data = respuesta.get("Response") if "Response" in respuesta else respuesta
-
-            if isinstance(response_data, dict):
-                lista_usuarios = response_data.get("results", [])
-                if not lista_usuarios and "numero_id_CF" in response_data:
-                    lista_usuarios = [response_data]
-            elif isinstance(response_data, list):
-                lista_usuarios = response_data
-            else:
-                lista_usuarios = []
+            lista_usuarios = self._extraer_lista_usuarios(response_data)
 
             if not lista_usuarios:
                 break
@@ -75,38 +120,9 @@ class UserSync:
                 if isinstance(usuario_sfc, dict):
                     num_id = str(usuario_sfc.get("numero_id_CF") or usuario_sfc.get("numero_id") or "DESCONOCIDO").strip()
 
-                try:
-                    if not isinstance(usuario_sfc, dict):
-                        raise ValueError("El registro de usuario recibido de la SFC no es un diccionario válido.")
+                self._procesar_usuario_sfc(usuario_sfc, num_id, vistos_ids, usuarios_finales_crm, failed_items)
 
-                    # 🟢 FIX HALLAZGO 50: Deduplicación explícita de usuarios en lote por numero_id_CF
-                    if num_id != "DESCONOCIDO" and num_id in vistos_ids:
-                        logger.info(f"ℹ️ [Momento 4] Registro duplicado del usuario '{num_id}' omitido.")
-                        continue
-
-                    usuario_traducido = SfcSalesforceMapper.sfc_user_payload_to_db_dict(usuario_sfc)
-                    if not usuario_traducido or "id_number__c" not in usuario_traducido:
-                        raise ValueError(f"Fallo en el mapeo de campos o 'id_number__c' ausente para el usuario {num_id}.")
-
-                    if num_id != "DESCONOCIDO":
-                        vistos_ids.add(num_id)
-
-                    usuarios_finales_crm.append(usuario_traducido)
-
-                except Exception as err_map:
-                    err_msg = str(err_map)
-                    logger.error(f"❌ [Momento 4] Error mapeando usuario '{num_id}': {err_msg}")
-                    failed_items.append({
-                        "numero_id_CF": num_id,
-                        "raw_payload": usuario_sfc,
-                        "error": err_msg
-                    })
-
-            if isinstance(response_data, dict):
-                url_actual = response_data.get("next")
-            else:
-                url_actual = None
-
+            url_actual = response_data.get("next") if isinstance(response_data, dict) else None
             if not url_actual:
                 break
 

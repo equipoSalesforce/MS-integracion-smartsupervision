@@ -4,10 +4,9 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Tuple, Optional, Dict, Any, Set
+from typing import Any, Tuple, Optional, Set
 from zoneinfo import ZoneInfo
 
-from app.core.config import settings
 from app.core.constants import SmartStatus
 from app.services.email_service import EmailAlertService
 
@@ -214,6 +213,185 @@ class IdempotencyService:
         key = self._get_idempotency_key(smart_code, operation, payload_hash)
         return IdempotencyProcessingHeartbeat(redis_client=self.redis, key=key, payload_hash=payload_hash)
 
+    async def _fail_closed_redis_no_disponible(
+        self, smart_code: str, operation: str, fail_closed: bool
+    ) -> Tuple[bool, Optional[dict]]:
+        """🚨 FAIL-CLOSED 1: Cliente de Redis en None / No Inicializado."""
+        if not fail_closed:
+            return False, None
+
+        logger.critical(
+            f"🚨 [Fail-Closed] Redis no disponible al verificar idempotencia para {smart_code}. "
+            f"Bloqueando transmisión mutativa a la SFC."
+        )
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code=smart_code,
+            error_msg="Fail-Closed: Servidor de Idempotencia (Redis) no disponible/incalcanzable."
+        )
+        return True, {
+            "status": "redis_unavailable",
+            "status_code": 503,
+            "is_idempotent_hit": False,
+            "smart_code": smart_code,
+            "operation": operation,
+            "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
+            "message": "El servicio de validación de idempotencia no está disponible. La operación fue bloqueada (Fail-Closed) para prevenir duplicaciones en la SFC."
+        }
+
+    async def _manejar_fallo_redis_idempotencia(
+        self, e: Exception, smart_code: str, operation: str, fail_closed: bool
+    ) -> Tuple[bool, Optional[dict]]:
+        """🚨 FAIL-CLOSED 2: Excepción de Socket / Timeout / Caída de Redis durante la ejecución."""
+        logger.critical(f"🚨 [Fail-Closed] Excepción al consultar Idempotency Store en Redis para {smart_code}: {e}")
+        if not fail_closed:
+            return False, None
+
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code=smart_code,
+            error_msg=f"Fail-Closed: Error consultando almacén de idempotencia (Redis): {str(e)}"
+        )
+        return True, {
+            "status": "redis_unavailable",
+            "status_code": 503,
+            "is_idempotent_hit": False,
+            "smart_code": smart_code,
+            "operation": operation,
+            "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
+            "message": "Error al consultar el almacén de idempotencia. Operación bloqueada (Fail-Closed) para prevenir duplicaciones en la SFC."
+        }
+
+    async def _evaluar_registro_existente(
+        self, raw_record: Any, key: str, payload_hash: str, smart_code: str, operation: str
+    ) -> Optional[Tuple[bool, Optional[dict]]]:
+        """
+        Evalúa un registro de idempotencia ya existente en Redis. Retorna el resultado a
+        devolver inmediatamente, o None si se debe continuar como si no existiera (hash
+        distinto al del payload actual, o un registro QUEUED huérfano ya liberado).
+        """
+        if not (raw_record and isinstance(raw_record, (str, bytes))):
+            return None
+
+        record = json.loads(raw_record)
+        op_status = record.get("status")
+        rec_hash = record.get("payload_hash")
+
+        if rec_hash != payload_hash:
+            return None
+
+        if op_status == "COMPLETED":
+            logger.info(
+                f"🎯 [Idempotency Store] Hit exitoso previo para {smart_code} "
+                f"({operation} | Hash: {payload_hash[:8]}). Retornando respuesta almacenada."
+            )
+            return True, {
+                "status": "success",
+                "is_idempotent_hit": True,
+                "smart_code": smart_code,
+                "operation": operation,
+                "payload_hash": payload_hash,
+                "message": "Operación ya procesada exitosamente con anterioridad para este mismo payload.",
+                "sfc_response": record.get("sfc_response")
+            }
+
+        if op_status == "PROCESSING":
+            logger.warning(
+                f"⏳ [Idempotency Store] La operación '{operation}' para {smart_code} "
+                f"(Hash: {payload_hash[:8]}) ya está en proceso."
+            )
+            return True, {
+                "status": "processing",
+                "is_idempotent_hit": True,
+                "smart_code": smart_code,
+                "operation": operation,
+                "payload_hash": payload_hash,
+                "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
+            }
+
+        if op_status == "QUEUED":
+            # 🟢 FIX P0-12: antes de reportar "ya encolado", verificar que el item
+            # de cola referenciado siga existiendo, pendiente, y con ESTE mismo
+            # payload. Si otro evento del mismo smart_code lo sobrescribió (ver
+            # ENQUEUE_LUA_SCRIPT), este registro quedó huérfano: liberarlo y dejar
+            # que la operación se procese como nueva, en vez de mentir que sigue
+            # encolada cuando en realidad nunca se procesará en esta forma.
+            sigue_vigente = await self._item_de_cola_sigue_vigente(
+                record.get("queue_item_id"), payload_hash
+            )
+
+            if sigue_vigente:
+                logger.info(
+                    f"📦 [Idempotency Store] La operación '{operation}' para {smart_code} "
+                    f"(Hash: {payload_hash[:8]}) ya está encolada."
+                )
+                return True, {
+                    "status": "already_queued",
+                    "is_idempotent_hit": True,
+                    "smart_code": smart_code,
+                    "operation": operation,
+                    "payload_hash": payload_hash,
+                    "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
+                }
+
+            logger.warning(
+                f"⚠️ [Idempotency Store] Registro QUEUED huérfano para {smart_code} "
+                f"({operation} | Hash: {payload_hash[:8]}): el item de cola "
+                f"{record.get('queue_item_id')} ya no contiene este payload. Liberando "
+                f"y procesando como una operación nueva."
+            )
+            try:
+                await self.redis.delete(key)
+            except Exception as del_err:
+                logger.warning(f"No se pudo liberar el registro QUEUED huérfano para {smart_code}: {del_err}")
+            # No retorna: cae hacia abajo para iniciar como PROCESSING nuevo.
+
+        return None
+
+    async def _iniciar_registro_processing(
+        self, key: str, source: str, smart_code: str, operation: str, payload_hash: str, now_iso: str
+    ) -> Tuple[bool, Optional[dict]]:
+        initial_record = {
+            "source": source,
+            "smart_code": smart_code,
+            "operation": operation,
+            "payload_hash": payload_hash,
+            "status": "PROCESSING",
+            "created_at": now_iso,
+            "completed_at": None,
+            "sfc_response": None
+        }
+
+        set_success = await self.redis.set(
+            key,
+            json.dumps(initial_record, ensure_ascii=False),
+            px=180000,
+            nx=True
+        )
+
+        if set_success:
+            return False, None
+
+        check_record = await self.redis.get(key)
+        if check_record:
+            rec_json = json.loads(check_record)
+            if rec_json.get("status") == "COMPLETED" and rec_json.get("payload_hash") == payload_hash:
+                return True, {
+                    "status": "success",
+                    "is_idempotent_hit": True,
+                    "smart_code": smart_code,
+                    "operation": operation,
+                    "payload_hash": payload_hash,
+                    "sfc_response": rec_json.get("sfc_response")
+                }
+
+        return True, {
+            "status": "processing",
+            "is_idempotent_hit": True,
+            "smart_code": smart_code,
+            "operation": operation,
+            "payload_hash": payload_hash,
+            "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
+        }
+
     async def verificar_o_iniciar_operacion(
         self,
         smart_code: str,
@@ -223,28 +401,9 @@ class IdempotencyService:
     ) -> Tuple[bool, Optional[dict]]:
         operation = self.infer_operation_type(payload_dict)
         payload_hash = self.compute_payload_hash(payload_dict)
-        
-        # 🚨 FAIL-CLOSED 1: Cliente de Redis en None / No Inicializado
+
         if not self.redis:
-            if fail_closed:
-                logger.critical(
-                    f"🚨 [Fail-Closed] Redis no disponible al verificar idempotencia para {smart_code}. "
-                    f"Bloqueando transmisión mutativa a la SFC."
-                )
-                await EmailAlertService.notificar_falla_infraestructura(
-                    smart_code=smart_code,
-                    error_msg="Fail-Closed: Servidor de Idempotencia (Redis) no disponible/incalcanzable."
-                )
-                return True, {
-                    "status": "redis_unavailable",
-                    "status_code": 503,
-                    "is_idempotent_hit": False,
-                    "smart_code": smart_code,
-                    "operation": operation,
-                    "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
-                    "message": "El servicio de validación de idempotencia no está disponible. La operación fue bloqueada (Fail-Closed) para prevenir duplicaciones en la SFC."
-                }
-            return False, None
+            return await self._fail_closed_redis_no_disponible(smart_code, operation, fail_closed)
 
         key = self._get_idempotency_key(smart_code, operation, payload_hash)
         now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
@@ -252,139 +411,14 @@ class IdempotencyService:
         try:
             raw_record = await self.redis.get(key)
 
-            if raw_record and isinstance(raw_record, (str, bytes)):
-                record = json.loads(raw_record)
-                op_status = record.get("status")
-                rec_hash = record.get("payload_hash")
+            resultado_existente = await self._evaluar_registro_existente(raw_record, key, payload_hash, smart_code, operation)
+            if resultado_existente is not None:
+                return resultado_existente
 
-                if rec_hash == payload_hash:
-                    if op_status == "COMPLETED":
-                        logger.info(
-                            f"🎯 [Idempotency Store] Hit exitoso previo para {smart_code} "
-                            f"({operation} | Hash: {payload_hash[:8]}). Retornando respuesta almacenada."
-                        )
-                        return True, {
-                            "status": "success",
-                            "is_idempotent_hit": True,
-                            "smart_code": smart_code,
-                            "operation": operation,
-                            "payload_hash": payload_hash,
-                            "message": "Operación ya procesada exitosamente con anterioridad para este mismo payload.",
-                            "sfc_response": record.get("sfc_response")
-                        }
+            return await self._iniciar_registro_processing(key, source, smart_code, operation, payload_hash, now_iso)
 
-                    if op_status == "PROCESSING":
-                        logger.warning(
-                            f"⏳ [Idempotency Store] La operación '{operation}' para {smart_code} "
-                            f"(Hash: {payload_hash[:8]}) ya está en proceso."
-                        )
-                        return True, {
-                            "status": "processing",
-                            "is_idempotent_hit": True,
-                            "smart_code": smart_code,
-                            "operation": operation,
-                            "payload_hash": payload_hash,
-                            "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
-                        }
-
-                    if op_status == "QUEUED":
-                        # 🟢 FIX P0-12: antes de reportar "ya encolado", verificar que el item
-                        # de cola referenciado siga existiendo, pendiente, y con ESTE mismo
-                        # payload. Si otro evento del mismo smart_code lo sobrescribió (ver
-                        # ENQUEUE_LUA_SCRIPT), este registro quedó huérfano: liberarlo y dejar
-                        # que la operación se procese como nueva, en vez de mentir que sigue
-                        # encolada cuando en realidad nunca se procesará en esta forma.
-                        sigue_vigente = await self._item_de_cola_sigue_vigente(
-                            record.get("queue_item_id"), payload_hash
-                        )
-
-                        if sigue_vigente:
-                            logger.info(
-                                f"📦 [Idempotency Store] La operación '{operation}' para {smart_code} "
-                                f"(Hash: {payload_hash[:8]}) ya está encolada."
-                            )
-                            return True, {
-                                "status": "already_queued",
-                                "is_idempotent_hit": True,
-                                "smart_code": smart_code,
-                                "operation": operation,
-                                "payload_hash": payload_hash,
-                                "message": f"El caso {smart_code} ya se encuentra encolado en la cola de contingencia."
-                            }
-
-                        logger.warning(
-                            f"⚠️ [Idempotency Store] Registro QUEUED huérfano para {smart_code} "
-                            f"({operation} | Hash: {payload_hash[:8]}): el item de cola "
-                            f"{record.get('queue_item_id')} ya no contiene este payload. Liberando "
-                            f"y procesando como una operación nueva."
-                        )
-                        try:
-                            await self.redis.delete(key)
-                        except Exception as del_err:
-                            logger.warning(f"No se pudo liberar el registro QUEUED huérfano para {smart_code}: {del_err}")
-                        # No retorna: cae hacia abajo para iniciar como PROCESSING nuevo.
-
-            initial_record = {
-                "source": source,
-                "smart_code": smart_code,
-                "operation": operation,
-                "payload_hash": payload_hash,
-                "status": "PROCESSING",
-                "created_at": now_iso,
-                "completed_at": None,
-                "sfc_response": None
-            }
-
-            set_success = await self.redis.set(
-                key, 
-                json.dumps(initial_record, ensure_ascii=False), 
-                px=180000, 
-                nx=True
-            )
-
-            if not set_success:
-                check_record = await self.redis.get(key)
-                if check_record:
-                    rec_json = json.loads(check_record)
-                    if rec_json.get("status") == "COMPLETED" and rec_json.get("payload_hash") == payload_hash:
-                        return True, {
-                            "status": "success",
-                            "is_idempotent_hit": True,
-                            "smart_code": smart_code,
-                            "operation": operation,
-                            "payload_hash": payload_hash,
-                            "sfc_response": rec_json.get("sfc_response")
-                        }
-
-                return True, {
-                    "status": "processing",
-                    "is_idempotent_hit": True,
-                    "smart_code": smart_code,
-                    "operation": operation,
-                    "payload_hash": payload_hash,
-                    "message": f"La operación '{operation}' para el caso {smart_code} ya está siendo procesada."
-                }
-
-            return False, None
-
-        # 🚨 FAIL-CLOSED 2: Excepción de Socket / Timeout / Caída de Redis durante la ejecución
         except Exception as e:
-            logger.critical(f"🚨 [Fail-Closed] Excepción al consultar Idempotency Store en Redis para {smart_code}: {e}")
-            if fail_closed:
-                await EmailAlertService.notificar_falla_infraestructura(
-                    smart_code=smart_code,
-                    error_msg=f"Fail-Closed: Error consultando almacén de idempotencia (Redis): {str(e)}"
-                )
-                return True, {
-                    "status": "redis_unavailable",
-                    "status_code": 503,
-                    "is_idempotent_hit": False,
-                    "smart_code": smart_code,
-                    "operation": operation,
-                    "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
-                    "message": "Error al consultar el almacén de idempotencia. Operación bloqueada (Fail-Closed) para prevenir duplicaciones en la SFC."
-                }
-            return False, None
+            return await self._manejar_fallo_redis_idempotencia(e, smart_code, operation, fail_closed)
 
     async def registrar_exito(
         self,

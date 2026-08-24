@@ -3,7 +3,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, AsyncGenerator
+from typing import Optional, Dict, Any, AsyncGenerator, Tuple
 
 import httpx
 import jwt
@@ -332,6 +332,48 @@ class SfcAuthManager(httpx.Auth):
     # ======================================================================
     # 🟢 INTERCEPTOR DE FLUJO ASÍNCRONO DE AUTENTICACIÓN (REFACTORIZADO)
     # ======================================================================
+    async def _preparar_headers_y_firma(self, request: httpx.Request, path: str) -> Tuple[str, Any, bool]:
+        """
+        Fija content-type e is_file_upload, y calcula X-SFC-Signature si no viene ya provista.
+        Retorna (endpoint_for_sig, payload, is_file_upload) para reutilizar en el reintento post-401.
+        """
+        content_type = request.headers.get("content-type", "")
+        if request.method in ("POST", "PUT", "PATCH") and "multipart/form-data" not in content_type:
+            request.headers["content-type"] = "application/json"
+
+        endpoint_for_sig = path
+        payload = None
+        # 🟢 FIX HALLAZGO 19: Detección única de archivo/multipart, reutilizada también en el
+        # reintento post-401 más abajo. Los campos a firmar viajan en `request.extensions`
+        # (ver SfcClient.post_adjunto_queja), evitando tener que re-parsear el body multipart.
+        is_file_upload = "multipart/form-data" in content_type or "api/storage" in path
+
+        if "X-SFC-Signature" in request.headers:
+            return endpoint_for_sig, payload, is_file_upload
+
+        if request.method == "GET":
+            endpoint_for_sig = str(request.url)
+            payload = None
+        elif is_file_upload:
+            endpoint_for_sig = path
+            payload = request.extensions.get("sfc_signature_fields")
+        else:
+            endpoint_for_sig = path
+            payload = None
+
+            try:
+                if hasattr(request, "content") and request.content:
+                    payload = json.loads(request.content.decode("utf-8"))
+            except Exception:
+                payload = None
+
+        signature = self.signature_context.get_signature(
+            request.method, endpoint_for_sig, payload, is_file_upload=is_file_upload
+        )
+        request.headers["X-SFC-Signature"] = signature
+
+        return endpoint_for_sig, payload, is_file_upload
+
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         path = request.url.path
 
@@ -347,38 +389,7 @@ class SfcAuthManager(httpx.Auth):
         if "accept-language" not in request.headers:
             request.headers["accept-language"] = "es"
 
-        content_type = request.headers.get("content-type", "")
-        if request.method in ("POST", "PUT", "PATCH") and "multipart/form-data" not in content_type:
-            request.headers["content-type"] = "application/json"
-
-        endpoint_for_sig = path
-        payload = None
-        # 🟢 FIX HALLAZGO 19: Detección única de archivo/multipart, reutilizada también en el
-        # reintento post-401 más abajo. Los campos a firmar viajan en `request.extensions`
-        # (ver SfcClient.post_adjunto_queja), evitando tener que re-parsear el body multipart.
-        is_file_upload = "multipart/form-data" in content_type or "api/storage" in path
-
-        if "X-SFC-Signature" not in request.headers:
-            if request.method == "GET":
-                endpoint_for_sig = str(request.url)
-                payload = None
-            elif is_file_upload:
-                endpoint_for_sig = path
-                payload = request.extensions.get("sfc_signature_fields")
-            else:
-                endpoint_for_sig = path
-                payload = None
-
-                try:
-                    if hasattr(request, "content") and request.content:
-                        payload = json.loads(request.content.decode("utf-8"))
-                except Exception:
-                    payload = None
-
-            signature = self.signature_context.get_signature(
-                request.method, endpoint_for_sig, payload, is_file_upload=is_file_upload
-            )
-            request.headers["X-SFC-Signature"] = signature
+        endpoint_for_sig, payload, is_file_upload = await self._preparar_headers_y_firma(request, path)
 
         response = yield request
 

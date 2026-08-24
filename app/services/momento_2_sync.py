@@ -1,6 +1,6 @@
 # app/services/momento_2_sync.py
 import logging
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, List, Union, Optional, Tuple
 import httpx
 
 from app.integrations.sfc_client import SfcClient
@@ -47,10 +47,10 @@ class Momento2SincronizacionService:
             http_client=getattr(sfc_client, "client", None)
         )
 
-    async def ejecutar_envio_momento_2(
-        self, 
+    @staticmethod
+    def _extraer_datos_payload_m2(
         payload: Union[QuejaUnificadaCrmInput, Momento2QuejaCrmInput, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], Optional[str], Optional[str], List[Any]]:
         if isinstance(payload, dict):
             crm_dict = payload
             smart_code = payload.get("Smart_Code__c")
@@ -61,6 +61,29 @@ class Momento2SincronizacionService:
             smart_code = payload.Smart_Code__c
             case_id_crm = payload.Case_id or smart_code
             archivos_s3_raw = payload.archivos_s3
+
+        return crm_dict, smart_code, case_id_crm, archivos_s3_raw
+
+    async def _crear_queja_o_tolerar_duplicado(self, payload_validado: SfcNuevaQuejaPayload, smart_code: str) -> None:
+        """
+        1. Intentar crear la queja en la SFC.
+        🛡️ CAPTURA DE TIMEOUT PREVIO: Si la queja ya fue creada en un intento anterior, se tolera y continúa.
+        """
+        try:
+            await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
+        except SfcIntegrationException as exc:
+            if not _es_error_queja_ya_existe_m2(exc.raw_message, exc.error_type):
+                raise
+            logger.info(
+                f"ℹ️ [Momento 2] La queja {smart_code} ya se encontraba radicada en la SFC "
+                f"(Creación completada en intento previo/timeout). Procediendo con la verificación de adjuntos."
+            )
+
+    async def ejecutar_envio_momento_2(
+        self,
+        payload: Union[QuejaUnificadaCrmInput, Momento2QuejaCrmInput, Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        crm_dict, smart_code, case_id_crm, archivos_s3_raw = self._extraer_datos_payload_m2(payload)
 
         # 🟢 FIX HALLAZGO 40: Lanza SfcIntegrationException (400) para errores de validación de entrada
         if not smart_code:
@@ -84,18 +107,7 @@ class Momento2SincronizacionService:
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
-            # 1. Intentar crear la queja en la SFC
-            try:
-                await self.sfc_client.post_nueva_queja(payload_validado.model_dump())
-            except SfcIntegrationException as exc:
-                # 🛡️ CAPTURA DE TIMEOUT PREVIO: Si la queja ya fue creada en un intento anterior
-                if _es_error_queja_ya_existe_m2(exc.raw_message, exc.error_type):
-                    logger.info(
-                        f"ℹ️ [Momento 2] La queja {smart_code} ya se encontraba radicada en la SFC "
-                        f"(Creación completada en intento previo/timeout). Procediendo con la verificación de adjuntos."
-                    )
-                else:
-                    raise
+            await self._crear_queja_o_tolerar_duplicado(payload_validado, smart_code)
 
             # 2. Transmisión de adjuntos
             if archivos_s3_raw:
@@ -113,7 +125,7 @@ class Momento2SincronizacionService:
             }
 
         except SfcIntegrationException as exc:
-            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_ERROR":
+            if getattr(exc, "is_unmapped", False) or getattr(exc, "error_type", None) == "UNKNOWN_SFC_ERROR":
                 await EmailAlertService.notificar_error_no_mapeado(
                     status_code=getattr(exc, "status_code", 500),
                     raw_message=str(exc),

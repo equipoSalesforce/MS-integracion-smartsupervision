@@ -1,10 +1,9 @@
 # app/api/routes_quejas.py
-import json
 import logging
 import httpx
 from fastapi import APIRouter, Body, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from app.api.dependencies import (
     get_sfc_client, 
@@ -122,6 +121,112 @@ async def confirmar_ack_momento_1(
     return await servicio.confirmar_recepcion_ack(ids_quejas=payload.ids_quejas)
 
 
+def _construir_respuesta_idempotente(respuesta_idempotente: dict) -> JSONResponse:
+    status_hit = respuesta_idempotente.get("status")
+
+    # 🚨 CASE CRÍTICO: Caída de Redis (Fail-Closed)
+    if status_hit == "redis_unavailable":
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status_code": 503,
+                "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
+                "sfc_field": None,
+                "raw_message": respuesta_idempotente.get("message"),
+                "crm_action_friendly": "El almacén de idempotencia no está disponible. Reintente en unos minutos."
+            }
+        )
+
+    # 🎯 CASE A: Happy Path duplicado (Respuesta 200 OK previa)
+    if status_hit == "success":
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            headers={"X-Idempotent-Hit": "true"},
+            content=respuesta_idempotente.get("sfc_response") or respuesta_idempotente
+        )
+
+    # 🎯 CASE B: Operación ya en proceso o encolada (202 Accepted)
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        headers={"X-Idempotent-Hit": "true"},
+        content=respuesta_idempotente
+    )
+
+
+async def _encolar_despacho_por_contingencia(
+    payload: QuejaUnificadaCrmInput,
+    raw_payload: dict,
+    idempotency_service: IdempotencyService,
+    error_origen_titulo: str,
+    error_detalle: str
+) -> Tuple[JSONResponse, bool]:
+    """
+    🛠️ Manejo de Contingencia y Protección de Doble Falla (SFC + Redis).
+    Retorna (response, operacion_exitosa_o_encolada).
+    """
+    logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
+
+    try:
+        queue_service = QueueService(get_redis_client())
+        item_encolado = await queue_service.encolar_despacho(
+            smart_code=payload.Smart_Code__c,
+            tipo_operacion="AUTO",
+            payload_json=payload.model_dump(by_alias=True, mode="json"),
+            error_inicial=error_detalle
+        )
+
+        # 📌 REGISTRAR EN IDEMPOTENCY STORE COMO QUEUED
+        # 🟢 FIX P0-12: se pasa el id real del item de cola para poder detectar más
+        # adelante si este registro de idempotencia quedó huérfano (item sobrescrito
+        # por un evento más nuevo del mismo smart_code).
+        await idempotency_service.registrar_encolado(
+            smart_code=payload.Smart_Code__c,
+            payload_dict=raw_payload,
+            error_msg=error_detalle,
+            registro_id=item_encolado.id
+        )
+
+        if getattr(item_encolado, "es_duplicado", False):
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "status": "already_queued",
+                    "smart_code": payload.Smart_Code__c,
+                    "message": "El caso ya se encuentra encolado en Redis pendiente de reintento. Se actualizó la información con la última versión recibida.",
+                    "error_origen": error_detalle
+                }
+            ), True
+
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "status": "queued",
+                "smart_code": payload.Smart_Code__c,
+                "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
+                "error_origen": error_detalle
+            }
+        ), True
+    except Exception as redis_err:
+        logger.critical(
+            f"🔥 [CRÍTICO] Fallo doble de infraestructura para caso {payload.Smart_Code__c}: "
+            f"SFC Unreachable ({error_detalle}) | Redis Unreachable ({redis_err})"
+        )
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code=payload.Smart_Code__c,
+            error_msg=f"FALLA CRÍTICA DOBLE (SFC + REDIS): SFC Error: {error_detalle} | Redis Error: {str(redis_err)}"
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status_code": 503,
+                "error_type": "CRITICAL_INFRASTRUCTURE_FAILURE",
+                "sfc_field": None,
+                "raw_message": "Tanto la Superintendencia como la cola de contingencia local están temporalmente no disponibles.",
+                "crm_action_friendly": "Reintente la operación en unos minutos. El incidente ha sido notificado automáticamente al equipo de ingeniería."
+            }
+        ), False
+
+
 # ======================================================================
 # 📤 ENDPOINT UNIFICADO DE DESPACHO (CRM -> SFC) [MOMENTO 2 & MOMENTO 3]
 # ======================================================================
@@ -161,11 +266,9 @@ async def despachar_queja_crm(
 
     # 🛠️ AUDITORÍA HTTP: Petición Entrante recibida desde Salesforce/CRM
     headers_clean = sanitizar_headers(dict(request.headers))
-    headers_formatted = "\n".join([f"   {k}: {v}" for k, v in headers_clean.items()])
-    
+
     raw_payload = payload.model_dump(by_alias=True, mode="json")
     body_clean = sanitizar_payload(raw_payload)
-    body_str = json.dumps(body_clean, ensure_ascii=False)
 
     logger.info(
     "AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM",
@@ -185,107 +288,13 @@ async def despachar_queja_crm(
     )
     
     if es_hit:
-        status_hit = respuesta_idempotente.get("status")
-        
-        # 🚨 CASE CRÍTICO: Caída de Redis (Fail-Closed)
-        if status_hit == "redis_unavailable":
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={
-                    "status_code": 503,
-                    "error_type": "IDEMPOTENCY_STORE_UNAVAILABLE",
-                    "sfc_field": None,
-                    "raw_message": respuesta_idempotente.get("message"),
-                    "crm_action_friendly": "El almacén de idempotencia no está disponible. Reintente en unos minutos."
-                }
-            )
-        
-        # 🎯 CASE A: Happy Path duplicado (Respuesta 200 OK previa)
-        if status_hit == "success":
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                headers={"X-Idempotent-Hit": "true"},
-                content=respuesta_idempotente.get("sfc_response") or respuesta_idempotente
-            )
-        
-        # 🎯 CASE B: Operación ya en proceso o encolada (202 Accepted)
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,
-            headers={"X-Idempotent-Hit": "true"},
-            content=respuesta_idempotente
-        )
+        return _construir_respuesta_idempotente(respuesta_idempotente)
 
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
 
     # 🟢 Bandera de control para evitar liberar idempotencia si la operación culmina o se encola correctamente
     operacion_exitosa_o_encolada = False
 
-    # 🛠️ Helper Interno para Manejo de Contingencia y Protección de Doble Falla (SFC + Redis)
-    async def _intentar_encolar_y_responder(error_origen_titulo: str, error_detalle: str):
-        nonlocal operacion_exitosa_o_encolada
-        logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
-        
-        try:
-            queue_service = QueueService(get_redis_client())
-            item_encolado = await queue_service.encolar_despacho(
-                smart_code=payload.Smart_Code__c,
-                tipo_operacion="AUTO",
-                payload_json=payload.model_dump(by_alias=True, mode="json"),
-                error_inicial=error_detalle
-            )
-            
-            # 📌 REGISTRAR EN IDEMPOTENCY STORE COMO QUEUED
-            # 🟢 FIX P0-12: se pasa el id real del item de cola para poder detectar más
-            # adelante si este registro de idempotencia quedó huérfano (item sobrescrito
-            # por un evento más nuevo del mismo smart_code).
-            await idempotency_service.registrar_encolado(
-                smart_code=payload.Smart_Code__c,
-                payload_dict=raw_payload,
-                error_msg=error_detalle,
-                registro_id=item_encolado.id
-            )
-            operacion_exitosa_o_encolada = True
-            
-            if getattr(item_encolado, "es_duplicado", False):
-                return JSONResponse(
-                    status_code=status.HTTP_202_ACCEPTED,
-                    content={
-                        "status": "already_queued",
-                        "smart_code": payload.Smart_Code__c,
-                        "message": "El caso ya se encuentra encolado en Redis pendiente de reintento. Se actualizó la información con la última versión recibida.",
-                        "error_origen": error_detalle
-                    }
-                )
-            
-            return JSONResponse(
-                status_code=status.HTTP_202_ACCEPTED,
-                content={
-                    "status": "queued",
-                    "smart_code": payload.Smart_Code__c,
-                    "message": "La Superintendencia no se encuentra disponible en este momento. El caso ha sido encolado para reintento automático.",
-                    "error_origen": error_detalle
-                }
-            )
-        except Exception as redis_err:
-            logger.critical(
-                f"🔥 [CRÍTICO] Fallo doble de infraestructura para caso {payload.Smart_Code__c}: "
-                f"SFC Unreachable ({error_detalle}) | Redis Unreachable ({redis_err})"
-            )
-            await EmailAlertService.notificar_falla_infraestructura(
-                smart_code=payload.Smart_Code__c,
-                error_msg=f"FALLA CRÍTICA DOBLE (SFC + REDIS): SFC Error: {error_detalle} | Redis Error: {str(redis_err)}"
-            )
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={
-                    "status_code": 503,
-                    "error_type": "CRITICAL_INFRASTRUCTURE_FAILURE",
-                    "sfc_field": None,
-                    "raw_message": "Tanto la Superintendencia como la cola de contingencia local están temporalmente no disponibles.",
-                    "crm_action_friendly": "Reintente la operación en unos minutos. El incidente ha sido notificado automáticamente al equipo de ingeniería."
-                }
-            )
-    
     try:
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
         # 🟢 FIX P1-13: el candado PROCESSING de idempotencia tenía un TTL fijo de 3
@@ -348,19 +357,23 @@ async def despachar_queja_crm(
         )
 
         if es_error_contingencia:
-            return await _intentar_encolar_y_responder(
+            respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
+                payload, raw_payload, idempotency_service,
                 error_origen_titulo=f"SFC Exception ({exc.status_code})",
                 error_detalle=exc.raw_message or str(exc)
             )
+            return respuesta
 
         logger.warning(f"Error controlado de validación de la SFC durante el despacho: {exc.raw_message}")
         raise
 
     except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as net_err:
-        return await _intentar_encolar_y_responder(
+        respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
+            payload, raw_payload, idempotency_service,
             error_origen_titulo="Network Error",
             error_detalle=str(net_err)
         )
+        return respuesta
 
     finally:
         # 🛡️ GARANTÍA DE LIBERACIÓN: Si la operación no se completó exitosamente ni fue encolada
