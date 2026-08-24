@@ -73,6 +73,19 @@ if existing_id then
             -- PROCESSING (un worker viejo procesando la versión que se acaba de sobrescribir),
             -- ese estado no debe heredarse al contenido nuevo.
             data["estado"] = estado_pendiente
+            -- 🟢 FIX P0-XX (hallazgo de code review, 2026-08-24): 'sfc_completado'/
+            -- 'sfc_response' quedaban intactos en la sobrescritura -- si el contenido
+            -- anterior ya había sido despachado con éxito a la SFC (SFC_DONE, aún
+            -- pendiente del webhook al CRM) y llegaba un evento nuevo del mismo
+            -- smart_code antes de que ese webhook terminara, el item nuevo heredaba
+            -- sfc_completado=true. El siguiente ciclo del scheduler (_ejecutar_paso_sfc)
+            -- ve ese flag en true y se SALTA el envío real del contenido nuevo a la SFC,
+            -- reutilizando la respuesta vieja como si ya hubiera sido transmitido --
+            -- pérdida silenciosa de datos que contradice la garantía documentada en
+            -- FLUJO_MOMENTOS.md. El contenido nuevo nunca fue enviado; debe tratarse
+            -- como un despacho pendiente igual que cualquier item recién encolado.
+            data["sfc_completado"] = false
+            data["sfc_response"] = nil
 
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
