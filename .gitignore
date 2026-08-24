@@ -53,3 +53,8 @@ cola_local.db
 #Json resultado de test de stress y secuencial
 test_stress_results.json
 test_secuencial_results.json
+
+# Datos de coverage.py (local, no versionado)
+.coverage
+.coverage.*
+htmlcov/
