@@ -29,6 +29,7 @@ class TestSwaggerDisabledInNonLocalEnvironments(unittest.TestCase):
             SMTP_USER="user@g66.com",
             SMTP_PASSWORD="pwd",
             ALERT_NOTIFY_EMAILS="alert@g66.com",
+            REDIS_HOST="prod-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
             REDIS_PASSWORD="redis_pwd_segura",
             REDIS_SSL=True
         )

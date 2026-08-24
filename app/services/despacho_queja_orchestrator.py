@@ -7,7 +7,6 @@ from app.integrations.sfc_client import SfcClient
 from app.schemas.crm_payloads import ArchivoS3Schema, QuejaUnificadaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.services.momento_3_sync import Momento3SincronizacionService
-from app.services.email_service import EmailAlertService
 from app.core.exceptions import SfcIntegrationException
 
 logger = logging.getLogger(__name__)
@@ -66,7 +65,13 @@ class DespachoQuejaOrquestador:
             return await self.procesar_despacho(payload=payload)
         except ValidationError as ve:
             logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola Redis: {ve.json()}")
-            raise Exception(f"Estructura inválida en el payload rehidratado de Redis: {str(ve)}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="REDIS_PAYLOAD_INVALIDO",
+                sfc_field=None,
+                raw_message=f"Estructura inválida en el payload rehidratado de Redis: {str(ve)}",
+                crm_action="Contactar al equipo de infraestructura: un ítem de la cola quedó con datos corruptos/incompletos."
+            ) from ve
 
     async def procesar_despacho(self, payload: QuejaUnificadaCrmInput) -> Dict[str, Any]:
         smart_code = payload.Smart_Code__c
@@ -131,7 +136,7 @@ class DespachoQuejaOrquestador:
 
         except SfcIntegrationException as exc:
             error_tipo = getattr(exc, "error_type", None)
-            is_unmapped = getattr(exc, "is_unmapped", False) or error_tipo == "UNKNOWN_ERROR"
+            is_unmapped = getattr(exc, "is_unmapped", False) or error_tipo == "UNKNOWN_SFC_ERROR"
 
             # 🚨 AUTO-RECUPERACIÓN (SELF-HEALING): 404 Estándar o NOT_FOUND_ERROR estructurado.
             # 🟢 FIX P0-09: se retiraron los fallbacks de texto libre ("404" in raw_msg,

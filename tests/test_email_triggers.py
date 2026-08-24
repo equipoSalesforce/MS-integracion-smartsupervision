@@ -111,14 +111,20 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True):
             sfc_mock = MagicMock()
             
+            # 🟢 FIX: "UNKNOWN_SFC_ERROR" es el error_type real que produce
+            # SfcErrorTranslator.procesar_y_lanzar cuando ninguna regla de la matriz
+            # matchea (ver exceptions.py) -- antes este test usaba "UNKNOWN_ERROR" (sin
+            # "SFC") y forzaba `exc.is_unmapped = True` a mano, lo cual nunca ocurre en
+            # producción (SfcIntegrationException no define ese atributo), enmascarando
+            # que la condición real en despacho_queja_orchestrator.py/momento_2_sync.py/
+            # momento_3_sync.py (`error_tipo == "UNKNOWN_ERROR"`) nunca podía cumplirse.
             exc = SfcIntegrationException(
                 status_code=400,
-                error_type="UNKNOWN_ERROR",
+                error_type="UNKNOWN_SFC_ERROR",
                 sfc_field=None,
                 raw_message="Error desconocido desde la SFC",
                 crm_action="Revisar payload"
             )
-            exc.is_unmapped = True
 
             sfc_mock.post_nueva_queja = AsyncMock(side_effect=exc)
             sfc_mock.put_actualizar_queja = AsyncMock(side_effect=exc)
@@ -171,7 +177,7 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
             mock_no_mapeado.assert_called_once_with(
                 status_code=400,
-                raw_message="[UNKNOWN_ERROR] Error desconocido desde la SFC",
+                raw_message="[UNKNOWN_SFC_ERROR] Error desconocido desde la SFC",
                 sfc_field=None,
                 smart_code=f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{smart_code}"
             )
