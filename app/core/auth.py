@@ -417,6 +417,18 @@ class SfcAuthManager(httpx.Auth):
                     )
                     request.headers["X-SFC-Signature"] = nueva_firma
 
+                    # 🟡 Este `yield request` reenvía el MISMO objeto Request -- para una subida
+                    # multipart (ver SfcClient.post_adjunto_queja) eso significa reenviar el
+                    # MISMO file-like object que ya se leyó por completo en el primer envío. No
+                    # se hace ningún seek(0) explícito acá porque no hace falta: httpx (pineado en
+                    # 0.28.1) ya reseekea el file-like object a 0 en cada iteración del stream
+                    # multipart (ver httpx/_multipart.py::FileField.render_data()), así que este
+                    # reintento retransmite el archivo completo, no vacío. Verificado end-to-end
+                    # (MockTransport, 401 seguido de 200, sin mockear el envío) en
+                    # tests/test_auth_flow_interceptor.py::
+                    # test_reintento_post_401_con_adjunto_multipart_reenvia_el_archivo_completo.
+                    # Si se actualiza httpx (o se cambia de librería HTTP) y esa prueba empieza a
+                    # fallar, ESE es el punto donde habría que agregar el seek(0) explícito.
                     logger.info("[SfcAuthManager] Recuperación exitosa. Reintentando petición con credenciales nuevas.")
                     response = yield request
 

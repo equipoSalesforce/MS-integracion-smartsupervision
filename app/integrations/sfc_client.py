@@ -287,6 +287,21 @@ class SfcClient:
             "type": file_type
         }
 
+        # 🟡 Este seek(0) sólo garantiza la posición del stream para el PRIMER envío.
+        # No hace falta repetirlo para el reintento post-401 (ver SfcAuthManager.
+        # async_auth_flow en app/core/auth.py, que reenvía este mismo `files=...`
+        # con el MISMO objeto file_data): httpx (pineado en 0.28.1 en requirements.txt)
+        # ya reseekea el file-like object a 0 en CADA iteración del stream multipart
+        # -- ver httpx/_multipart.py::FileField.render_data(), que hace su propio
+        # `self.file.seek(0)` antes de leer, en cada envío. Verificado end-to-end
+        # (MockTransport con una respuesta 401 seguida de 200, sin mockear el envío)
+        # en tests/test_auth_flow_interceptor.py::
+        # test_reintento_post_401_con_adjunto_multipart_reenvia_el_archivo_completo
+        # -- el archivo llega completo en ambos envíos, no vacío en el reintento.
+        # Si se actualiza httpx (o se migra a otra librería HTTP), esa prueba debe
+        # volver a correr: si ese comportamiento cambiara, ahí sí habría que agregar
+        # un seek(0) explícito dentro de SfcAuthManager.async_auth_flow antes de
+        # reintentar.
         if hasattr(file_data, "seek") and callable(file_data.seek):
             file_data.seek(0)
 

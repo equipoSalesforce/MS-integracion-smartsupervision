@@ -14,6 +14,7 @@ headers automáticos (ej. content-type) que interfieran con lo que estamos
 probando.
 """
 import json
+import tempfile
 import unittest
 from unittest.mock import patch, AsyncMock
 
@@ -153,6 +154,64 @@ class TestAsyncAuthFlow(unittest.IsolatedAsyncioTestCase):
             respuesta_401 = httpx.Response(401, request=primer_envio)
             with self.assertRaises(StopAsyncIteration):
                 await gen.asend(respuesta_401)
+
+    async def test_reintento_post_401_con_adjunto_multipart_reenvia_el_archivo_completo(self):
+        """
+        Verificación del hallazgo de revisión externa (2026-08-25, §16): la
+        hipótesis era que un reintento post-401 sobre una subida multipart
+        (post_adjunto_queja) podía reenviar el archivo VACÍO -- porque el stream
+        del archivo ya habría sido consumido durante el primer envío, y el único
+        `seek(0)` en post_adjunto_queja ocurre ANTES de entrar al flujo de auth
+        (no se repite para el reintento).
+
+        Verificado CONTRA EL PIPELINE REAL (httpx.AsyncClient + MockTransport +
+        SfcAuthManager, sin mockear el envío) con httpx==0.28.1 (versión pineada
+        en requirements.txt): NO es un bug. httpx.FileField.render_data() hace su
+        PROPIO `self.file.seek(0)` en cada iteración del stream (ver
+        httpx/_multipart.py) -- se ejecuta de nuevo en el segundo envío,
+        independientemente de cualquier seek() de nuestro lado. El archivo se
+        retransmite completo en el reintento.
+
+        Se deja este test como regresión: si una futura actualización de httpx
+        cambiara ese comportamiento (o el proyecto migrara a otra librería HTTP),
+        esta prueba lo detectaría.
+        """
+        contenido_real = b"contenido real del PDF adjunto de prueba, no vacio"
+        tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
+        tmp_file.write(contenido_real)
+        tmp_file.seek(0)
+
+        cuerpos_recibidos = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            cuerpo = await request.aread()
+            cuerpos_recibidos.append(cuerpo)
+            if len(cuerpos_recibidos) == 1:
+                return httpx.Response(401, request=request)
+            return httpx.Response(200, json={"status": "ok"}, request=request)
+
+        transport = httpx.MockTransport(handler)
+        campos_firma = {"codigo_queja": "SC-1", "type": "pdf"}
+
+        async with httpx.AsyncClient(transport=transport) as client:
+            with patch.object(self.manager, "get_valid_token", new_callable=AsyncMock, return_value="token-viejo"), \
+                 patch.object(self.manager, "_get_valid_token_unlocked", new_callable=AsyncMock, return_value="token-nuevo"):
+                response = await client.post(
+                    "https://sfc.test/api/storage/",
+                    data=campos_firma,
+                    files={"file": ("soporte.pdf", tmp_file, "application/pdf")},
+                    auth=self.manager,
+                    extensions={"sfc_signature_fields": campos_firma}
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(cuerpos_recibidos), 2, "Debe haber un primer envío (401) y un reintento (200)")
+        self.assertIn(contenido_real, cuerpos_recibidos[0], "El primer envío debe llevar el archivo completo")
+        self.assertIn(
+            contenido_real, cuerpos_recibidos[1],
+            "El REINTENTO post-401 debe llevar el archivo completo, no vacío -- si esto falla, "
+            "httpx dejó de re-seekear el file-like object entre envíos y §16 pasó a ser un bug real."
+        )
 
     async def test_solo_200_no_dispara_recuperacion(self):
         request = httpx.Request("GET", "https://sfc.test/api/queja/")
