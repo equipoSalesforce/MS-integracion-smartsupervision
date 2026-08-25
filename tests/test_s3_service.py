@@ -201,10 +201,10 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         rechaza el reenvío con un mensaje que en la práctica significa lo mismo
         ("duplicado"/"ya procesado") pero con una redacción que NO coincide con
         ninguna de las subcadenas ya mapeadas (ni DUPLICATE_FILE, ni 'ya existe',
-        ni '556240', ni 'ya cuenta con un documento', ni 'se encuentra cerrada'),
-        el código NO lo reconoce como éxito idempotente y propaga la excepción.
-        Documenta el riesgo real: esta protección depende de que la SFC siga
-        fraseando sus rechazos exactamente como hoy están mapeados.
+        ni '556240', ni 'ya cuenta con un documento'), el código NO lo reconoce
+        como éxito idempotente y propaga la excepción. Documenta el riesgo real:
+        esta protección depende de que la SFC siga fraseando sus rechazos
+        exactamente como hoy están mapeados.
         """
         sfc_client = MagicMock()
         sfc_client.post_adjunto_queja = AsyncMock(
@@ -220,6 +220,42 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
             await self.service.transferir_lote_s3_a_sfc(
                 sfc_client=sfc_client, sfc_codigo_queja="CASO-Z", adjuntos_crm=archivo
             )
+
+    async def test_sfc_rechaza_por_caso_cerrado_no_se_absorbe_ni_marca_checkpoint(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): "el caso está cerrado" ya
+        NO se trata como duplicado. Antes, un rechazo de la SFC con 'se encuentra
+        cerrada' en el mensaje se absorbía igual que un duplicado real -- marcando el
+        checkpoint como completado -- aunque el archivo NUNCA fue recibido (fue
+        RECHAZADO). Si el caso se reabría después, ese adjunto nunca se volvía a
+        intentar porque el checkpoint mentía diciendo que ya se había entregado.
+
+        Ahora la excepción se propaga (no se absorbe aquí): según el punto del
+        pipeline que la reciba, o bien la reconoce
+        despacho_queja_orchestrator._es_error_caso_ya_cerrado (en un cierre, como
+        éxito idempotente, sin tocar este checkpoint), o bien se propaga como error
+        real y visible para el CRM (fraude/trámite puro, donde no hay razón de
+        negocio para adjuntar algo a un caso ya cerrado).
+        """
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "BUSINESS_RULE_ERROR", None,
+                "No se puede actualizar el anexo debido a que la queja se encuentra cerrada",
+                "El caso ya está cerrado"
+            )
+        )
+        archivo = [{"nombre_archivo": "informe.pdf", "s3_key": "caso/W/informe.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-W", adjuntos_crm=archivo
+            )
+
+        # El checkpoint NO debe quedar marcado -- si el caso se reabre, un intento
+        # futuro debe poder volver a enviar este archivo.
+        completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-W")
+        self.assertEqual(completados, [])
 
 
 if __name__ == "__main__":

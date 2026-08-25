@@ -754,24 +754,38 @@ class S3StorageService:
     ) -> Optional[Dict[str, Any]]:
         raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
 
-        es_duplicado_o_cerrado = (
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): "se encuentra cerrada" ya
+        # NO se trata como duplicado. Un duplicado significa "la SFC ya tiene este
+        # archivo" (correcto marcar el checkpoint como completado); "el caso está
+        # cerrado" significa que la SFC RECHAZÓ el archivo -- nunca lo recibió. Antes
+        # ambos se marcaban igual como completado en el checkpoint: si el caso se
+        # reabría más adelante (una disputa, una corrección), ese adjunto nunca se
+        # volvía a intentar, porque el checkpoint mentía diciendo que ya se había
+        # entregado. Ahora se deja propagar la excepción (return None) en vez de
+        # absorberla aquí -- según la fase del pipeline eso ya cae de forma correcta
+        # en uno de dos caminos existentes: (a) si es parte de un cierre, el mensaje
+        # real de la SFC para este caso ("no se puede actualizar el anexo debido a
+        # que la queja se encuentra cerrada") ya está mapeado en
+        # despacho_queja_orchestrator._es_error_caso_ya_cerrado, que lo reporta como
+        # éxito idempotente SIN tocar este checkpoint; (b) si es fraude o trámite
+        # puro (sin cierre), no hay ninguna razón de negocio para intentar adjuntar
+        # un archivo a un caso ya cerrado -- debe propagarse como error real y
+        # visible para el CRM, no absorberse en silencio como si hubiera funcionado.
+        es_duplicado = (
             getattr(exc, "error_type", None) == "DUPLICATE_FILE"
             or "ya existe" in raw_msg
             or "556240" in raw_msg
             or "ya cuenta con un documento" in raw_msg
-            or "se encuentra cerrada" in raw_msg
         )
 
-        if not es_duplicado_o_cerrado:
+        if not es_duplicado:
             return None
 
         logger.warning(
-            f"⚠️ [S3 Storage] Archivo '{original_name}' omitido en SFC para {sfc_codigo_queja}: "
-            f"Ya se encontraba registrado o el caso ya fue cerrado."
+            f"⚠️ [S3 Storage] Archivo '{original_name}' omitido en SFC para {sfc_codigo_queja}: ya se encontraba registrado."
         )
-        # 🟢 FIX P0-10: también se registra el checkpoint aquí — la SFC ya
-        # considera este archivo resuelto (duplicado o caso cerrado), así que
-        # un reintento futuro tampoco debe volver a intentarlo.
+        # 🟢 FIX P0-10: también se registra el checkpoint aquí — la SFC ya tiene este
+        # archivo, así que un reintento futuro tampoco debe volver a intentarlo.
         await checkpoint_service.marcar_archivo_completado(
             sfc_codigo_queja, identificador_archivo, metadata={"file_name": original_name, "status": "DUPLICATE_OMITTED"}
         )
