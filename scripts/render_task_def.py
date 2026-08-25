@@ -114,12 +114,16 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
         run_scheduler = "False"
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25, B1): --timeout subido de
+        # 120s a 330s -- ver el mismo fix/comentario en infrastructure/Dockerfile.
+        # ECS usa este `command` del task definition, que sobreescribe el CMD del
+        # Dockerfile -- ambos deben mantenerse sincronizados.
         container_command = json.dumps([
             "gunicorn", "app.main:app",
             "-k", "uvicorn_worker.UvicornWorker",
             "--bind", "0.0.0.0:8000",
             "--workers", web_concurrency,
-            "--timeout", "120",
+            "--timeout", "330",
             "--graceful-timeout", "60"
         ])
         port_mappings = json.dumps([

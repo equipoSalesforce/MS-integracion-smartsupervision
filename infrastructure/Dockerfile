@@ -65,10 +65,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # de la SFC puede reintentarse internamente (SFC_MINI_RETRY_ATTEMPTS x
 # SFC_MINI_RETRY_DELAY_SECONDS) sobre un read timeout de 15s, superando los 30s
 # originales antes de que gunicorn mate el worker a mitad de un request en curso.
+# 🔴 FIX (hallazgo de revisión externa, 2026-08-25, B1): --timeout subido de 120s a
+# 330s -- SFC_SYNC_MAX_SEGUNDOS (config.py) da a Momento 1 hasta 300s de presupuesto
+# propio de paginación contra la SFC, pero gunicorn mataba el worker a los 120s,
+# muy por debajo de ese presupuesto: bajo un backlog real, Momento 1 no podía
+# completarse nunca. 330s = 300s del presupuesto + 50s de margen para que la
+# respuesta termine de serializarse/enviarse. Mismo valor en
+# scripts/render_task_def.py -- ECS usa el `command` del task definition, que
+# sobreescribe este CMD; deben mantenerse sincronizados.
 CMD gunicorn app.main:app -k uvicorn_worker.UvicornWorker \
     --bind 0.0.0.0:8000 \
     --workers "${WEB_CONCURRENCY:-2}" \
-    --timeout 120 \
+    --timeout 330 \
     --graceful-timeout 60
 
 # ======================================================================
