@@ -65,6 +65,57 @@ class TestConfigSecurityValidation(unittest.TestCase):
         self.assertEqual(cfg_prod.ENVIRONMENT, "production")
         self.assertEqual(cfg_prod.CRM_API_KEY, "g66_sk_prod_real_key_xyz_987654321")
 
+    def test_secreto_corto_no_listado_es_rechazado_por_longitud_minima(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): la lista negra sólo
+        atrapaba valores literales ya conocidos -- un secreto nuevo pero débil
+        (ej. CRM_API_KEY="abc") la pasaba sin problema. Ahora se exige un mínimo de
+        longitud para los secretos que este servicio controla (API keys propias,
+        clave HMAC de firma).
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            Settings(
+                _env_file=None,
+                ENVIRONMENT="production",
+                CRM_CORS_ORIGINS="https://crm.global66.com",
+                SFC_URL_BASE="https://smart.superfinanciera.gov.co",
+                SFC_USERNAME="prod_sfc_user",
+                SFC_PASSWORD="PasswordSeguroProductivo2026#$",
+                SFC_SECRET_KEY="clave_hmac_secreta_real_otorgada_por_sfc_2026",
+                CRM_API_KEY="abc",
+                ADMIN_API_KEY="g66_sk_prod_admin_real_key_abc_123456789",
+                CRM_WEBHOOK_URL="https://crm.global66.com/api/v1/webhooks/sfc",
+                CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
+                REDIS_HOST="prod-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
+                REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+                REDIS_SSL=True
+            )
+
+        error_str = str(ctx.exception)
+        self.assertIn("CRM_API_KEY", error_str)
+        self.assertIn("caracteres", error_str)
+
+    def test_sfc_password_corta_no_es_rechazada_por_longitud(self):
+        """SFC_PASSWORD la asigna la SFC, no la controlamos -- no debe aplicarse el
+        mínimo de longitud ahí, sólo la lista negra de valores de ejemplo."""
+        cfg_prod = Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            CRM_CORS_ORIGINS="https://crm.global66.com",
+            SFC_URL_BASE="https://smart.superfinanciera.gov.co",
+            SFC_USERNAME="prod_sfc_user",
+            SFC_PASSWORD="Cort4#1",
+            SFC_SECRET_KEY="clave_hmac_secreta_real_otorgada_por_sfc_2026",
+            CRM_API_KEY="g66_sk_prod_real_key_xyz_987654321",
+            ADMIN_API_KEY="g66_sk_prod_admin_real_key_abc_123456789",
+            CRM_WEBHOOK_URL="https://crm.global66.com/api/v1/webhooks/sfc",
+            CRM_WEBHOOK_API_KEY="wh_prod_key_999888777",
+            REDIS_HOST="prod-smartsupervision-redis.abc123.use1.cache.amazonaws.com",
+            REDIS_PASSWORD="RedisPasswordSeguroProductivo2026#$",
+            REDIS_SSL=True
+        )
+        self.assertEqual(cfg_prod.SFC_PASSWORD, "Cort4#1")
+
     def test_sfc_url_base_http_rechazado_en_produccion(self):
         """
         P1-06 (auditoría adversarial v10): SFC_URL_BASE es el endpoint público de un

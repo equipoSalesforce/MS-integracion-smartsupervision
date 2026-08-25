@@ -1,6 +1,6 @@
 # app/core/config.py
 import json
-from typing import List, Any, Optional, Union
+from typing import ClassVar, FrozenSet, List, Any, Optional, Union
 from pydantic import BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Annotated
@@ -210,6 +210,15 @@ class Settings(BaseSettings):
     
     RUN_SCHEDULER: bool = Field(default=False)
 
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): la lista negra sólo atrapa
+    # los valores literales conocidos -- un secreto nuevo pero débil (ej.
+    # CRM_API_KEY="abc") la pasa sin problema. Se exige un mínimo de longitud para
+    # los secretos que ESTE servicio genera/controla (API keys propias, clave HMAC
+    # de firma) -- no cubre entropía real, pero cierra el caso genérico de "valor
+    # corto de prueba que nadie pensó en agregar a la lista negra".
+    LONGITUD_MINIMA_SECRETO_PROPIO: ClassVar[int] = 16
+    CAMPOS_CON_MINIMO_DE_LONGITUD: ClassVar[FrozenSet[str]] = frozenset({"CRM_API_KEY", "ADMIN_API_KEY", "SFC_SECRET_KEY"})
+
     def _validar_secretos_inseguros(self) -> List[str]:
         """1. Auditoría de Secretos e API Keys inseguros o de ejemplo."""
         errores = []
@@ -217,13 +226,22 @@ class Settings(BaseSettings):
             "CRM_API_KEY": ["g66_sk_test_super_secreto_12345", "test", "12345", "secret"],
             "ADMIN_API_KEY": ["g66_sk_test_admin_secreto_99999", "admin", "12345", "secret"],
             "SFC_SECRET_KEY": ["global66_sfc_secret_key_testing_2026", "secret", "test", "12345"],
+            # 🟡 SFC_PASSWORD queda fuera del mínimo de longitud: la asigna la SFC
+            # (no la generamos nosotros), así que no controlamos su longitud real.
             "SFC_PASSWORD": ["123456789", "123456", "admin", "password", "test"]
         }
 
         for campo, valores_inseguros in valores_inseguros_prohibidos.items():
             valor_actual = getattr(self, campo, None)
-            if not valor_actual or str(valor_actual).strip() in valores_inseguros:
+            valor_str = str(valor_actual).strip() if valor_actual else ""
+
+            if not valor_str or valor_str in valores_inseguros:
                 errores.append(f"- Campo '{campo}' contiene un valor inseguro o por defecto de prueba.")
+            elif campo in self.CAMPOS_CON_MINIMO_DE_LONGITUD and len(valor_str) < self.LONGITUD_MINIMA_SECRETO_PROPIO:
+                errores.append(
+                    f"- Campo '{campo}' tiene {len(valor_str)} caracteres -- por debajo del mínimo de "
+                    f"{self.LONGITUD_MINIMA_SECRETO_PROPIO} exigido para un secreto que este servicio controla."
+                )
 
         return errores
 
