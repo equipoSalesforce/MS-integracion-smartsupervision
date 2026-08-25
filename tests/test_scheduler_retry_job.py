@@ -216,6 +216,99 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
                 item=reg, error_msg=ANY, worker_id=ANY, consumir_intento=False
             )
 
+    async def test_webhook_infraestructura_estancado_mas_del_umbral_escala_a_error(self):
+        """
+        🟡 FIX (hallazgo de revisión externa, 2026-08-25, §12): un reintento infinito
+        de webhook (no consume intentos, nunca llega a FAILED_FINAL) debe distinguirse
+        en logs de un fallo normal una vez supera el umbral -- para dar visibilidad
+        temprana y específica (la causa es el webhook, no la SFC) sin esperar a la
+        alerta de SLA genérica de 12h.
+        """
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        creado_hace_3_horas = (datetime.now(ZoneInfo("America/Bogota")) - timedelta(hours=3)).isoformat()
+        reg = self._item_base(
+            sfc_completado=True,
+            sfc_response={"status": "success", "message": "Ya procesado en SFC"},
+            created_at=creado_hace_3_horas
+        )
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock,
+                 return_value=(False, "Fallo de red/comunicación al notificar al CRM: 503 Service Unavailable")
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            with self.assertLogs("app.workers.scheduler", level="ERROR") as logs:
+                await reintentar_despachos_pendientes_job()
+
+            self.assertTrue(any("REINTENTO_INFINITO_WEBHOOK" in m for m in logs.output))
+
+    async def test_webhook_infraestructura_reciente_no_escala_a_error(self):
+        """Contraprueba: si el ítem lleva poco tiempo (bajo el umbral), sigue como un
+        warning normal -- no debe dispararse la escalación todavía."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        creado_hace_10_min = (datetime.now(ZoneInfo("America/Bogota")) - timedelta(minutes=10)).isoformat()
+        reg = self._item_base(
+            sfc_completado=True,
+            sfc_response={"status": "success", "message": "Ya procesado en SFC"},
+            created_at=creado_hace_10_min
+        )
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock,
+                 return_value=(False, "Fallo de red/comunicación al notificar al CRM: 503 Service Unavailable")
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            with self.assertLogs("app.workers.scheduler", level="WARNING") as logs:
+                await reintentar_despachos_pendientes_job()
+
+            self.assertFalse(any("REINTENTO_INFINITO_WEBHOOK" in m for m in logs.output))
+
     async def test_webhook_falla_por_negocio_si_consume_intento(self):
         """
         Un rechazo del webhook por contrato de negocio (ej. success!=true, WAF,
