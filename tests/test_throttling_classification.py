@@ -1,6 +1,6 @@
 # tests/test_throttling_classification.py
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from app.integrations.sfc_client import handle_sfc_throttling
 from app.core.exceptions import SfcIntegrationException
 
@@ -47,6 +47,64 @@ class TestThrottlingClassification(unittest.IsolatedAsyncioTestCase):
         # Debe llamarse una sola vez y re-elevar la excepción de infraestructura sin reintentar
         self.assertEqual(mock_func.call_count, 1)
         self.assertEqual(ctx.exception.status_code, 500)
+
+
+class TestThrottlingClassificationMetricaEmf(unittest.IsolatedAsyncioTestCase):
+    """Métrica EMF SSV/ThrottlingSfc (propuesta de observabilidad CX)."""
+
+    async def test_throttling_con_reintento_disponible_emite_metrica_resultado_retried(self):
+        llamadas = {"n": 0}
+
+        async def funcion_sfc(*args, **kwargs):
+            llamadas["n"] += 1
+            if llamadas["n"] == 1:
+                raise SfcIntegrationException(
+                    status_code=429, error_type="THROTTLED_ERROR", sfc_field=None,
+                    raw_message="Quota exceeded", crm_action="Espere unos segundos e intente de nuevo."
+                )
+            return {"status": "success"}
+
+        with patch("app.integrations.sfc_client.emit_emf_metric") as mock_emit, \
+                patch("app.integrations.sfc_client.asyncio.sleep", new=AsyncMock()):
+            decorated = handle_sfc_throttling(funcion_sfc)
+            await decorated()
+
+        llamadas_ssv = [c for c in mock_emit.call_args_list if c.kwargs["namespace"] == "SSV/ThrottlingSfc"]
+        self.assertEqual(len(llamadas_ssv), 1)
+        self.assertEqual(llamadas_ssv[0].kwargs["dimensions"]["resultado"], "retried")
+        self.assertEqual(llamadas_ssv[0].kwargs["dimensions"]["endpoint"], "funcion_sfc")
+
+    async def test_throttling_reintentos_agotados_emite_metrica_resultado_exhausted(self):
+        async def funcion_sfc(*args, **kwargs):
+            raise SfcIntegrationException(
+                status_code=429, error_type="THROTTLED_ERROR", sfc_field=None,
+                raw_message="Quota exceeded", crm_action="Espere unos segundos e intente de nuevo."
+            )
+
+        with patch("app.integrations.sfc_client.emit_emf_metric") as mock_emit, \
+                patch("app.integrations.sfc_client.settings.SFC_MINI_RETRY_ATTEMPTS", 0):
+            decorated = handle_sfc_throttling(funcion_sfc)
+            with self.assertRaises(SfcIntegrationException):
+                await decorated()
+
+        llamadas_ssv = [c for c in mock_emit.call_args_list if c.kwargs["namespace"] == "SSV/ThrottlingSfc"]
+        self.assertEqual(len(llamadas_ssv), 1)
+        self.assertEqual(llamadas_ssv[0].kwargs["dimensions"]["resultado"], "exhausted")
+
+    async def test_error_de_infraestructura_no_emite_metrica_de_throttling(self):
+        async def funcion_sfc(*args, **kwargs):
+            raise SfcIntegrationException(
+                status_code=500, error_type="INFRASTRUCTURE_ERROR", sfc_field=None,
+                raw_message="Internal Server Error", crm_action="Reintente la operación más tarde."
+            )
+
+        with patch("app.integrations.sfc_client.emit_emf_metric") as mock_emit:
+            decorated = handle_sfc_throttling(funcion_sfc)
+            with self.assertRaises(SfcIntegrationException):
+                await decorated()
+
+        llamadas_ssv = [c for c in mock_emit.call_args_list if c.kwargs["namespace"] == "SSV/ThrottlingSfc"]
+        self.assertEqual(llamadas_ssv, [])
 
 
 if __name__ == "__main__":

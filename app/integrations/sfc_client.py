@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager
 from app.core.constants import SfcEndpoints
+from app.core.metrics import emit_emf_metric
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 from app.core.middleware import get_aws_trace_id, get_correlation_id
 # 🟢 FIX (revisión despliegue AWS): antes este módulo redefinía su propio
@@ -142,6 +143,17 @@ def handle_sfc_throttling(func):
                     "resource_exhausted" in raw_msg_lower
                 )
 
+                if is_throttled:
+                    emit_emf_metric(
+                        namespace="SSV/ThrottlingSfc",
+                        metrics={"throttle_count": (1, "Count")},
+                        dimensions={
+                            "Environment": settings.ENVIRONMENT,
+                            "endpoint": func.__name__,
+                            "resultado": "retried" if attempts < max_retries else "exhausted"
+                        }
+                    )
+
                 if is_throttled and attempts < max_retries:
                     attempts += 1
                     logger.warning(
@@ -150,7 +162,7 @@ def handle_sfc_throttling(func):
                     )
                     await asyncio.sleep(delay)
                     continue
-                
+
                 # Errores de infraestructura (500, 502, 503, timeouts, DNS) o de negocio se elevan directamente
                 raise
 
