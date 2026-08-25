@@ -1,9 +1,9 @@
 # tests/test_api_dependencies.py
 """
 Cobertura de app/api/dependencies.py -- guards de API Key, y las factories
-singleton get_s3_client/get_sfc_client/get_http_client. Antes ~45%: casi toda
-la suite reemplaza estas dependencias por mocks inyectados a mano en vez de
-ejercitar las factories reales.
+singleton get_s3_client/get_sfc_client. Antes ~45%: casi toda la suite
+reemplaza estas dependencias por mocks inyectados a mano en vez de ejercitar
+las factories reales.
 """
 import unittest
 from unittest.mock import patch, MagicMock
@@ -124,15 +124,6 @@ class TestGetSfcClientYHttpClient(unittest.TestCase):
         cliente = deps.get_sfc_client_con_http_client(http_client)
         self.assertIs(cliente.client, http_client)
         self.assertIs(cliente.interceptor, deps._auth_manager_instance)
-
-    def test_get_http_client_retorna_el_del_app_state(self):
-        http_client_app = httpx.AsyncClient()
-        request_fake = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(http_client=http_client_app)))
-        self.assertIs(deps.get_http_client(request_fake), http_client_app)
-
-    def test_get_http_client_retorna_none_si_no_hay_app_state(self):
-        request_fake = SimpleNamespace()
-        self.assertIsNone(deps.get_http_client(request_fake))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,6 @@
 import os
 import secrets
 import logging
-from typing import Optional
 import boto3
 import httpx
 from fastapi import Header, HTTPException, status, Request
@@ -121,16 +120,6 @@ def get_sfc_client_con_http_client(http_client: httpx.AsyncClient) -> SfcClient:
     reutilice en vez de crear (y filtrar) uno propio en cada llamada.
     """
     return SfcClient(interceptor=_auth_manager_instance, http_client=http_client)
-
-
-def get_http_client(request: Request) -> Optional[httpx.AsyncClient]:
-    """
-    Obtiene la instancia global de httpx.AsyncClient creada durante el lifespan de la app.
-    Esto permite reutilizar el pool de conexiones HTTP/TLS sin abrir/cerrar sockets innecesariamente.
-    """
-    if hasattr(request, "app") and hasattr(request.app, "state") and hasattr(request.app.state, "http_client"):
-        return request.app.state.http_client
-    return None
 
 
 async def verificar_api_key_crm(
