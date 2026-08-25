@@ -342,6 +342,23 @@ async def despachar_queja_crm(
                 error_msg=f"Persistencia de idempotencia post-SFC fallida (riesgo de duplicado): {persist_err}"
             )
 
+        # 🟢 FIX (hallazgo de code review, 2026-08-25): si un intento ANTERIOR de este
+        # mismo smart_code había fallado y quedó encolado en la cola de contingencia, y
+        # este despacho síncrono con contenido más reciente sí tuvo éxito, ese item viejo
+        # ahora contiene datos obsoletos -- se cancela para que el scheduler no lo
+        # reenvíe a la SFC y pise en silencio lo que este despacho ya corrigió.
+        # QueueService.cancelar_pendiente_por_smart_code ya es best-effort y no lanza
+        # por diseño; se envuelve igual (mismo criterio que registrar_exito arriba) como
+        # defensa en profundidad, para que ningún fallo inesperado en este paso de
+        # limpieza posterior pueda convertir un despacho ya exitoso en un error 500.
+        try:
+            await QueueService(redis_client).cancelar_pendiente_por_smart_code(payload.Smart_Code__c)
+        except Exception as cleanup_err:
+            logger.warning(
+                f"⚠️ [Cola Redis] No se pudo verificar/cancelar un item de cola obsoleto para "
+                f"{payload.Smart_Code__c} tras el despacho síncrono exitoso: {cleanup_err}"
+            )
+
         operacion_exitosa_o_encolada = True
 
         return resultado

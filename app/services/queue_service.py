@@ -416,6 +416,53 @@ redis.call("DEL", claim_key)
 return 1
 """
 
+# 🟢 FIX (hallazgo de code review, 2026-08-25): un despacho SÍNCRONO exitoso
+# (POST /sync/despacho respondiendo 200 directamente) nunca consultaba ni tocaba
+# la cola de contingencia. Si un intento ANTERIOR del mismo smart_code había
+# fallado (SFC caída/lenta) y quedó encolado, y el CRM reenviaba después con
+# contenido más reciente que esta vez sí se despachaba con éxito por la vía
+# síncrona, el item viejo con contenido OBSOLETO seguía pendiente en Redis --
+# el próximo ciclo del scheduler lo reintentaba y lo reenviaba a la SFC,
+# pudiendo pisar en silencio los campos que el despacho síncrono más reciente
+# ya había corregido (mismo defecto de "el contenido más reciente no siempre
+# termina llegando" que ENQUEUE_LUA_SCRIPT ya corrige para el caso en que AMBOS
+# intentos pasan por la cola -- este cubre el caso en que el segundo NO pasa por
+# la cola). Se cancela el item de cola (si existe y sigue pendiente) apenas el
+# despacho síncrono más reciente confirma éxito, usando el mismo index_key que
+# ya mantiene ENQUEUE_LUA_SCRIPT.
+#
+# No se toca claim_key deliberadamente: si un worker ya tiene el item reclamado
+# en este preciso instante (ventana mínima), sus escrituras posteriores
+# (MARK_SUCCESS/MARK_SFC_DONE/REGISTRAR_FALLO) ya manejan de forma segura un
+# item_key inexistente -- devuelven "item_not_found", liberan el claim y no
+# corrompen nada; el claim huérfano expira solo por su propio PX.
+CANCELAR_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT = """
+local index_key = KEYS[1]
+local pending_set_key = KEYS[2]
+local pending_zset_key = KEYS[3]
+local created_zset_key = KEYS[4]
+
+local item_id = redis.call("GET", index_key)
+if not item_id then
+    return 0
+end
+
+local is_pending = redis.call("SISMEMBER", pending_set_key, item_id)
+if is_pending == 0 then
+    return 0
+end
+
+local item_key = "{sfc:queue}:item:" .. item_id
+
+redis.call("DEL", item_key)
+redis.call("SREM", pending_set_key, item_id)
+redis.call("ZREM", pending_zset_key, item_id)
+redis.call("ZREM", created_zset_key, item_id)
+redis.call("DEL", index_key)
+
+return 1
+"""
+
 
 class ColaItemRedis:
     def __init__(self, data: dict):
@@ -1150,7 +1197,48 @@ class QueueService:
 
         logger.warning(f"🛑 [Cola Redis] Se diferió la ejecución de {modificados} casos por {delay_min} min sin consumir intentos.")
         return modificados
-    
+
+    async def cancelar_pendiente_por_smart_code(self, smart_code: str) -> bool:
+        """
+        🟢 FIX (hallazgo de code review, 2026-08-25): se llama tras un despacho
+        SÍNCRONO exitoso (ver despachar_queja_crm) para eliminar cualquier item de
+        cola de contingencia que haya quedado pendiente para este mismo
+        smart_code -- contenido de un intento ANTERIOR que falló y quedó
+        encolado, ahora obsoleto frente al despacho que sí tuvo éxito. Sin esto,
+        el próximo ciclo del scheduler reenviaría ese contenido viejo a la SFC,
+        pudiendo pisar en silencio los campos que el despacho más reciente ya
+        corrigió.
+
+        Best-effort y nunca lanza: si falla, el peor caso es que reaparece el
+        comportamiento que este método corrige (no debe convertir un despacho ya
+        exitoso hacia el CRM en un error 500).
+
+        Retorna True si había un item pendiente y se canceló; False si no había
+        nada que cancelar o si Redis falló.
+        """
+        if not self.redis or not smart_code:
+            return False
+
+        keys = [
+            f"{QUEUE_PREFIX}:index:{smart_code}",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
+            f"{QUEUE_PREFIX}:pending_zset",
+            f"{QUEUE_PREFIX}:created_zset"
+        ]
+
+        try:
+            resultado = await self.redis.eval(CANCELAR_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT, len(keys), *keys)
+            cancelado = int(resultado) == 1
+            if cancelado:
+                logger.warning(
+                    f"🗑️ [Cola Redis] Item en cola cancelado para {smart_code}: un despacho síncrono "
+                    f"con contenido más reciente ya tuvo éxito, evitando el reenvío de contenido obsoleto."
+                )
+            return cancelado
+        except Exception as e:
+            logger.error(f"Error cancelando item en cola para {smart_code} tras despacho síncrono exitoso: {e}")
+            return False
+
     async def extender_lease_item(
         self, 
         registro_id: int, 

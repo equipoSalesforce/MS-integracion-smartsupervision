@@ -205,6 +205,50 @@ class TestDespachoFalloPersistenciaIdempotenciaPostExito(_RoutesQuejasHttpTestCa
         self.idempotency_service_mock.liberar_operacion_por_error.assert_not_awaited()
 
 
+class TestDespachoExitosoCancelaItemDeColaObsoleto(_RoutesQuejasHttpTestCase):
+    """
+    🟢 FIX (hallazgo de code review, 2026-08-25): un despacho síncrono exitoso debe
+    cancelar cualquier item de cola de contingencia que haya quedado pendiente para
+    el mismo smart_code (contenido de un intento anterior fallido, ahora obsoleto) --
+    si no, el scheduler lo reenviaría a la SFC más tarde, pudiendo pisar en silencio
+    lo que este despacho más reciente ya corrigió.
+    """
+
+    def test_exito_sincrono_llama_a_cancelar_pendiente_con_el_smart_code_correcto(self):
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+            mock_queue_cls.return_value.cancelar_pendiente_por_smart_code = AsyncMock(return_value=True)
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        # Smart_Code__c llega con el prefijo SFC_TIPO_ENTIDAD+SFC_ENTIDAD_COD ya
+        # aplicado por el model_validator del schema (ver crm_payloads.py) -- el
+        # mismo valor prefijado que ya usa encolar_despacho/registrar_exito.
+        smart_code_prefijado = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.payload['Smart_Code__c']}"
+        mock_queue_cls.return_value.cancelar_pendiente_por_smart_code.assert_awaited_once_with(
+            smart_code_prefijado
+        )
+
+    def test_fallo_al_cancelar_pendiente_no_afecta_la_respuesta_200(self):
+        """Defensa en profundidad: aunque QueueService.cancelar_pendiente_por_smart_code
+        ya es best-effort y no lanza por diseño, si algo inesperado lo hiciera lanzar
+        igual, el despacho ya exitoso hacia el CRM no debe convertirse en un error --
+        ver el try/except que envuelve esta llamada en routes_quejas.py."""
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+            mock_queue_cls.return_value.cancelar_pendiente_por_smart_code = AsyncMock(
+                side_effect=ConnectionError("redis caido")
+            )
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.idempotency_service_mock.liberar_operacion_por_error.assert_not_awaited()
+
+
 class TestConsultarColaLocal(unittest.TestCase):
 
     def setUp(self):
