@@ -101,6 +101,87 @@ class TestEncolarDespachoPorContingencia(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 503)
         mock_alerta.assert_awaited_once()
 
+    async def test_fallo_doble_no_registra_encolado_en_idempotencia(self):
+        """Si encolar_despacho falla (fallo doble SFC+Redis), no debe intentarse
+        registrar_encolado sobre un item que nunca llegó a existir en la cola."""
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls, \
+             patch("app.api.routes_quejas.EmailAlertService.notificar_falla_infraestructura", new=AsyncMock()):
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(side_effect=ConnectionError("redis caido"))
+            await _encolar_despacho_por_contingencia(
+                _payload_valido(), {"a": 1}, self.idempotency_service_mock, "SFC caida", "timeout"
+            )
+        self.idempotency_service_mock.registrar_encolado.assert_not_awaited()
+
+    async def test_payload_json_de_la_cola_usa_el_snapshot_pre_mutacion_no_el_del_payload_mutado(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): regresión directa del bug --
+        antes, `encolar_despacho()` recibía un `payload.model_dump()` recalculado AQUÍ,
+        es decir DESPUÉS de que el orquestador mutara `payload.archivos_s3` al resolver
+        `directorio_s3`. Un reintento genuino del CRM siempre calcula su propio
+        raw_payload ANTES de esa mutación (nunca trae archivos_s3 resuelto, porque es un
+        efecto interno de este servicio) -- así que `_item_de_cola_sigue_vigente`
+        (que compara el hash del payload_json GUARDADO en la cola contra el hash del
+        reintento entrante) nunca coincidía para ningún caso con directorio_s3, tratando
+        el registro QUEUED como huérfano siempre y anulando la barrera anti-duplicado de
+        P0-12 para ese subconjunto de casos.
+
+        Se simula la mutación directamente sobre el objeto `payload` (equivalente a lo
+        que hace DespachoQuejaOrquestador.procesar_despacho al resolver directorio_s3) Y
+        se pasa un `raw_payload` distinto (el snapshot ANTERIOR a esa mutación, como lo
+        calcula el caller real) -- encolar_despacho debe recibir ese `raw_payload`, no el
+        estado mutado de `payload`.
+        """
+        payload = _payload_valido()
+        raw_payload_pre_mutacion = payload.model_dump(by_alias=True, mode="json")
+        self.assertEqual(raw_payload_pre_mutacion["archivos_s3"], [])
+
+        # Mutación equivalente a resolver directorio_s3 (ocurre DESPUÉS de capturar raw_payload).
+        payload.archivos_s3 = [
+            {"nombre_archivo": "soporte.pdf", "s3_key": "caso/16551509974606/soporte.pdf", "bucket": "b"}
+        ]
+        item_mock = MagicMock(id=42, es_duplicado=False)
+
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(return_value=item_mock)
+            await _encolar_despacho_por_contingencia(
+                payload, raw_payload_pre_mutacion, self.idempotency_service_mock, "SFC caida", "timeout"
+            )
+
+        payload_json_a_la_cola = mock_queue_cls.return_value.encolar_despacho.call_args.kwargs["payload_json"]
+        self.assertEqual(payload_json_a_la_cola, raw_payload_pre_mutacion)
+        self.assertEqual(payload_json_a_la_cola["archivos_s3"], [], "No debe reflejar el archivos_s3 ya resuelto")
+
+    async def test_payload_de_la_cola_y_de_idempotencia_son_el_mismo_snapshot(self):
+        """Ambas escrituras deben compartir exactamente el mismo dict -- por construcción,
+        no por coincidencia -- para que _item_de_cola_sigue_vigente siempre las encuentre
+        consistentes entre sí."""
+        item_mock = MagicMock(id=42, es_duplicado=False)
+        raw_payload = {"a": 1, "archivos_s3": []}
+
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(return_value=item_mock)
+            await _encolar_despacho_por_contingencia(
+                _payload_valido(), raw_payload, self.idempotency_service_mock, "SFC caida", "timeout"
+            )
+
+        payload_json_a_la_cola = mock_queue_cls.return_value.encolar_despacho.call_args.kwargs["payload_json"]
+        payload_dict_a_idempotencia = self.idempotency_service_mock.registrar_encolado.call_args.kwargs["payload_dict"]
+        self.assertEqual(payload_json_a_la_cola, payload_dict_a_idempotencia)
+        self.assertIs(payload_json_a_la_cola, raw_payload)
+        self.assertIs(payload_dict_a_idempotencia, raw_payload)
+
+    async def test_registro_encolado_incluye_registro_id_del_item_real(self):
+        item_mock = MagicMock(id=77, es_duplicado=False)
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(return_value=item_mock)
+            await _encolar_despacho_por_contingencia(
+                _payload_valido(), {"a": 1}, self.idempotency_service_mock, "SFC caida", "timeout"
+            )
+        self.idempotency_service_mock.registrar_encolado.assert_awaited_once()
+        self.assertEqual(
+            self.idempotency_service_mock.registrar_encolado.call_args.kwargs["registro_id"], 77
+        )
+
 
 class _RoutesQuejasHttpTestCase(unittest.TestCase):
     """Base con el cliente HTTP y las dependencias mockeadas, igual que test_integration_momento_2.py."""

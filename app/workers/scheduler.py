@@ -312,7 +312,8 @@ async def _ejecutar_paso_sfc(
             expected_version=item.version,
             smart_code=item.smart_code,
             payload_dict=payload_actual,
-            sfc_response=resultado_sfc
+            sfc_response=resultado_sfc,
+            payload_hash=item.payload_hash
         )
     except Exception as persist_err:
         logger.critical(

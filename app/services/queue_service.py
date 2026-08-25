@@ -47,6 +47,7 @@ local now_ts = tonumber(ARGV[8])
 local proximo_reintento_ts = tonumber(ARGV[9])
 local correlation_id = ARGV[10]
 local estado_pendiente = ARGV[11]
+local payload_hash = ARGV[12]
 
 local existing_id = redis.call("GET", index_key)
 local pendientes_count = redis.call("SCARD", pending_set_key)
@@ -59,6 +60,18 @@ if existing_id then
         if raw_item then
             local data = cjson.decode(raw_item)
             data["payload_json"] = cjson.decode(payload_json_raw)
+            -- 🔴 FIX (hallazgo de revisión externa, 2026-08-25): 'payload_hash' se calcula
+            -- en Python ANTES de que este script toque el payload -- el propio Lua cjson no
+            -- distingue lista vacía de objeto vacío al re-serializar (una tabla vacía "{}"
+            -- siempre se codifica como objeto JSON, nunca como "[]"), así que cualquier
+            -- campo tipo lista vacía (ej. archivos_s3: []) quedaba corrompido a {} en
+            -- payload_json tras pasar por este script. Eso rompía la comparación de hash de
+            -- IdempotencyService._item_de_cola_sigue_vigente para CUALQUIER item con un
+            -- campo de lista vacía -- la inmensa mayoría de las quejas sin adjuntos -- no
+            -- sólo los casos con directorio_s3 que originó este fix. Se guarda el hash como
+            -- string plano (inmune a esa ambigüedad) en vez de recalcularlo desde el
+            -- payload_json ya potencialmente corrompido por el round-trip de Lua.
+            data["payload_hash"] = payload_hash
             data["ultimo_error"] = error_inicial
             data["updated_at"] = now_iso
             data["proximo_reintento_at"] = proximo_reintento_iso
@@ -114,6 +127,7 @@ local item_data = {
     smart_code = smart_code,
     tipo_operacion = tipo_operacion,
     payload_json = cjson.decode(payload_json_raw),
+    payload_hash = payload_hash,
     estado = estado_pendiente,
     sfc_completado = false,
     sfc_response = nil,
@@ -484,6 +498,10 @@ class ColaItemRedis:
         self.es_duplicado = bool(data.get("es_duplicado", False))
         # 🟢 FIX P0-04: versión del payload, usada para detectar sobrescrituras concurrentes
         self.version = int(data.get("version", 1))
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): hash del payload calculado en
+        # Python antes de pasar por Lua -- ver ENQUEUE_LUA_SCRIPT. None para items creados
+        # antes de este fix (compatibilidad hacia atrás).
+        self.payload_hash = data.get("payload_hash")
 
     def to_dict(self) -> dict:
         return {
@@ -593,6 +611,20 @@ class QueueService:
             logger.error("❌ [Cola Redis] Cliente de Redis no inicializado.")
             raise RuntimeError("Cliente de Redis no disponible.")
 
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): se calcula el hash del
+        # payload AQUÍ, en Python, sobre el dict original -- antes de que el script Lua
+        # lo toque. Lua's cjson no distingue lista vacía de objeto vacío al re-serializar
+        # (ver comentario en ENQUEUE_LUA_SCRIPT), así que un campo tipo lista vacía (ej.
+        # archivos_s3: [], el caso más común) quedaba corrompido a {} en el payload_json
+        # guardado -- rompiendo cualquier comparación de hash hecha DESPUÉS a partir de
+        # ese payload_json ya potencialmente corrompido (ver IdempotencyService.
+        # _item_de_cola_sigue_vigente). Se guarda el hash como string plano junto al
+        # item, calculado de una única fuente de verdad no expuesta al round-trip Lua.
+        # Import diferido: evita el ciclo de imports ya existente entre queue_service e
+        # idempotency_service (mismo patrón que registrar_fallo/marcar_sfc_completado).
+        from app.services.idempotency_service import IdempotencyService
+        payload_hash = IdempotencyService.compute_payload_hash(payload_json)
+
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
         proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
 
@@ -615,7 +647,8 @@ class QueueService:
             str(now_bogota.timestamp()),
             str(proximo_reintento.timestamp()),
             get_correlation_id() or "N/A",
-            SmartStatus.PENDING.value
+            SmartStatus.PENDING.value,
+            payload_hash
         ]
 
         try:
@@ -662,7 +695,8 @@ class QueueService:
         smart_code: str,
         payload_dict: dict,
         sfc_response: Optional[Dict[str, Any]] = None,
-        max_intentos_persistencia: int = 3
+        max_intentos_persistencia: int = 3,
+        payload_hash: Optional[str] = None
     ) -> str:
         """
         🟢 FIX P0-01 (auditoría adversarial v9): transición atómica Lua con ownership +
@@ -704,9 +738,21 @@ class QueueService:
         # idempotency_service (mismo patrón ya usado en registrar_fallo, más abajo).
         from app.services.idempotency_service import IdempotencyService
 
-        idempotency_key = IdempotencyService.construir_clave_completado(smart_code, payload_dict)
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): `payload_dict` aquí es
+        # típicamente el `payload_json` YA ALMACENADO del item de cola (ver
+        # scheduler.py::_ejecutar_paso_sfc), que pudo pasar por el round-trip de cjson
+        # en ENQUEUE_LUA_SCRIPT y corromper campos de lista vacía (ej. archivos_s3: [])
+        # a objetos vacíos -- eso cambiaba el hash calculado aquí frente al hash
+        # original del payload, rompiendo el reconocimiento de "ya completado" en
+        # verificar_o_iniciar_operacion para cualquier caso con un campo así. Se pasa
+        # `payload_hash` (el hash calculado en Python en encolar_despacho, sobre el
+        # payload original, antes de tocar Lua) para que la clave/registro de
+        # idempotencia usen esa fuente confiable en vez de recalcularlo aquí.
+        idempotency_key = IdempotencyService.construir_clave_completado(
+            smart_code, payload_dict, payload_hash_override=payload_hash
+        )
         idempotency_record = IdempotencyService.construir_registro_completado(
-            smart_code, payload_dict, sfc_response
+            smart_code, payload_dict, sfc_response, payload_hash_override=payload_hash
         )
 
         item_key = f"{QUEUE_PREFIX}:item:{registro_id}"

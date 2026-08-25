@@ -35,6 +35,7 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
         reg.sfc_completado = False
         reg.sfc_response = {}
         reg.version = 1
+        reg.payload_hash = "hash-de-prueba"
         reg.to_dict = MagicMock(return_value={"correlation_id": "N/A"})
         for k, v in overrides.items():
             setattr(reg, k, v)
@@ -164,7 +165,8 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
                 expected_version=reg.version,
                 smart_code=reg.smart_code,
                 payload_dict=reg.payload_json,
-                sfc_response=resultado_sfc
+                sfc_response=resultado_sfc,
+                payload_hash=reg.payload_hash
             )
 
     async def test_webhook_falla_por_infraestructura_no_consume_intento(self):

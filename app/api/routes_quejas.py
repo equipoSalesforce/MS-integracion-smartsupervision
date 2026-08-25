@@ -167,11 +167,27 @@ async def _encolar_despacho_por_contingencia(
     logger.warning(f"⚠️ SFC no disponible ({error_origen_titulo}). Guardando caso {payload.Smart_Code__c} en cola Redis centralizada.")
 
     try:
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): `encolar_despacho` guardaba
+        # como payload_json de la cola un `payload.model_dump()` recalculado AQUÍ -- es
+        # decir, DESPUÉS de que `orquestador.procesar_despacho` mutara `payload.archivos_s3`
+        # in-place al resolver `directorio_s3`. Un reintento genuino del CRM (mismo request
+        # original) siempre calcula su propio `raw_payload` ANTES de cualquier mutación --
+        # nunca trae `archivos_s3` resuelto, porque esa resolución es un efecto interno de
+        # ESTE servicio. `_item_de_cola_sigue_vigente` recalcula el hash del payload_json
+        # ACTUAL del item de cola y lo compara contra el hash del reintento entrante -- con
+        # el item guardado en su versión post-mutación, esos dos hashes NUNCA coinciden
+        # para ningún caso con `directorio_s3`, así que el registro QUEUED se trataba
+        # siempre como huérfano, anulando la barrera anti-duplicado de P0-12 justo para ese
+        # subconjunto de casos. Se usa `raw_payload` (el mismo snapshot pre-mutación que ya
+        # usa registrar_encolado, y que un reintento futuro volverá a producir) también para
+        # el payload_json que se guarda en la cola -- consecuencia correcta y menor: el
+        # scheduler vuelve a resolver `directorio_s3` en cada intento real en vez de reusar
+        # un listado de S3 potencialmente desactualizado desde el primer intento fallido.
         queue_service = QueueService(get_redis_client())
         item_encolado = await queue_service.encolar_despacho(
             smart_code=payload.Smart_Code__c,
             tipo_operacion="AUTO",
-            payload_json=payload.model_dump(by_alias=True, mode="json"),
+            payload_json=raw_payload,
             error_inicial=error_detalle
         )
 

@@ -135,7 +135,9 @@ class IdempotencyService:
         return f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}:{payload_hash}"
 
     @classmethod
-    def construir_clave_completado(cls, smart_code: str, payload_dict: dict) -> str:
+    def construir_clave_completado(
+        cls, smart_code: str, payload_dict: dict, payload_hash_override: Optional[str] = None
+    ) -> str:
         """
         Nivel 1 (auditoría adversarial v10, P0-02): única fuente de verdad para
         calcular la clave de idempotencia de un registro COMPLETED -- la reutiliza
@@ -144,16 +146,28 @@ class IdempotencyService:
         fusionada dentro del mismo script Lua que persiste SFC_DONE). Evita que las
         dos escrituras deriven la clave con lógica duplicada y potencialmente
         divergente.
+
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): `payload_hash_override`
+        permite al caller pasar un hash ya calculado sobre el payload ORIGINAL en vez
+        de recalcularlo aquí a partir de `payload_dict` -- necesario para
+        marcar_sfc_completado(), donde `payload_dict` es el `payload_json` YA
+        ALMACENADO del item de cola, que pudo pasar por el round-trip de cjson en
+        ENQUEUE_LUA_SCRIPT (corrompe listas vacías a objetos vacíos, ver
+        queue_service.encolar_despacho). `operation` sigue infiriéndose de
+        `payload_dict` normalmente -- ningún campo que usa infer_operation_type es
+        una lista, así que esa inferencia no se ve afectada por esa corrupción.
         """
         operation = cls.infer_operation_type(payload_dict)
-        payload_hash = cls.compute_payload_hash(payload_dict)
+        payload_hash = payload_hash_override or cls.compute_payload_hash(payload_dict)
         return f"{IDEMPOTENCY_PREFIX}:{smart_code}:{operation}:{payload_hash}"
 
     @classmethod
-    def construir_registro_completado(cls, smart_code: str, payload_dict: dict, sfc_response: dict) -> dict:
+    def construir_registro_completado(
+        cls, smart_code: str, payload_dict: dict, sfc_response: dict, payload_hash_override: Optional[str] = None
+    ) -> dict:
         """Mismo razonamiento que construir_clave_completado, para el contenido del registro."""
         operation = cls.infer_operation_type(payload_dict)
-        payload_hash = cls.compute_payload_hash(payload_dict)
+        payload_hash = payload_hash_override or cls.compute_payload_hash(payload_dict)
         now_iso = datetime.now(ZoneInfo("America/Bogota")).isoformat()
         return {
             "source": "CRM_SALESFORCE",
@@ -549,6 +563,27 @@ class IdempotencyService:
             data = json.loads(raw_item)
             if data.get("estado") != SmartStatus.PENDING.value:
                 return False
+
+            # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes se recalculaba el
+            # hash acá mismo, a partir de data["payload_json"] -- el payload_json que
+            # queda almacenado ya pasó por un round-trip de cjson dentro de
+            # ENQUEUE_LUA_SCRIPT, y Lua no distingue lista vacía de objeto vacío al
+            # re-serializar (una tabla vacía siempre se codifica como "{}", nunca "[]").
+            # Cualquier campo tipo lista vacía (ej. archivos_s3: [], el caso más común)
+            # quedaba corrompido, así que ESTE recálculo nunca coincidía con el hash
+            # original -- CUALQUIER item con un campo de lista vacía se trataba siempre
+            # como huérfano, no sólo los casos con directorio_s3. Ahora se compara contra
+            # el campo 'payload_hash' que queue_service.encolar_despacho calcula en
+            # Python (sobre el dict original, nunca tocado por Lua) y guarda como string
+            # plano -- inmune a esa ambigüedad.
+            item_hash_guardado = data.get("payload_hash")
+            if item_hash_guardado:
+                return item_hash_guardado == payload_hash
+
+            # Compatibilidad hacia atrás: items de cola creados antes de este fix no
+            # tienen 'payload_hash' propio -- se recae en el cálculo anterior (que puede
+            # dar falso negativo ante campos de lista vacía, igual que antes del fix,
+            # pero sólo durante la ventana transitoria de items ya en vuelo al desplegar).
             item_hash = self.compute_payload_hash(data.get("payload_json") or {})
             return item_hash == payload_hash
         except Exception as e:
