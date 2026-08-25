@@ -109,6 +109,30 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(exito)
         self.assertIsNone(detalle)
 
+    async def test_logs_de_auditoria_se_emiten_en_nivel_info(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): los logs
+        AUDIT_HTTP_*_CRM_WEBHOOK usaban logger.debug() -- con LOG_LEVEL=INFO (el
+        valor por defecto en producción, ver logging_config.py), nunca se emitían.
+        El rastro de auditoría del webhook al CRM desaparecía por completo.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {
+            "success": True, "case_id": "50000000001", "case_number": "CASE-001", "idempotent": False
+        }
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        with self.assertLogs("app.services.crm_webhook_service", level="INFO") as logs:
+            await CrmWebhookService.notificar_resolucion_contingencia(
+                case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+            )
+
+        mensajes = [r.getMessage() for r in logs.records]
+        self.assertIn("AUDIT_HTTP_OUTGOING_REQUEST_CRM_WEBHOOK", mensajes)
+        self.assertIn("AUDIT_HTTP_INCOMING_RESPONSE_CRM_WEBHOOK", mensajes)
+
     async def test_503_service_unavailable_detalle_permite_clasificar_como_infraestructura(self):
         """
         El detalle retornado en una caída de infraestructura del CRM (5xx) debe

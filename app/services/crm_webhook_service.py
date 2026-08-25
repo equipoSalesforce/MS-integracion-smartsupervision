@@ -76,7 +76,12 @@ class CrmWebhookService:
         headers_clean = sanitizar_headers(headers)
         body_clean = sanitizar_payload(payload)
 
-        logger.debug("AUDIT_HTTP_OUTGOING_REQUEST_CRM_WEBHOOK", extra={
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): logger.debug() con
+        # LOG_LEVEL=INFO (el valor por defecto en producción, ver logging_config.py)
+        # nunca se emite -- estos logs de auditoría del webhook al CRM desaparecían por
+        # completo. Mismo nivel (.info) que ya usa sfc_client.py para sus propios logs
+        # AUDIT_HTTP_*.
+        logger.info("AUDIT_HTTP_OUTGOING_REQUEST_CRM_WEBHOOK", extra={
             "extra_data": {
                 "direction": "OUTGOING_REQUEST",
                 "method": "POST",
@@ -110,7 +115,7 @@ class CrmWebhookService:
                 # criterio que en sfc_client.py: tamaño + vista previa acotada.
                 res_body_clean = sanitizar_texto_plano(response.text)
 
-            logger.debug("AUDIT_HTTP_INCOMING_RESPONSE_CRM_WEBHOOK", extra={
+            logger.info("AUDIT_HTTP_INCOMING_RESPONSE_CRM_WEBHOOK", extra={
                 "extra_data": {
                     "direction": "INCOMING_RESPONSE",
                     "status_code": response.status_code,

@@ -298,11 +298,8 @@ async def _ejecutar_paso_sfc(
     PASO 1: Procesamiento en SFC (solo si no fue completado previamente).
     Retorna (continuar_a_paso_2, resultado_sfc).
     """
-    sfc_ya_completado = item.sfc_completado or payload_actual.get("_sfc_completado", False)
-    resultado_sfc = item.sfc_response or payload_actual.get("_sfc_resultado", {})
-
-    if sfc_ya_completado:
-        return True, resultado_sfc
+    if item.sfc_completado:
+        return True, item.sfc_response
 
     resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual)
 

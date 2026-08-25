@@ -256,6 +256,37 @@ class TestDespachoIdempotenteHit(_RoutesQuejasHttpTestCase):
         self.sfc_client_mock.post_nueva_queja.assert_not_called()
 
 
+class TestAuditoriaEntradaCrmLoguearExtraData(_RoutesQuejasHttpTestCase):
+    """
+    🔴 FIX (hallazgo de revisión externa, 2026-08-25): el log
+    AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM pasaba `extra={...}` PLANO --
+    JSONFormatter sólo lee `record.extra_data`, así que en producción el campo
+    "extra" nunca aparecía en el JSON. Único rastro del lado de entrada de toda la
+    cadena de auditoría regulatoria, perdido en silencio.
+    """
+
+    def test_log_de_auditoria_incluye_extra_data_con_el_body_y_headers(self):
+        self.idempotency_service_mock.verificar_o_iniciar_operacion = AsyncMock(
+            return_value=(True, {"status": "success", "sfc_response": {"Status": "ya procesado"}})
+        )
+
+        with self.assertLogs("app.api.routes_quejas", level="INFO") as logs:
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+
+        registro_auditoria = next(
+            r for r in logs.records if r.getMessage() == "AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM"
+        )
+        self.assertTrue(hasattr(registro_auditoria, "extra_data"))
+        self.assertEqual(registro_auditoria.extra_data["direction"], "INCOMING_REQUEST")
+        # Smart_Code__c llega con el prefijo SFC_TIPO_ENTIDAD+SFC_ENTIDAD_COD ya
+        # aplicado por el model_validator del schema (ver crm_payloads.py).
+        self.assertTrue(
+            registro_auditoria.extra_data["body"]["Smart_Code__c"].endswith(self.payload["Smart_Code__c"])
+        )
+
+
 class TestDespachoErrorDeOrquestacion(_RoutesQuejasHttpTestCase):
 
     def test_orquestador_retorna_status_error_da_400(self):

@@ -286,17 +286,27 @@ async def despachar_queja_crm(
     raw_payload = payload.model_dump(by_alias=True, mode="json")
     body_clean = sanitizar_payload(raw_payload)
 
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): `extra={...}` plano no llega a
+    # ningún lado en producción -- JSONFormatter.format sólo lee `record.extra_data`
+    # (ver app/core/logging_config.py), y logging.Logger.info() con `extra=` pone cada
+    # clave del dict directamente como atributo del LogRecord (record.direction,
+    # record.headers, etc.), no bajo `record.extra_data`. El log de auditoría de
+    # entrada del CRM -- el único rastro del lado de entrada de toda la cadena de
+    # auditoría regulatoria -- aparecía en CloudWatch sin ningún dato estructurado.
+    # Mismo patrón correcto que ya usa sfc_client.py (log_request/log_response).
     logger.info(
-    "AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM",
-    extra={
-        "direction": "INCOMING_REQUEST",
-        "method": request.method,
-        "path": request.url.path,
-        "headers": headers_clean,
-        "body": body_clean
-    }
-)
-    
+        "AUDIT_HTTP_INCOMING_REQUEST_FROM_CRM",
+        extra={
+            "extra_data": {
+                "direction": "INCOMING_REQUEST",
+                "method": request.method,
+                "path": request.url.path,
+                "headers": headers_clean,
+                "body": body_clean
+            }
+        }
+    )
+
     # 1. 🛡️ VERIFICACIÓN EN IDEMPOTENCY STORE
     es_hit, respuesta_idempotente = await idempotency_service.verificar_o_iniciar_operacion(
         smart_code=payload.Smart_Code__c,
