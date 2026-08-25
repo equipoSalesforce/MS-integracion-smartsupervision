@@ -175,8 +175,22 @@ class S3StorageService:
         if not case_id_esperado:
             return
 
+        # 🔴 FIX SEGURIDAD (hallazgo de revisión externa, 2026-08-25): la validación
+        # anterior comprobaba PERTENENCIA DE SEGMENTO (case_id_esperado en cualquier
+        # parte de la ruta), no la carpeta contenedora real del archivo. Un atacante
+        # que controla su propio Case_id (payload del CRM, sin restricción de formato
+        # más allá de letras/números/guiones) podía enviar un Case_id igual a
+        # cualquier carpeta COMPARTIDA de la ruta (ej. un prefijo fijo usado por
+        # varios casos) y la validación pasaba para archivos de otros clientes.
+        # No hay un único prefijo literal fijo en este repo -- las keys reales usan
+        # "caso/{case_id}/archivo.pdf", "{case_id}/archivo.pdf" e incluso
+        # "quejas/{case_id}/archivo.pdf" según el origen del adjunto -- así que en
+        # vez de asumir una carpeta fija, se exige que case_id_esperado sea
+        # exactamente la carpeta CONTENEDORA DIRECTA del archivo (el penúltimo
+        # segmento de la ruta), sin importar cuántas carpetas la precedan.
         segmentos = [seg for seg in s3_key_clean.split("/") if seg]
-        if case_id_esperado not in segmentos:
+        pertenece = len(segmentos) >= 2 and segmentos[-2] == case_id_esperado
+        if not pertenece:
             logger.error(
                 f"🚨 [S3 Ownership] La key '{s3_key_clean}' no pertenece al caso "
                 f"'{case_id_esperado}' que se está procesando."
@@ -187,6 +201,29 @@ class S3StorageService:
                 sfc_field="s3_key",
                 raw_message=f"La key '{s3_key_clean}' no corresponde al caso '{case_id_esperado}'.",
                 crm_action="Verifique que los archivos referenciados (s3_key) pertenezcan al caso que se está enviando."
+            )
+
+    @staticmethod
+    def _validar_prefijo_pertenece_al_caso(prefix_clean: str, case_id_esperado: Optional[str]) -> None:
+        """Misma protección que _validar_ownership_key, pero para un PREFIJO de
+        directorio (sin nombre de archivo final) en vez de una key de archivo --
+        aquí el case_id debe ser el ÚLTIMO segmento (la carpeta que se está
+        listando debe SER la carpeta del caso), no el penúltimo."""
+        if not case_id_esperado:
+            return
+
+        segmentos = [seg for seg in prefix_clean.split("/") if seg]
+        if not segmentos or segmentos[-1] != case_id_esperado:
+            logger.error(
+                f"🚨 [S3 Ownership] El prefijo '{prefix_clean}' no pertenece al caso "
+                f"'{case_id_esperado}' que se está procesando."
+            )
+            raise SfcIntegrationException(
+                status_code=403,
+                error_type="S3_KEY_OWNERSHIP_MISMATCH",
+                sfc_field="directorio_s3",
+                raw_message=f"El prefijo '{prefix_clean}' no corresponde al caso '{case_id_esperado}'.",
+                crm_action="Verifique que 'directorio_s3' apunte a la carpeta propia del caso que se está enviando."
             )
 
     def _escribir_mock_local_o_fallar(self, tmp_file, s3_key_clean: str, file_name: str) -> None:
@@ -450,10 +487,36 @@ class S3StorageService:
     async def listar_archivos_en_directorio(
         self,
         prefix: str,
-        bucket: Optional[str] = None
+        bucket: Optional[str] = None,
+        case_id_esperado: Optional[str] = None
     ) -> List[Dict[str, str]]:
         target_bucket = bucket or self.default_bucket
         prefix_clean = self._limpiar_key(prefix)
+
+        # 🔴 FIX SEGURIDAD (hallazgo de revisión externa, 2026-08-25): un
+        # directorio_s3 vacío o "/" tras limpiar (_limpiar_key("/") == "") caía en
+        # list_objects_v2(Prefix="") -- el BUCKET COMPLETO, exponiendo los adjuntos
+        # de TODOS los casos de TODOS los clientes bajo un solo despacho. Se rechaza
+        # un prefijo raíz incondicionalmente (sin importar si el caller pasó
+        # case_id_esperado) para que ningún llamador futuro pueda reabrir el hueco
+        # simplemente omitiendo ese parámetro.
+        if not prefix_clean:
+            logger.error(
+                "🚨 [S3 Ownership] Se rechaza listar_archivos_en_directorio con un prefijo "
+                "vacío/raíz -- listaría el bucket completo en vez de un caso específico."
+            )
+            raise SfcIntegrationException(
+                status_code=400,
+                error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+                sfc_field="directorio_s3",
+                raw_message="El campo 'directorio_s3' no puede resolver a un prefijo vacío o raíz del bucket.",
+                crm_action="Verifique que 'directorio_s3' apunte a la carpeta específica del caso (ej. 'caso/{Case_id}/')."
+            )
+
+        # Misma protección que ya validaba ownership al transferir cada archivo
+        # individual (_validar_ownership_key), aplicada aquí ANTES de listar.
+        self._validar_prefijo_pertenece_al_caso(prefix_clean, case_id_esperado)
+
         if prefix_clean and not prefix_clean.endswith("/"):
             prefix_clean += "/"
 

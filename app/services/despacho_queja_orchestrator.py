@@ -80,7 +80,10 @@ class DespachoQuejaOrquestador:
         # Inspección y listado dinámico desde S3 si viene solo la ruta del directorio
         if payload.directorio_s3 and not payload.archivos_s3:
             s3_service = self.m3_service.s3_service
-            archivos_remotos = await s3_service.listar_archivos_en_directorio(prefix=payload.directorio_s3)
+            case_id_esperado = payload.Case_id or smart_code
+            archivos_remotos = await s3_service.listar_archivos_en_directorio(
+                prefix=payload.directorio_s3, case_id_esperado=case_id_esperado
+            )
             
             if archivos_remotos:
                 logger.info(f"📂 [Orquestador] Encontrados {len(archivos_remotos)} archivos en directorio '{payload.directorio_s3}'")

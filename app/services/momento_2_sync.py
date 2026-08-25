@@ -103,7 +103,9 @@ class Momento2SincronizacionService:
             
             directorio_s3 = getattr(payload, "directorio_s3", None) or crm_dict.get("directorio_s3")
             if not archivos_s3_raw and directorio_s3:
-                archivos_s3_raw = await self.s3_service.listar_archivos_en_directorio(prefix=directorio_s3)
+                archivos_s3_raw = await self.s3_service.listar_archivos_en_directorio(
+                    prefix=directorio_s3, case_id_esperado=case_id_crm
+                )
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
 
