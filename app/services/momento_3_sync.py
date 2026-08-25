@@ -1,6 +1,7 @@
 # app/services/momento_3_sync.py
 import asyncio
 import logging
+import time
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -10,11 +11,13 @@ import httpx
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.core.exceptions import SfcIntegrationException
-from app.core.mapping import SfcSalesforceMapper 
-from app.schemas.sfc_payloads import SfcActualizarQuejaPayload 
+from app.core.mapping import SfcSalesforceMapper
+from app.schemas.sfc_payloads import SfcActualizarQuejaPayload
 from app.utils.email_parser import extraer_texto_limpio_de_html
 from app.utils.pdf_generator import generar_pdf_respuesta_final
 from app.services.email_service import EmailAlertService
+from app.core.metrics import emit_emf_metric
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,41 @@ class Momento3SincronizacionService:
             cliente_nombre = getattr(payload, "SuppliedName", "Consumidor Financiero")
 
         return crm_dict, smart_code, case_id_crm, archivos_s3_raw, cuerpo_correo, cliente_nombre
+
+    @staticmethod
+    def _determinar_sub_operacion(generar_pdf_cierre: bool, afijo_regulatorio: Optional[str]) -> str:
+        if generar_pdf_cierre:
+            return "cierre"
+        if afijo_regulatorio == "INV_FRAUDE_SFC":
+            return "fraude"
+        return "actualizacion"
+
+    @staticmethod
+    def _emitir_metrica_m3(
+        sub_operacion: str, tiene_adjuntos: bool, inicio_monotonic: float, resultado: str, categoria_error: str = "N/A"
+    ) -> None:
+        """
+        Métrica EMF de latencia y volumen del pipeline de Momento 3, por
+        sub-operación -- pedida en la propuesta de observabilidad de CX
+        (Grafana), panel "M3 por sub-operación". `tiene_adjuntos` emite además un
+        conteo bajo sub_operacion='adjunto', independiente de cierre/fraude/
+        actualizacion (un mismo caso puede ser, por ejemplo, un cierre que
+        además trae adjuntos).
+        """
+        latencia_ms = (time.monotonic() - inicio_monotonic) * 1000
+        dims_base = {"Environment": settings.ENVIRONMENT, "resultado": resultado, "categoria_error": categoria_error}
+
+        emit_emf_metric(
+            namespace="SSV/MomentoTres",
+            metrics={"m3_count": (1, "Count"), "m3_latency_ms": (latencia_ms, "Milliseconds")},
+            dimensions={**dims_base, "sub_operacion": sub_operacion}
+        )
+        if tiene_adjuntos:
+            emit_emf_metric(
+                namespace="SSV/MomentoTres",
+                metrics={"m3_count": (1, "Count")},
+                dimensions={**dims_base, "sub_operacion": "adjunto"}
+            )
 
     @staticmethod
     def _aplicar_estado_inicial_sfc(sfc_raw_payload: Dict[str, Any], generar_pdf_cierre: bool) -> None:
@@ -122,7 +160,9 @@ class Momento3SincronizacionService:
         generar_pdf_cierre: bool = False,
         afijo_masivo: bool = False
     ) -> Dict[str, Any]:
+        inicio_monotonic = time.monotonic()
         crm_dict, smart_code, case_id_crm, archivos_s3_raw, cuerpo_correo, cliente_nombre = self._extraer_datos_payload(payload)
+        sub_operacion = self._determinar_sub_operacion(generar_pdf_cierre, afijo_regulatorio)
 
         sfc_id_largo = smart_code
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict, momento=3)
@@ -169,6 +209,7 @@ class Momento3SincronizacionService:
                 payload=payload_validado.model_dump(exclude_none=True)
             )
 
+            self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="success")
             return {
                 "status": "success",
                 "message": f"Caso {smart_code} actualizado en M3 (Estado SFC {estado_cod})",
@@ -183,15 +224,21 @@ class Momento3SincronizacionService:
                     sfc_field=getattr(exc, "sfc_field", None),
                     smart_code=smart_code
                 )
+            self._emitir_metrica_m3(
+                sub_operacion, bool(archivos_s3_raw), inicio_monotonic,
+                resultado="error", categoria_error=getattr(exc, "error_type", None) or "UNKNOWN_SFC_ERROR"
+            )
             raise
 
         except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
             logger.error(f"❌ [Momento 3] Fallo de red/conexión para {smart_code}: {net_err}")
+            self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="error", categoria_error="NETWORK_ERROR")
             raise net_err
 
         except Exception as e:
             # 🟢 FIX HALLAZGO 40: Se relanza la excepción no controlada para tratarse como 500
             logger.error(f"🔥 [Momento 3] Fallo no controlado en pipeline M3 para caso {smart_code}: {str(e)}", exc_info=True)
+            self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="error", categoria_error="UNCONTROLLED_ERROR")
             raise e
 
     async def _generar_y_enviar_pdf_respuesta_final(

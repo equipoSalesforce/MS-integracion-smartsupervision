@@ -344,6 +344,113 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
 
+    # ======================================================================
+    # 🧪 SUITE 3: MÉTRICA EMF (SSV/MomentoTres) -- propuesta de observabilidad CX
+    # ======================================================================
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_tramite_exitoso_emite_metrica_con_sub_operacion_actualizacion(self, mock_mapper):
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "updated"})
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({"Status": "In Progress", "producto_digital__c": "Si"})
+        input_tramite = QuejaUnificadaCrmInput(**payload_dict)
+
+        with patch("app.services.momento_3_sync.emit_emf_metric") as mock_emit:
+            resultado = await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
+
+        self.assertEqual(resultado["status"], "success")
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["namespace"], "SSV/MomentoTres")
+        self.assertEqual(kwargs["dimensions"]["sub_operacion"], "actualizacion")
+        self.assertEqual(kwargs["dimensions"]["resultado"], "success")
+        self.assertIn("m3_latency_ms", kwargs["metrics"])
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_cierre_exitoso_emite_metrica_con_sub_operacion_cierre(self, mock_mapper):
+        sfc_mock = self.mock_mapper_response.copy()
+        sfc_mock["estado_cod"] = 4
+        sfc_mock["fecha_cierre"] = "2026-07-16"
+        mock_mapper.return_value = sfc_mock
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "closed"})
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 99})
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "Favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre.</p>",
+            "archivos_s3": []
+        })
+        input_cierre = QuejaUnificadaCrmInput(**payload_dict)
+
+        with patch("app.services.momento_3_sync.emit_emf_metric") as mock_emit:
+            resultado = await servicio.ejecutar_cierre_definitivo(payload=input_cierre)
+
+        self.assertEqual(resultado["status"], "success")
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["sub_operacion"], "cierre")
+        self.assertEqual(kwargs["dimensions"]["resultado"], "success")
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_con_adjuntos_emite_metrica_adicional_sub_operacion_adjunto(self, mock_mapper):
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 1})
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "updated"})
+
+        # El adjunto se referencia por s3_key real -- se configura el mock de boto3
+        # para que la descarga (con fallback a get_object) devuelva contenido PDF
+        # válido, en vez de mockear también toda la plomería de S3StorageService.
+        contenido_pdf = b"%PDF-1.4 contenido de prueba"
+        mock_body = MagicMock()
+        mock_body.read.return_value = contenido_pdf
+        self.s3_client_mock.get_object.return_value = {"Body": mock_body}
+        self.s3_client_mock.head_object.return_value = {"ContentLength": len(contenido_pdf)}
+
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({
+            "Status": "In Progress",
+            "producto_digital__c": "Si",
+            "archivos_s3": [{"nombre_archivo": "soporte.pdf", "s3_key": f"caso/{self.sfc_id_largo_esperado}/soporte.pdf", "bucket": "b1"}]
+        })
+        input_tramite = QuejaUnificadaCrmInput(**payload_dict)
+
+        with patch("app.services.momento_3_sync.emit_emf_metric") as mock_emit:
+            await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
+
+        sub_operaciones_emitidas = [c.kwargs["dimensions"]["sub_operacion"] for c in mock_emit.call_args_list]
+        self.assertIn("actualizacion", sub_operaciones_emitidas)
+        self.assertIn("adjunto", sub_operaciones_emitidas)
+
+    @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
+    async def test_error_sfc_emite_metrica_con_categoria_error_y_relanza(self, mock_mapper):
+        mock_mapper.return_value = self.mock_mapper_response.copy()
+        self.sfc_client_mock.put_actualizar_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "CRM_PAYLOAD_VALIDATION_ERROR", "estado_cod", "El código de estado no es válido", "Validar"
+            )
+        )
+        servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        payload_dict = self.base_crm_payload.copy()
+        payload_dict.update({"Status": "In Progress", "producto_digital__c": "Si"})
+        input_tramite = QuejaUnificadaCrmInput(**payload_dict)
+
+        with patch("app.services.momento_3_sync.emit_emf_metric") as mock_emit:
+            with self.assertRaises(SfcIntegrationException):
+                await servicio.ejecutar_actualizacion_tramite(payload=input_tramite)
+
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["resultado"], "error")
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "CRM_PAYLOAD_VALIDATION_ERROR")
+
 
 if __name__ == "__main__":
     unittest.main()
