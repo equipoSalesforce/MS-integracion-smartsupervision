@@ -3,6 +3,7 @@ import logging
 import httpx
 from typing import Any, Optional, Tuple
 from app.core.config import settings
+from app.core.metrics import emit_emf_metric
 from app.core.middleware import get_correlation_id
 from app.core.security.sanitizer import sanitizar_headers, sanitizar_payload, sanitizar_texto_plano
 
@@ -36,6 +37,18 @@ close_crm_fallback_client = close_crm_webhook_client
 class CrmWebhookService:
 
     @staticmethod
+    def _emitir_metrica_webhook(resultado: str, categoria_error: str = "N/A") -> None:
+        emit_emf_metric(
+            namespace="SSV/CrmWebhookService",
+            metrics={"webhook_count": (1, "Count")},
+            dimensions={
+                "Environment": settings.ENVIRONMENT,
+                "resultado": resultado,
+                "categoria_error": categoria_error
+            }
+        )
+
+    @staticmethod
     async def notificar_resolucion_contingencia(
         case_id_crm: str,
         smart_code: str,
@@ -56,6 +69,7 @@ class CrmWebhookService:
                 "❌ [CRM Webhook] Fallo de configuración: 'CRM_WEBHOOK_URL' no está definida en las "
                 "variables de entorno. No se puede notificar la resolución al CRM."
             )
+            CrmWebhookService._emitir_metrica_webhook(resultado="error", categoria_error="CONFIG_ERROR")
             return False, "Fallo de configuración: 'CRM_WEBHOOK_URL' no está definida."
 
         cid = get_correlation_id()
@@ -127,15 +141,26 @@ class CrmWebhookService:
             })
 
             if response.status_code in (200, 201, 202):
-                return CrmWebhookService._validar_respuesta_exitosa(response, content_type, raw_json, case_id_crm)
+                exito, detalle = CrmWebhookService._validar_respuesta_exitosa(
+                    response, content_type, raw_json, case_id_crm
+                )
+                CrmWebhookService._emitir_metrica_webhook(
+                    resultado="success" if exito else "error",
+                    categoria_error="N/A" if exito else "CONTRACT_VIOLATION"
+                )
+                return exito, detalle
             else:
                 logger.warning(
                     f"⚠️ [CRM Webhook] El CRM respondió con código HTTP de error {response.status_code}."
+                )
+                CrmWebhookService._emitir_metrica_webhook(
+                    resultado="error", categoria_error=f"HTTP_{response.status_code}"
                 )
                 return False, f"El CRM respondió con código HTTP de error {response.status_code}."
 
         except Exception as exc:
             logger.error(f"❌ [CRM Webhook] Fallo de red/comunicación al notificar al CRM: {str(exc)}")
+            CrmWebhookService._emitir_metrica_webhook(resultado="error", categoria_error="NETWORK_ERROR")
             return False, f"Fallo de red/comunicación al notificar al CRM: {str(exc)}"
 
     @staticmethod

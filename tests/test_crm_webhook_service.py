@@ -1,6 +1,6 @@
 # tests/test_crm_webhook_service.py
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.crm_webhook_service import CrmWebhookService
 
 
@@ -166,6 +166,94 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(exito)
         self.assertIn("Connection refused", detalle)
+
+
+class TestCrmWebhookServiceMetricaEmf(unittest.IsolatedAsyncioTestCase):
+    """Métrica EMF SSV/CrmWebhookService (propuesta de observabilidad CX)."""
+
+    def setUp(self):
+        self.mock_http_client = AsyncMock()
+        self.patcher_metrica = patch("app.services.crm_webhook_service.emit_emf_metric")
+        self.mock_emit = self.patcher_metrica.start()
+        self.addCleanup(self.patcher_metrica.stop)
+
+    def _dimensiones_ssv(self):
+        return [
+            c.kwargs["dimensions"] for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/CrmWebhookService"
+        ]
+
+    async def test_contrato_valido_emite_metrica_resultado_success(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {
+            "success": True, "case_id": "50000000001", "case_number": "CASE-001", "idempotent": False
+        }
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+        )
+
+        dims = self._dimensiones_ssv()
+        self.assertEqual(len(dims), 1)
+        self.assertEqual(dims[0]["resultado"], "success")
+
+    async def test_contrato_invalido_emite_metrica_error_contract_violation(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"success": False, "error": "Caso bloqueado"}
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+        )
+
+        dims = self._dimensiones_ssv()
+        self.assertEqual(len(dims), 1)
+        self.assertEqual(dims[0]["resultado"], "error")
+        self.assertEqual(dims[0]["categoria_error"], "CONTRACT_VIOLATION")
+
+    async def test_http_503_emite_metrica_error_con_codigo_http(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"error": "Service Unavailable"}
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+        )
+
+        dims = self._dimensiones_ssv()
+        self.assertEqual(len(dims), 1)
+        self.assertEqual(dims[0]["resultado"], "error")
+        self.assertEqual(dims[0]["categoria_error"], "HTTP_503")
+
+    async def test_fallo_de_red_emite_metrica_error_network_error(self):
+        self.mock_http_client.post = AsyncMock(side_effect=Exception("Connection refused"))
+
+        await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+        )
+
+        dims = self._dimensiones_ssv()
+        self.assertEqual(len(dims), 1)
+        self.assertEqual(dims[0]["resultado"], "error")
+        self.assertEqual(dims[0]["categoria_error"], "NETWORK_ERROR")
+
+    async def test_webhook_url_no_configurada_emite_metrica_error_config_error(self):
+        with patch("app.services.crm_webhook_service.settings.CRM_WEBHOOK_URL", ""):
+            await CrmWebhookService.notificar_resolucion_contingencia(
+                case_id_crm="CASE-001", smart_code="1286SC001", http_client=self.mock_http_client
+            )
+
+        dims = self._dimensiones_ssv()
+        self.assertEqual(len(dims), 1)
+        self.assertEqual(dims[0]["resultado"], "error")
+        self.assertEqual(dims[0]["categoria_error"], "CONFIG_ERROR")
 
 
 if __name__ == "__main__":
