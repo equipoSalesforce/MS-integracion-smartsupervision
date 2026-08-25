@@ -195,5 +195,110 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SfcErrorTranslator", mock_programar.call_args.kwargs["asunto"])
 
 
+class TestDedupClaveVentana(unittest.TestCase):
+    """
+    🟡 FIX (hallazgo A4, auditoría adversarial 2026-08-25): sin deduplicación,
+    notificar_falla_infraestructura se dispara una vez por cada request mientras
+    Redis está caído. _deberia_enviar es el mecanismo de clave+ventana que lo evita.
+    """
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+
+    def test_primera_llamada_con_clave_permite_envio(self):
+        self.assertTrue(EmailAlertService._deberia_enviar("clave-x"))
+
+    def test_segunda_llamada_dentro_de_la_ventana_no_permite_envio(self):
+        EmailAlertService._deberia_enviar("clave-x")
+        self.assertFalse(EmailAlertService._deberia_enviar("clave-x"))
+
+    def test_clave_none_siempre_permite_envio(self):
+        self.assertTrue(EmailAlertService._deberia_enviar(None))
+        self.assertTrue(EmailAlertService._deberia_enviar(None))
+
+    def test_claves_distintas_no_se_bloquean_entre_si(self):
+        EmailAlertService._deberia_enviar("clave-a")
+        self.assertTrue(EmailAlertService._deberia_enviar("clave-b"))
+
+    def test_despues_de_la_ventana_vuelve_a_permitir_envio(self):
+        with patch("app.services.email_service.time.monotonic", return_value=1000.0):
+            self.assertTrue(EmailAlertService._deberia_enviar("clave-x"))
+        with patch(
+            "app.services.email_service.time.monotonic",
+            return_value=1000.0 + EmailAlertService.VENTANA_DEDUP_SEGUNDOS + 1
+        ):
+            self.assertTrue(EmailAlertService._deberia_enviar("clave-x"))
+
+
+class TestProgramarEnvioBackgroundDedup(unittest.IsolatedAsyncioTestCase):
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+        EmailAlertService._background_tasks = set()
+
+    async def test_segunda_llamada_con_misma_clave_no_programa_tarea(self):
+        with patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            EmailAlertService._programar_envio_background(
+                destinatarios=["ops@g66.com"], asunto="a", cuerpo_html="<p>a</p>", clave_dedup="clave-x"
+            )
+            EmailAlertService._programar_envio_background(
+                destinatarios=["ops@g66.com"], asunto="b", cuerpo_html="<p>b</p>", clave_dedup="clave-x"
+            )
+        self.assertEqual(mock_create_task.call_count, 1)
+
+    async def test_sin_clave_dedup_siempre_programa(self):
+        with patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            EmailAlertService._programar_envio_background(destinatarios=["ops@g66.com"], asunto="a", cuerpo_html="<p>a</p>")
+            EmailAlertService._programar_envio_background(destinatarios=["ops@g66.com"], asunto="b", cuerpo_html="<p>b</p>")
+        self.assertEqual(mock_create_task.call_count, 2)
+
+
+class TestFallaInfraestructuraYErrorNoMapeadoDedupIntegracion(unittest.IsolatedAsyncioTestCase):
+    """Verifica el enganche real de clave_dedup en los dos notificadores que
+    señala el informe -- disparados por tráfico de request, no por un job programado."""
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+        EmailAlertService._background_tasks = set()
+
+    async def test_segunda_falla_infraestructura_en_la_ventana_no_reenvia(self):
+        """Clave global: dos casos distintos durante la misma caída de Redis sólo
+        deben generar UN correo, no uno por smart_code."""
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-1", error_msg="timeout")
+            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-2", error_msg="timeout")
+        self.assertEqual(mock_create_task.call_count, 1)
+
+    async def test_error_no_mapeado_con_distinto_status_code_si_reenvia(self):
+        """Distinta clave (status_code+campo) no debe deduplicarse entre sí."""
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_error_no_mapeado(status_code=500, raw_message="x", sfc_field="f")
+            await EmailAlertService.notificar_error_no_mapeado(status_code=502, raw_message="x", sfc_field="f")
+        self.assertEqual(mock_create_task.call_count, 2)
+
+    async def test_error_no_mapeado_repetido_en_la_ventana_no_reenvia(self):
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_error_no_mapeado(
+                status_code=500, raw_message="x", sfc_field="f", smart_code="SC-1"
+            )
+            await EmailAlertService.notificar_error_no_mapeado(
+                status_code=500, raw_message="x", sfc_field="f", smart_code="SC-2"
+            )
+        self.assertEqual(mock_create_task.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

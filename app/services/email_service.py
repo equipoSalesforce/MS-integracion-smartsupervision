@@ -3,6 +3,7 @@ import html
 import logging
 import smtplib
 import asyncio
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any, Set
@@ -31,9 +32,39 @@ class EmailAlertService:
     # 🟢 RASTREO DE TAREAS EN SEGUNDO PLANO: Evita advertencias de tareas destruidas
     _background_tasks: Set[asyncio.Task] = set()
 
+    # 🟡 FIX (hallazgo A4, auditoría adversarial 2026-08-25): sin esto, una caída de
+    # Redis dispara notificar_falla_infraestructura EN CADA REQUEST (vía
+    # idempotency_service.py::_fail_closed_redis_no_disponible) -- cada uno bloquea
+    # hasta 10s en SMTP dentro del pool de hilos compartido con S3/PDF, y la bandeja
+    # de operaciones recibe un correo idéntico por request. Se deduplica por
+    # clave+ventana: la misma clave no vuelve a disparar un envío hasta que pase la
+    # ventana, sin importar cuántas veces se llame al notificador mientras tanto.
+    _ULTIMO_ENVIO_POR_CLAVE: Dict[str, float] = {}
+    VENTANA_DEDUP_SEGUNDOS = 900  # 15 minutos
+
     @classmethod
-    def _programar_envio_background(cls, destinatarios: List[str], asunto: str, cuerpo_html: str):
+    def _deberia_enviar(cls, clave_dedup: Optional[str]) -> bool:
+        if clave_dedup is None:
+            return True
+        ahora = time.monotonic()
+        ultimo_envio = cls._ULTIMO_ENVIO_POR_CLAVE.get(clave_dedup)
+        if ultimo_envio is not None and (ahora - ultimo_envio) < cls.VENTANA_DEDUP_SEGUNDOS:
+            return False
+        cls._ULTIMO_ENVIO_POR_CLAVE[clave_dedup] = ahora
+        return True
+
+    @classmethod
+    def _programar_envio_background(
+        cls, destinatarios: List[str], asunto: str, cuerpo_html: str, clave_dedup: Optional[str] = None
+    ):
         """Programa la tarea de envío y mantiene la referencia viva hasta su finalización."""
+        if not cls._deberia_enviar(clave_dedup):
+            logger.info(
+                f"📧 [Email Alert] Envío omitido por deduplicación (clave='{clave_dedup}', "
+                f"ventana={cls.VENTANA_DEDUP_SEGUNDOS}s): '{asunto}'"
+            )
+            return
+
         task = asyncio.create_task(
             asyncio.to_thread(
                 cls._enviar_smtp_sync,
@@ -136,7 +167,10 @@ class EmailAlertService:
         cls._programar_envio_background(
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            # Clave global (no por smart_code): una caída de infraestructura es un
+            # solo evento, no N eventos independientes por cada caso que la sufre.
+            clave_dedup="falla_infraestructura"
         )
 
     @classmethod
@@ -201,7 +235,10 @@ class EmailAlertService:
         cls._programar_envio_background(
             destinatarios=destinatario_dev,
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            # Mismo error no mapeado (status_code + campo) no vuelve a disparar
+            # correo hasta que pase la ventana, aunque cada despacho lo repita.
+            clave_dedup=f"error_no_mapeado:{status_code}:{sfc_field or 'N/A'}"
         )
 
     @classmethod
