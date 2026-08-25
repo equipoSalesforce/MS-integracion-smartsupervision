@@ -21,7 +21,8 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from app.services.email_service import EmailAlertService
 from app.core.config import settings
-from app.workers.scheduler import reintentar_despachos_pendientes_job
+from app.core.exceptions import SfcIntegrationException
+from app.workers.scheduler import reintentar_despachos_pendientes_job, _es_falla_infraestructura
 
 
 class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
@@ -257,6 +258,109 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             instance_qs.registrar_fallo.assert_called_once_with(
                 item=reg, error_msg=ANY, worker_id=ANY, consumir_intento=True
             )
+
+
+class TestEsFallaInfraestructuraUsaExcepcionEstructurada(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes _es_falla_infraestructura
+    clasificaba SIEMPRE por subcadena sobre el mensaje libre de error -- para una
+    SfcIntegrationException (el caso más común de fallo real al despachar), ese texto
+    es el mensaje devuelto por la SFC, que puede contener un monto/código de caso que
+    coincida por casualidad con "503"/"429"/etc, clasificando mal un rechazo de negocio
+    real como caída transitoria de infraestructura. Ahora usa
+    SfcIntegrationException.es_transitoria (status_code/error_type estructurados) en
+    vez del texto, cuando hay una excepción disponible.
+    """
+
+    def _exc(self, status_code, error_type, raw_message):
+        return SfcIntegrationException(
+            status_code=status_code, error_type=error_type, sfc_field=None,
+            raw_message=raw_message, crm_action="Corrija el dato."
+        )
+
+    def test_rechazo_de_negocio_con_503_en_el_mensaje_no_se_clasifica_como_infraestructura(self):
+        """El escenario exacto del hallazgo: status_code=400 (rechazo real de negocio),
+        pero el mensaje de la SFC menciona '503' como parte de un monto/código -- antes
+        esto daba un falso positivo por subcadena."""
+        exc = self._exc(400, "CRM_PAYLOAD_VALIDATION_ERROR", "El monto_reclamado (503829.50) supera el límite permitido")
+        self.assertFalse(_es_falla_infraestructura(str(exc), exc=exc))
+
+    def test_caida_real_5xx_si_se_clasifica_como_infraestructura(self):
+        exc = self._exc(503, "SFC_DOWN", "Servicio no disponible temporalmente")
+        self.assertTrue(_es_falla_infraestructura(str(exc), exc=exc))
+
+    def test_error_type_transitorio_con_status_code_no_5xx_igual_se_clasifica_como_infraestructura(self):
+        exc = self._exc(429, "THROTTLED_ERROR", "Cuota excedida")
+        self.assertTrue(_es_falla_infraestructura(str(exc), exc=exc))
+
+    def test_sin_excepcion_estructurada_cae_al_match_por_subcadena_como_antes(self):
+        """Excepciones genéricas (ConnectionError, httpx.TimeoutException, etc.) o el
+        mensaje del webhook al CRM no tienen campos estructurados -- se mantiene el
+        comportamiento anterior como fallback."""
+        self.assertTrue(_es_falla_infraestructura("Connection timeout al conectar con el host"))
+        self.assertFalse(_es_falla_infraestructura("El CRM no confirmó éxito explícito (success=False)."))
+
+
+class TestClasificacionEstructuradaNoDifiereElRestoDelLotePorFalsoPositivo(unittest.IsolatedAsyncioTestCase):
+    """Verifica el efecto de punta a punta del fix: un rechazo de negocio real (con
+    '503' coincidiendo en el texto) ya NO dispara el diferimiento del resto del lote
+    del ciclo del scheduler -- sólo una caída de infraestructura genuina debe hacerlo."""
+
+    def _item_base(self, item_id, smart_code):
+        reg = MagicMock()
+        reg.id = item_id
+        reg.smart_code = smart_code
+        reg.payload_json = {"Smart_Code__c": smart_code}
+        reg.correlation_id = "N/A"
+        reg.sfc_completado = False
+        reg.sfc_response = {}
+        reg.version = 1
+        reg.payload_hash = "hash-de-prueba"
+        reg.to_dict = MagicMock(return_value={"correlation_id": "N/A"})
+        return reg
+
+    async def test_rechazo_de_negocio_con_503_en_el_texto_no_difiere_el_resto_del_lote(self):
+        reg_1 = self._item_base(1, "SC-A")
+        reg_2 = self._item_base(2, "SC-B")
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock, return_value=(True, None)), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg_1, reg_2])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock(return_value="completed")
+            instance_qs.diferir_pendientes_por_caida_sfc = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(side_effect=[reg_1, reg_2])
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(
+                side_effect=[
+                    SfcIntegrationException(
+                        status_code=400, error_type="CRM_PAYLOAD_VALIDATION_ERROR", sfc_field="monto",
+                        raw_message="El monto_reclamado (503829.50) supera el límite permitido",
+                        crm_action="Corrija el dato."
+                    ),
+                    {"status": "success", "codigo_queja": "SC-B"}
+                ]
+            )
+
+            await reintentar_despachos_pendientes_job()
+
+            instance_qs.diferir_pendientes_por_caida_sfc.assert_not_called()
+            # El segundo item del lote SÍ debe procesarse -- no se cortó el ciclo.
+            instance_orq.procesar_despacho_raw_json.assert_called()
+            self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 2)
 
 
 if __name__ == "__main__":

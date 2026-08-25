@@ -13,6 +13,7 @@ from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.services.email_service import EmailAlertService
 from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
+from app.core.exceptions import SfcIntegrationException
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
 from app.core.metrics import emit_emf_metric
@@ -203,7 +204,27 @@ class QueueLockWatchdog:
                 pass
 
 
-def _es_falla_infraestructura(error_msg: Optional[str]) -> bool:
+def _es_falla_infraestructura(error_msg: Optional[str], exc: Optional[BaseException] = None) -> bool:
+    """
+    🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes clasificaba SIEMPRE por
+    subcadena sobre `error_msg` -- para una SfcIntegrationException (el caso más común
+    de fallo real al despachar), ese texto es el mensaje libre devuelto por la SFC, que
+    puede contener un monto, código de caso o timestamp que coincida por casualidad con
+    "503"/"429"/etc, clasificando mal un rechazo de negocio real como caída transitoria
+    de infraestructura -- eso evita que se consuma el intento y difiere el resto del
+    lote completo en ese ciclo del scheduler sin motivo real.
+
+    Cuando `exc` es una SfcIntegrationException, se usa su property `es_transitoria`
+    (campos estructurados status_code/error_type, misma fuente de verdad que
+    routes_quejas.py::es_error_contingencia) en vez de parsear el mensaje. El match por
+    subcadena queda como fallback sólo para excepciones genéricas sin campos
+    estructurados (ConnectionError, httpx.TimeoutException, etc.) y para el mensaje del
+    webhook al CRM (CrmWebhookService), cuyo texto lo generamos nosotros mismos con un
+    formato predecible -- no viene de un sistema externo con datos de negocio libres.
+    """
+    if isinstance(exc, SfcIntegrationException):
+        return exc.es_transitoria
+
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
@@ -478,7 +499,7 @@ async def _procesar_item_reclamado(
             )
             if resultado_fallo == "failed":
                 resultado.fallido = True
-            resultado.es_falla_infraestructura = _es_falla_infraestructura(error_msg)
+            resultado.es_falla_infraestructura = _es_falla_infraestructura(error_msg, exc=exc)
         finally:
             correlation_id_ctx.reset(token)
 

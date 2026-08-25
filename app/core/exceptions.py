@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 class SfcIntegrationException(Exception):
     """Excepción personalizada para controlar fallas devueltas por la SFC."""
 
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes esta clasificación vivía
+    # duplicada -- routes_quejas.py::es_error_contingencia ya la calculaba sobre campos
+    # estructurados (status_code/error_type), mientras que scheduler.py::
+    # _es_falla_infraestructura hacía match de subcadenas ("503", "429", etc.) sobre el
+    # texto libre del mensaje de error de la SFC -- un monto, código de caso o
+    # timestamp que contuviera esos dígitos por coincidencia podía clasificar mal un
+    # rechazo de negocio real como caída transitoria de infraestructura. Única fuente
+    # de verdad ahora: ambos call sites usan esta property.
+    ERROR_TYPES_TRANSITORIOS = frozenset({
+        "SERVER_ERROR", "SFC_DOWN", "TIMEOUT", "NETWORK_ERROR",
+        "INFRASTRUCTURE_ERROR", "THROTTLED_ERROR", "RATE_LIMIT_ERROR", "RESOURCE_EXHAUSTED"
+    })
+
     def __init__(
         self,
         status_code: int,
@@ -29,6 +42,19 @@ class SfcIntegrationException(Exception):
         self.raw_message = raw_message
         self.crm_action = crm_action
         super().__init__(f"[{error_type}] {raw_message}")
+
+    @property
+    def es_transitoria(self) -> bool:
+        """True si el error representa una caída/degradación TRANSITORIA de la SFC
+        (5xx, 429, o un error_type ya clasificado como de infraestructura) en vez de
+        un rechazo de negocio real -- usado tanto para decidir si un despacho síncrono
+        cae a la cola de contingencia (routes_quejas.py) como si un reintento de la
+        cola debe consumir presupuesto de intentos (scheduler.py)."""
+        return (
+            self.status_code >= 500
+            or self.status_code in (429, 503)
+            or self.error_type in self.ERROR_TYPES_TRANSITORIOS
+        )
 
 
 class SfcErrorTranslator:
