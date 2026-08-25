@@ -456,5 +456,106 @@ class TestClasificacionEstructuradaNoDifiereElRestoDelLotePorFalsoPositivo(unitt
             self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 2)
 
 
+class TestUmbralFallasInfraConsecutivasParaDiferir(unittest.IsolatedAsyncioTestCase):
+    """
+    🟡 FIX (hallazgo B3, auditoría adversarial 2026-08-25): antes, la PRIMERA falla
+    de infraestructura del ciclo difería TODO el resto del lote 5 minutos y cortaba
+    -- con la SFC intermitente, cada ciclo procesaba un solo caso. Ahora se exigen
+    UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR (3) fallas de infraestructura
+    seguidas antes de asumir que la SFC está caída y diferir el resto.
+    """
+
+    def _item_base(self, item_id, smart_code):
+        reg = MagicMock()
+        reg.id = item_id
+        reg.smart_code = smart_code
+        reg.payload_json = {"Smart_Code__c": smart_code}
+        reg.correlation_id = "N/A"
+        reg.sfc_completado = False
+        reg.sfc_response = {}
+        reg.version = 1
+        reg.payload_hash = "hash-de-prueba"
+        reg.to_dict = MagicMock(return_value={"correlation_id": "N/A"})
+        return reg
+
+    def _exc_infra(self):
+        return SfcIntegrationException(
+            status_code=500, error_type="INFRASTRUCTURE_ERROR", sfc_field=None,
+            raw_message="Internal Server Error", crm_action="Reintente la operación más tarde."
+        )
+
+    async def _ejecutar_ciclo(self, items, side_effects):
+        redis_mock = AsyncMock()
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock, return_value=(True, None)
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=items)
+            instance_qs.contar_pendientes = AsyncMock(return_value=0)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock(return_value="completed")
+            instance_qs.diferir_pendientes_por_caida_sfc = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(side_effect=list(items))
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(side_effect=side_effects)
+
+            await reintentar_despachos_pendientes_job()
+
+            return instance_qs, instance_orq
+
+    async def test_dos_fallas_consecutivas_bajo_el_umbral_no_difiere_y_sigue_el_lote(self):
+        items = [self._item_base(i, f"SC-{i}") for i in range(1, 6)]
+        side_effects = [
+            self._exc_infra(), self._exc_infra(),
+            {"status": "success"}, {"status": "success"}, {"status": "success"}
+        ]
+
+        instance_qs, instance_orq = await self._ejecutar_ciclo(items, side_effects)
+
+        instance_qs.diferir_pendientes_por_caida_sfc.assert_not_called()
+        self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 5)
+
+    async def test_tres_fallas_consecutivas_alcanza_el_umbral_y_difiere_el_resto(self):
+        items = [self._item_base(i, f"SC-{i}") for i in range(1, 6)]
+        side_effects = [
+            self._exc_infra(), self._exc_infra(), self._exc_infra(),
+            {"status": "success"}, {"status": "success"}
+        ]
+
+        instance_qs, instance_orq = await self._ejecutar_ciclo(items, side_effects)
+
+        instance_qs.diferir_pendientes_por_caida_sfc.assert_called_once()
+        ids_diferidos = instance_qs.diferir_pendientes_por_caida_sfc.call_args.kwargs["registro_ids"]
+        self.assertEqual(ids_diferidos, [4, 5])
+        # El ciclo se cortó tras la tercera falla -- los items 4 y 5 no se intentaron.
+        self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 3)
+
+    async def test_exito_intermedio_resetea_el_contador_de_fallas_consecutivas(self):
+        items = [self._item_base(i, f"SC-{i}") for i in range(1, 6)]
+        side_effects = [
+            self._exc_infra(), self._exc_infra(),
+            {"status": "success"},
+            self._exc_infra(), self._exc_infra()
+        ]
+
+        instance_qs, instance_orq = await self._ejecutar_ciclo(items, side_effects)
+
+        # Nunca se acumulan 3 fallas SEGUIDAS (el éxito de en medio resetea el contador).
+        instance_qs.diferir_pendientes_por_caida_sfc.assert_not_called()
+        self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 5)
+
+
 if __name__ == "__main__":
     unittest.main()

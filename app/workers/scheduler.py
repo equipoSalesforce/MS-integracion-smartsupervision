@@ -218,6 +218,17 @@ class QueueLockWatchdog:
 # a partir de created_at, que ya existe).
 UMBRAL_HORAS_ALERTA_WEBHOOK_ESTANCADO = 2.0
 
+# 🟡 FIX (hallazgo B3, auditoría adversarial 2026-08-25): antes, la PRIMERA falla de
+# infraestructura del ciclo diferia todo el resto del lote 5 minutos y cortaba --
+# con la SFC intermitente (el escenario más común, no el peor), cada ciclo procesaba
+# un solo caso y el resto quedaba congelado sin haberse intentado siquiera. Ahora se
+# exigen varias fallas de infraestructura CONSECUTIVAS antes de asumir que la SFC
+# está caída y diferir el resto; un fallo aislado en medio de un lote sano ya no
+# frena a los demás. El contador se resetea en cada item que NO fue falla de
+# infraestructura (éxito o fallo de negocio), así que sigue protegiendo contra
+# hammering cuando la SFC está genuinamente caída.
+UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR = 3
+
 
 def _es_falla_infraestructura(error_msg: Optional[str], exc: Optional[BaseException] = None) -> bool:
     """
@@ -599,6 +610,8 @@ async def reintentar_despachos_pendientes_job():
         s3_client = get_s3_client()
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
 
+        fallas_infra_consecutivas = 0
+
         for index, item in enumerate(pendientes):
             # 🟢 FIX P0-04: el claim ahora devuelve el item TAL COMO ESTÁ en Redis en ese
             # instante (no la copia leída durante el listado previo), cerrando la ventana
@@ -620,14 +633,18 @@ async def reintentar_despachos_pendientes_job():
             casos_fallidos += int(resultado_item.fallido)
 
             if resultado_item.es_falla_infraestructura:
-                casos_restantes = pendientes[index + 1:]
-                if casos_restantes:
-                    ids_restantes = [r.id for r in casos_restantes]
-                    await queue_service.diferir_pendientes_por_caida_sfc(
-                        registro_ids=ids_restantes,
-                        minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
-                    )
-                break
+                fallas_infra_consecutivas += 1
+                if fallas_infra_consecutivas >= UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR:
+                    casos_restantes = pendientes[index + 1:]
+                    if casos_restantes:
+                        ids_restantes = [r.id for r in casos_restantes]
+                        await queue_service.diferir_pendientes_por_caida_sfc(
+                            registro_ids=ids_restantes,
+                            minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
+                        )
+                    break
+            else:
+                fallas_infra_consecutivas = 0
 
         # 3. Notificación de Autorrecuperación
         await _notificar_autorrecuperacion_si_aplica(queue_service, casos_despachados_exito)
