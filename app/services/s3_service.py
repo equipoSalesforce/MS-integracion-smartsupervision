@@ -234,6 +234,25 @@ class S3StorageService:
                 crm_action="Verifique que 'directorio_s3' apunte a la carpeta propia del caso que se está enviando."
             )
 
+    @staticmethod
+    def _verificar_cap_directorio(cantidad_actual: int, prefix_clean: str) -> None:
+        """Corta la paginación de listar_archivos_en_directorio apenas se supera
+        MAX_ARCHIVOS_DIRECTORIO_S3 -- ver esa constante para el razonamiento completo."""
+        if cantidad_actual < MAX_ARCHIVOS_DIRECTORIO_S3:
+            return
+        raise SfcIntegrationException(
+            status_code=400,
+            error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+            sfc_field="directorio_s3",
+            raw_message=(
+                f"El directorio '{prefix_clean}' contiene más de {MAX_ARCHIVOS_DIRECTORIO_S3} archivos."
+            ),
+            crm_action=(
+                f"Divida el envío en lotes de máximo {MAX_ARCHIVOS_DIRECTORIO_S3} "
+                "adjuntos (mismo límite que 'archivos_s3')."
+            )
+        )
+
     def _escribir_mock_local_o_fallar(self, tmp_file, s3_key_clean: str, file_name: str) -> None:
         if not self.is_local:
             raise SfcIntegrationException(
@@ -542,20 +561,7 @@ class S3StorageService:
                     key = obj.get("Key", "")
                     if key.endswith("/"):
                         continue
-                    if len(archivos) >= MAX_ARCHIVOS_DIRECTORIO_S3:
-                        raise SfcIntegrationException(
-                            status_code=400,
-                            error_type="CRM_PAYLOAD_VALIDATION_ERROR",
-                            sfc_field="directorio_s3",
-                            raw_message=(
-                                f"El directorio '{prefix_clean}' contiene más de "
-                                f"{MAX_ARCHIVOS_DIRECTORIO_S3} archivos."
-                            ),
-                            crm_action=(
-                                f"Divida el envío en lotes de máximo {MAX_ARCHIVOS_DIRECTORIO_S3} "
-                                "adjuntos (mismo límite que 'archivos_s3')."
-                            )
-                        )
+                    self._verificar_cap_directorio(len(archivos), prefix_clean)
                     file_name = key.split("/")[-1]
                     archivos.append({
                         "nombre_archivo": file_name,

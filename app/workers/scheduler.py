@@ -563,6 +563,20 @@ async def _procesar_item_reclamado(
     return resultado
 
 
+async def _diferir_resto_del_lote(queue_service: QueueService, pendientes: list, index: int) -> None:
+    """Difiere el resto del lote (a partir de `index`) tras alcanzar
+    UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR fallas de infraestructura seguidas
+    -- ver esa constante para el razonamiento completo."""
+    casos_restantes = pendientes[index + 1:]
+    if not casos_restantes:
+        return
+    ids_restantes = [r.id for r in casos_restantes]
+    await queue_service.diferir_pendientes_por_caida_sfc(
+        registro_ids=ids_restantes,
+        minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
+    )
+
+
 async def reintentar_despachos_pendientes_job():
     # 🟡 P1-02 (aceptado, no se corrige): el lock es global por diseño — un solo
     # nodo procesa el ciclo de reintentos a la vez, aunque haya varias réplicas.
@@ -643,13 +657,7 @@ async def reintentar_despachos_pendientes_job():
             if resultado_item.es_falla_infraestructura:
                 fallas_infra_consecutivas += 1
                 if fallas_infra_consecutivas >= UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR:
-                    casos_restantes = pendientes[index + 1:]
-                    if casos_restantes:
-                        ids_restantes = [r.id for r in casos_restantes]
-                        await queue_service.diferir_pendientes_por_caida_sfc(
-                            registro_ids=ids_restantes,
-                            minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
-                        )
+                    await _diferir_resto_del_lote(queue_service, pendientes, index)
                     break
             else:
                 fallas_infra_consecutivas = 0
