@@ -18,6 +18,13 @@ from app.core.metrics import emit_emf_metric
 
 logger = logging.getLogger(__name__)
 
+# Mismo tope que schemas.crm_payloads.DespachoQuejaCRM.archivos_s3 (max_length=50) --
+# el listado dinámico vía directorio_s3 no tenía ningún límite propio (hallazgo A3,
+# auditoría adversarial 2026-08-25): un caso legítimo con una carpeta muy grande podía
+# descargar/reenviar cientos de adjuntos en un único despacho, sin relación con
+# ataques -- simple resiliencia ante volumen.
+MAX_ARCHIVOS_DIRECTORIO_S3 = 50
+
 
 @dataclass
 class _ContextoEnvioAdjunto:
@@ -535,6 +542,20 @@ class S3StorageService:
                     key = obj.get("Key", "")
                     if key.endswith("/"):
                         continue
+                    if len(archivos) >= MAX_ARCHIVOS_DIRECTORIO_S3:
+                        raise SfcIntegrationException(
+                            status_code=400,
+                            error_type="CRM_PAYLOAD_VALIDATION_ERROR",
+                            sfc_field="directorio_s3",
+                            raw_message=(
+                                f"El directorio '{prefix_clean}' contiene más de "
+                                f"{MAX_ARCHIVOS_DIRECTORIO_S3} archivos."
+                            ),
+                            crm_action=(
+                                f"Divida el envío en lotes de máximo {MAX_ARCHIVOS_DIRECTORIO_S3} "
+                                "adjuntos (mismo límite que 'archivos_s3')."
+                            )
+                        )
                     file_name = key.split("/")[-1]
                     archivos.append({
                         "nombre_archivo": file_name,
