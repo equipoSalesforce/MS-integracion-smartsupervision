@@ -21,7 +21,20 @@ def _es_error_queja_ya_existe_m2(exc_raw_msg: str, error_type: Optional[str] = N
     """
     msg = (exc_raw_msg or "").lower()
 
-    # 1. Prioridad: Si el mensaje indica duplicidad por motivo/producto/canal (otra queja distinta), NO es el mismo código
+    # 1. Prioridad: señal estructurada y confiable de la SFC -- si ya clasificó el
+    #    error como duplicidad del MISMO código, se tolera sin importar qué texto
+    #    libre traiga el mensaje.
+    #    🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes este chequeo iba
+    #    DESPUÉS del match de frases de colisión funcional (paso 2 más abajo), que
+    #    incluye la subcadena "already_exist" -- el mismo nombre del error_type. Un
+    #    error_type="ALREADY_EXISTS" real cuyo mensaje contuviera esa subcadena (algo
+    #    razonable, es el propio nombre del tipo de error) se clasificaba como
+    #    colisión funcional y se propagaba como fallo real, en vez de tolerarse como
+    #    éxito idempotente.
+    if error_type == "ALREADY_EXISTS":
+        return True
+
+    # 2. Si el mensaje indica duplicidad por motivo/producto/canal (otra queja distinta), NO es el mismo código
     frases_colision_funcional = [
         "mismo motivo",
         "mismo producto",
@@ -30,10 +43,6 @@ def _es_error_queja_ya_existe_m2(exc_raw_msg: str, error_type: Optional[str] = N
     ]
     if any(frase in msg for frase in frases_colision_funcional):
         return False
-
-    # 2. Si el error fue por duplicidad real del mismo código
-    if error_type == "ALREADY_EXISTS":
-        return True
 
     keywords = ["ya existe", "already exists", "registrado en la sfc"]
     return any(kw in msg for kw in keywords)
