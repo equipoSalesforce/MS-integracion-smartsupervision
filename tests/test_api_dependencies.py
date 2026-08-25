@@ -32,6 +32,17 @@ class TestVerificarApiKeyAdmin(unittest.IsolatedAsyncioTestCase):
             await deps.verificar_api_key_admin(x_api_key="")
         self.assertEqual(ctx.exception.status_code, 401)
 
+    async def test_key_no_ascii_da_401_no_500(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): secrets.compare_digest
+        lanza TypeError con caracteres no-ASCII -- sin el chequeo .isascii() previo,
+        esto se propagaba sin capturar (500 + log crítico) en vez del 401 correcto
+        para una credencial inválida.
+        """
+        with self.assertRaises(HTTPException) as ctx:
+            await deps.verificar_api_key_admin(x_api_key="clave-con-ñ-inválida")
+        self.assertEqual(ctx.exception.status_code, 401)
+
 
 class TestVerificarApiKeyCrm(unittest.IsolatedAsyncioTestCase):
 
@@ -42,6 +53,11 @@ class TestVerificarApiKeyCrm(unittest.IsolatedAsyncioTestCase):
     async def test_key_incorrecta_401(self):
         with self.assertRaises(HTTPException) as ctx:
             await deps.verificar_api_key_crm(x_api_key="clave-invalida")
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    async def test_key_no_ascii_da_401_no_500(self):
+        with self.assertRaises(HTTPException) as ctx:
+            await deps.verificar_api_key_crm(x_api_key="clave-con-ñ-inválida")
         self.assertEqual(ctx.exception.status_code, 401)
 
 

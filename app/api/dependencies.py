@@ -38,7 +38,12 @@ async def verificar_api_key_admin(
         )
 
     # 🔒 Comparación segura en tiempo constante para evitar Timing Attacks
-    es_valida = secrets.compare_digest(x_api_key, settings.ADMIN_API_KEY)
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): secrets.compare_digest lanza
+    # TypeError si cualquiera de los dos strings tiene caracteres no-ASCII -- sin este
+    # chequeo, un header con esos caracteres propagaba la excepción sin capturar,
+    # devolviendo 500 (y un log logger.critical de "error no controlado") en vez del
+    # 401 correcto para una credencial inválida.
+    es_valida = x_api_key.isascii() and secrets.compare_digest(x_api_key, settings.ADMIN_API_KEY)
 
     if not es_valida:
         logger.warning("🔐 [Seguridad] Intento de acceso administrativo no autorizado con X-API-Key inválida.")
@@ -135,7 +140,9 @@ async def verificar_api_key_crm(
             detail="Cabecera X-API-Key faltante."
         )
 
-    es_valida = secrets.compare_digest(x_api_key, settings.CRM_API_KEY)
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): ver el mismo fix en
+    # verificar_api_key_admin -- compare_digest lanza TypeError con no-ASCII.
+    es_valida = x_api_key.isascii() and secrets.compare_digest(x_api_key, settings.CRM_API_KEY)
 
     if not es_valida:
         logger.warning("🔐 [Seguridad] Intento de acceso no autorizado con X-API-Key inválida.")
