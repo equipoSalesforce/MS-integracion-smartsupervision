@@ -29,9 +29,38 @@ from app.services.idempotency_service import IdempotencyService
 
 from app.db.redis import get_redis_client, ping_redis
 from app.services.queue_service import QueueService
+from app.core.metrics import emit_emf_metric
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _emitir_metrica_despacho(operacion_inferida: str, resultado: str, categoria_error: str = "N/A") -> None:
+    """
+    Métrica EMF de volumen del camino síncrono de despacho, por resultado --
+    complementa (no sustituye) las métricas de cola que ya emite scheduler.py.
+    `operacion_inferida` viene de IdempotencyService.infer_operation_type
+    (M2_CREATION, M3_UPDATE, M3_CLOSE, M3_FRAUD, M3_FRAUD_AND_CLOSE) -- baja
+    cardinalidad, ya calculada en otro lado del repo para el mismo propósito de
+    clasificación. Se parte en 'momento' (M2/M3) y 'operacion' (creation/update/
+    close/fraud/...) para poder filtrar por cualquiera de los dos en el dashboard.
+    """
+    partes = operacion_inferida.split("_", 1)
+    momento = partes[0] if partes else "N/A"
+    operacion = partes[1].lower() if len(partes) > 1 else "n/a"
+
+    emit_emf_metric(
+        namespace="SSV/RoutesQuejas",
+        metrics={"dispatch_count": (1, "Count")},
+        dimensions={
+            "Environment": settings.ENVIRONMENT,
+            "momento": momento,
+            "operacion": operacion,
+            "resultado": resultado,
+            "categoria_error": categoria_error
+        }
+    )
 
 RESPUESTAS_DESPACHO_OPENAPI = {
     status.HTTP_200_OK: {
@@ -307,13 +336,16 @@ async def despachar_queja_crm(
         }
     )
 
+    operacion_inferida = IdempotencyService.infer_operation_type(raw_payload)
+
     # 1. 🛡️ VERIFICACIÓN EN IDEMPOTENCY STORE
     es_hit, respuesta_idempotente = await idempotency_service.verificar_o_iniciar_operacion(
         smart_code=payload.Smart_Code__c,
         payload_dict=raw_payload
     )
-    
+
     if es_hit:
+        _emitir_metrica_despacho(operacion_inferida, resultado=respuesta_idempotente.get("status", "idempotent_hit"))
         return _construir_respuesta_idempotente(respuesta_idempotente)
 
     logger.info(f"Petición unificada de despacho recibida para el caso: {payload.Smart_Code__c} [CID: {cid}]")
@@ -332,6 +364,7 @@ async def despachar_queja_crm(
             resultado = await orquestador.procesar_despacho(payload=payload)
 
         if isinstance(resultado, dict) and resultado.get("status") == "error":
+            _emitir_metrica_despacho(operacion_inferida, resultado="error", categoria_error="DESPACHO_ORCHESTRATION_ERROR")
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
@@ -386,6 +419,7 @@ async def despachar_queja_crm(
             )
 
         operacion_exitosa_o_encolada = True
+        _emitir_metrica_despacho(operacion_inferida, resultado="success")
 
         return resultado
 
@@ -399,9 +433,11 @@ async def despachar_queja_crm(
                 error_origen_titulo=f"SFC Exception ({exc.status_code})",
                 error_detalle=exc.raw_message or str(exc)
             )
+            _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error=exc.error_type)
             return respuesta
 
         logger.warning(f"Error controlado de validación de la SFC durante el despacho: {exc.raw_message}")
+        _emitir_metrica_despacho(operacion_inferida, resultado="error", categoria_error=exc.error_type)
         raise
 
     except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as net_err:
@@ -410,6 +446,7 @@ async def despachar_queja_crm(
             error_origen_titulo="Network Error",
             error_detalle=str(net_err)
         )
+        _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error="NETWORK_ERROR")
         return respuesta
 
     finally:

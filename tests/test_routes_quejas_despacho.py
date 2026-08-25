@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes_quejas import _construir_respuesta_idempotente, _encolar_despacho_por_contingencia
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
+from app.services.idempotency_service import IdempotencyService
 from app.main import app
 from app.core.config import settings
 from app.api.dependencies import get_sfc_client, get_s3_client
@@ -205,7 +206,12 @@ class _RoutesQuejasHttpTestCase(unittest.TestCase):
         self.idempotency_service_patcher = patch(
             "app.api.routes_quejas.IdempotencyService", return_value=self.idempotency_service_mock
         )
-        self.idempotency_service_patcher.start()
+        mock_idempotency_class = self.idempotency_service_patcher.start()
+        # infer_operation_type es un @staticmethod puro (sin I/O) que
+        # despachar_queja_crm llama directo sobre la clase (no sobre una
+        # instancia) para la métrica EMF de volumen -- se delega a la
+        # implementación real en vez de dejarlo como un MagicMock genérico.
+        mock_idempotency_class.infer_operation_type = staticmethod(IdempotencyService.infer_operation_type)
 
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
@@ -285,6 +291,80 @@ class TestAuditoriaEntradaCrmLoguearExtraData(_RoutesQuejasHttpTestCase):
         self.assertTrue(
             registro_auditoria.extra_data["body"]["Smart_Code__c"].endswith(self.payload["Smart_Code__c"])
         )
+
+
+class TestMetricaEmfDespacho(_RoutesQuejasHttpTestCase):
+    """
+    Métrica EMF de volumen del camino síncrono de despacho (namespace
+    SSV/RoutesQuejas), pedida en la propuesta de observabilidad de CX --
+    "routes_quejas: Flujo de momentos procesados", dimensiones momento/operacion/
+    categoria_error.
+    """
+
+    def test_exito_emite_metrica_con_momento_y_operacion_inferidos(self):
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_emit.assert_called_once()
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["namespace"], "SSV/RoutesQuejas")
+        self.assertEqual(kwargs["dimensions"]["momento"], "M2")
+        self.assertEqual(kwargs["dimensions"]["operacion"], "creation")
+        self.assertEqual(kwargs["dimensions"]["resultado"], "success")
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "N/A")
+
+    def test_error_de_orquestacion_emite_metrica_con_categoria_error(self):
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(
+                return_value={"status": "error", "message": "Catálogo inválido"}
+            )
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 400)
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["resultado"], "error")
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "DESPACHO_ORCHESTRATION_ERROR")
+
+    def test_contingencia_por_sfc_caida_emite_metrica_queued(self):
+        from app.core.exceptions import SfcIntegrationException
+
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls, \
+             patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(
+                side_effect=SfcIntegrationException(
+                    503, "SFC_DOWN", None, "Servicio no disponible", "Reintente"
+                )
+            )
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(
+                return_value=MagicMock(id=1, es_duplicado=False)
+            )
+            self.idempotency_service_mock.registrar_encolado = AsyncMock()
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 202)
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["resultado"], "queued")
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "SFC_DOWN")
+
+    def test_idempotent_hit_emite_metrica(self):
+        self.idempotency_service_mock.verificar_o_iniciar_operacion = AsyncMock(
+            return_value=(True, {"status": "success", "sfc_response": {"a": 1}})
+        )
+
+        with patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_emit.assert_called_once()
+        self.assertEqual(mock_emit.call_args.kwargs["dimensions"]["resultado"], "success")
 
 
 class TestDespachoErrorDeOrquestacion(_RoutesQuejasHttpTestCase):
