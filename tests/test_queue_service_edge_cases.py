@@ -173,19 +173,31 @@ class TestObtenerTodosLosEncoladosFallbacks(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r.smart_code for r in registros], ["SC-1"])
         mock_redis.smembers.assert_awaited_once_with(f"{QUEUE_PREFIX}:status:PENDING")
 
-    async def test_sin_estado_usa_keys_si_no_hay_scan_iter(self):
-        mock_redis = MagicMock(spec=["keys", "get"])
-        mock_redis.keys = AsyncMock(return_value=[f"{QUEUE_PREFIX}:item:1"])
-        mock_redis.get = AsyncMock(return_value=json.dumps({"id": 1, "smart_code": "SC-1", "created_at": "2026-01-01T00:00:00"}))
+    async def test_sin_estado_usa_smembers_si_no_hay_sscan_iter(self):
+        """
+        🟡 FIX (hallazgo C3, auditoría adversarial 2026-08-25): sin filtro de estado,
+        ya no se hace scan_iter sobre TODO el keyspace de items -- se unen los 3 sets
+        de estado reales (PENDIENTE, EXITOSO, FALLIDO_DEFINITIVO), que entre los tres
+        cubren cualquier item sin tocar el keyspace completo.
+        """
+        mock_redis = MagicMock(spec=["smembers", "get"])
+        mock_redis.smembers = AsyncMock(side_effect=[{"1"}, {"2"}, set()])
+        mock_redis.get = AsyncMock(side_effect=[
+            json.dumps({"id": 1, "smart_code": "SC-1", "created_at": "2026-01-01T00:00:00"}),
+            json.dumps({"id": 2, "smart_code": "SC-2", "created_at": "2026-01-02T00:00:00"}),
+        ])
         queue_service = QueueService(redis_client=mock_redis)
 
         registros = await queue_service.obtener_todos_los_encolados()
 
-        self.assertEqual([r.smart_code for r in registros], ["SC-1"])
+        self.assertEqual({r.smart_code for r in registros}, {"SC-1", "SC-2"})
+        mock_redis.smembers.assert_any_await(f"{QUEUE_PREFIX}:status:PENDIENTE")
+        mock_redis.smembers.assert_any_await(f"{QUEUE_PREFIX}:status:EXITOSO")
+        mock_redis.smembers.assert_any_await(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO")
 
     async def test_error_al_listar_se_loguea_y_retorna_lista_vacia(self):
-        mock_redis = MagicMock(spec=["keys"])
-        mock_redis.keys = AsyncMock(side_effect=ConnectionError("redis caido"))
+        mock_redis = MagicMock(spec=["smembers"])
+        mock_redis.smembers = AsyncMock(side_effect=ConnectionError("redis caido"))
         queue_service = QueueService(redis_client=mock_redis)
 
         self.assertEqual(await queue_service.obtener_todos_los_encolados(), [])

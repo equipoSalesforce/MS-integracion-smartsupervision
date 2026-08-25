@@ -1102,32 +1102,41 @@ class QueueService:
             logger.error(f"Error registrando fallo para registro {registro_id} en Redis: {e}")
             return "not_found"
 
+    async def _obtener_ids_de_set_estado(self, set_key: str) -> List[str]:
+        if hasattr(self.redis, "sscan_iter"):
+            return [
+                m if isinstance(m, str) else m.decode("utf-8")
+                async for m in self.redis.sscan_iter(set_key, count=100)
+            ]
+        raw_members = await self.redis.smembers(set_key)
+        return [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
+
     async def obtener_todos_los_encolados(self, estado: Optional[str] = None) -> List[ColaItemRedis]:
         if not self.redis:
             return []
 
         try:
             if estado:
-                set_key = f"{QUEUE_PREFIX}:status:{estado.upper()}"
-                if hasattr(self.redis, "sscan_iter"):
-                    item_ids = [
-                        m if isinstance(m, str) else m.decode("utf-8")
-                        async for m in self.redis.sscan_iter(set_key, count=100)
-                    ]
-                else:
-                    raw_members = await self.redis.smembers(set_key)
-                    item_ids = [m if isinstance(m, str) else m.decode("utf-8") for m in raw_members]
+                item_ids = await self._obtener_ids_de_set_estado(f"{QUEUE_PREFIX}:status:{estado.upper()}")
             else:
-                if hasattr(self.redis, "scan_iter"):
-                    item_keys = [
-                        k if isinstance(k, str) else k.decode("utf-8")
-                        async for k in self.redis.scan_iter(match=f"{QUEUE_PREFIX}:item:*", count=100)
-                    ]
-                else:
-                    raw_keys = await self.redis.keys(f"{QUEUE_PREFIX}:item:*")
-                    item_keys = [k if isinstance(k, str) else k.decode("utf-8") for k in raw_keys]
-
-                item_ids = [k.split(":")[-1] for k in item_keys]
+                # 🟡 FIX (hallazgo C3, auditoría adversarial 2026-08-25): antes esto hacía
+                # scan_iter sobre TODO el keyspace de items -- potencialmente miles de
+                # claves -- justo el peor momento para hacerlo: durante un incidente,
+                # con Redis ya degradado, consultado precisamente porque hay que ver la
+                # cola. Un item nunca sale del set PENDIENTE mientras está PROCESSING o
+                # SFC_DONE (esos son sólo valores del campo 'estado' del item mismo, ver
+                # CLAIM_ITEM_LUA_SCRIPT / MARK_SFC_DONE_LUA_SCRIPT) -- así que la unión
+                # de los 3 sets de estado reales (PENDIENTE, EXITOSO, FALLIDO_DEFINITIVO)
+                # cubre TODOS los items sin tocar el keyspace completo.
+                listas_ids = await asyncio.gather(*[
+                    self._obtener_ids_de_set_estado(f"{QUEUE_PREFIX}:status:{valor}")
+                    for valor in (
+                        SmartStatus.PENDING.value,
+                        SmartStatus.COMPLETED.value,
+                        SmartStatus.FAILED_FINAL.value
+                    )
+                ])
+                item_ids = list(dict.fromkeys(item_id for ids in listas_ids for item_id in ids))
 
             registros = []
             for item_id in item_ids:
