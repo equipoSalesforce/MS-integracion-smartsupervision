@@ -21,8 +21,17 @@ class ArchivoS3Schema(BaseModel):
 
     # 🟢 FIX HALLAZGO 41: el límite de 50 archivos en 'archivos_s3' no acota nada si cada
     # string individual puede ser arbitrariamente largo; se acotan también aquí.
-    nombre_archivo: str = Field(..., max_length=255, description="Nombre final del archivo guardado")
-    s3_key: str = Field(..., max_length=1024, description="Ruta/Clave única de acceso en el bucket S3")
+    # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): 'nombre_archivo'/'s3_key' eran
+    # obligatorios pero sin min_length -- un string vacío "" pasaba la validación. Con
+    # AMBOS vacíos, S3StorageService._resolver_identidad_adjunto no podía derivar
+    # ningún nombre y descartaba el adjunto en silencio (retorna None), mientras que
+    # Momento3SincronizacionService._orquestar_pipeline_momento_3 seguía calculando
+    # 'anexo_queja' sobre len(archivos_s3_raw) (lo SOLICITADO), no sobre lo
+    # efectivamente transmitido -- pudiendo declararle a la SFC que sí hay anexo
+    # cuando ninguno se transmitió. Se cierra en el schema, más temprano que la
+    # detección silenciosa aguas abajo.
+    nombre_archivo: str = Field(..., min_length=1, max_length=255, description="Nombre final del archivo guardado")
+    s3_key: str = Field(..., min_length=1, max_length=1024, description="Ruta/Clave única de acceso en el bucket S3")
     bucket: str = Field(..., max_length=63, description="Bucket de S3 donde se alojó")
 
 

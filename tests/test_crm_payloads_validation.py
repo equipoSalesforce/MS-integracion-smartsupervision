@@ -125,6 +125,46 @@ class TestNormalizarArchivosS3(unittest.TestCase):
         self.assertIn("forma no reconocida", str(ctx.exception))
 
 
+class TestArchivoS3SchemaCamposObligatoriosNoVacios(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo de revisión externa, 2026-08-25): 'nombre_archivo'/'s3_key' eran
+    obligatorios (Field(...)) pero sin min_length -- un string vacío "" pasaba la
+    validación. Con ambos vacíos, S3StorageService._resolver_identidad_adjunto no
+    podía derivar ningún nombre y descartaba el adjunto en silencio, mientras que
+    Momento3SincronizacionService seguía calculando 'anexo_queja' sobre la cantidad
+    SOLICITADA de archivos, no la efectivamente transmitida -- pudiendo declararle a
+    la SFC que sí hay anexo cuando ninguno se transmitió.
+    """
+
+    def test_nombre_archivo_vacio_es_rechazado(self):
+        with self.assertRaises(ValidationError) as ctx:
+            Momento2QuejaCrmInput(
+                **_payload_m2_base(archivos_s3=[{"nombre_archivo": "", "s3_key": "caso/X/a.pdf", "bucket": "b"}])
+            )
+        self.assertIn("nombre_archivo", str(ctx.exception))
+
+    def test_s3_key_vacio_es_rechazado(self):
+        with self.assertRaises(ValidationError) as ctx:
+            Momento2QuejaCrmInput(
+                **_payload_m2_base(archivos_s3=[{"nombre_archivo": "a.pdf", "s3_key": "", "bucket": "b"}])
+            )
+        self.assertIn("s3_key", str(ctx.exception))
+
+    def test_ambos_vacios_es_rechazado(self):
+        """El escenario exacto del hallazgo: ambos campos vacíos a la vez, el único
+        caso en que _resolver_identidad_adjunto no podía derivar ningún nombre."""
+        with self.assertRaises(ValidationError):
+            Momento2QuejaCrmInput(
+                **_payload_m2_base(archivos_s3=[{"nombre_archivo": "", "s3_key": "", "bucket": "b"}])
+            )
+
+    def test_archivo_valido_sigue_pasando(self):
+        payload = Momento2QuejaCrmInput(
+            **_payload_m2_base(archivos_s3=[{"nombre_archivo": "a.pdf", "s3_key": "caso/X/a.pdf", "bucket": "b"}])
+        )
+        self.assertEqual(len(payload.archivos_s3), 1)
+
+
 class TestAsegurarDireccionValida(unittest.TestCase):
 
     def test_direccion_en_blanco_usa_default(self):

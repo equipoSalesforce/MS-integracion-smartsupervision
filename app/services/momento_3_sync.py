@@ -65,7 +65,23 @@ class Momento3SincronizacionService:
     def _aplicar_estado_inicial_sfc(sfc_raw_payload: Dict[str, Any], generar_pdf_cierre: bool) -> None:
         if generar_pdf_cierre:
             sfc_raw_payload["estado_cod"] = 4
-            sfc_raw_payload["documentacion_rta_final"] = True
+            # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes se fijaba en True
+            # acá mismo, ANTES de intentar generar el PDF de respuesta final -- si
+            # cuerpo_correo llegaba vacío (_orquestar_pipeline_momento_3 sólo genera el
+            # PDF `if generar_pdf_cierre and cuerpo_correo`), documentacion_rta_final
+            # quedaba en True aunque el PDF nunca se generó ni se transmitió. Se deja en
+            # False acá; la única fuente de verdad es `if pdf_generado_exito:
+            # sfc_raw_payload["documentacion_rta_final"] = True` más abajo, después de
+            # confirmar que el PDF realmente se generó.
+            #
+            # Nota: hoy esto no es alcanzable por la vía pública real -- el
+            # model_validator _validar_reglas_cierre en QuejaUnificadaCrmInput ya
+            # autorrellena cuerpo_respuesta_final con un texto por defecto si viene
+            # vacío, y _orquestar_pipeline_momento_3 sólo se invoca con ese modelo ya
+            # validado. Se corrige de todas formas: es una fuente de verdad duplicada
+            # (y potencialmente divergente) para un campo que reporta a un ente
+            # regulador financiero si un documento fue realmente entregado.
+            sfc_raw_payload["documentacion_rta_final"] = False
             if not sfc_raw_payload.get("fecha_cierre"):
                 sfc_raw_payload["fecha_cierre"] = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
         else:
