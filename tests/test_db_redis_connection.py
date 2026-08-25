@@ -194,5 +194,41 @@ class TestPingRedis(_RedisModuleStateTestCase):
         self.assertFalse(await redis_module.ping_redis())
 
 
+class TestPingRedisMetricaEmf(_RedisModuleStateTestCase):
+    """Métrica EMF SSV/RedisHealth (propuesta de observabilidad CX)."""
+
+    async def test_sin_cliente_emite_metrica_resultado_down(self):
+        redis_module.redis_client = None
+        with patch("app.db.redis.emit_emf_metric") as mock_emit:
+            await redis_module.ping_redis()
+
+        mock_emit.assert_called_once()
+        self.assertEqual(mock_emit.call_args.kwargs["namespace"], "SSV/RedisHealth")
+        self.assertEqual(mock_emit.call_args.kwargs["dimensions"]["resultado"], "down")
+        self.assertEqual(mock_emit.call_args.kwargs["metrics"]["redis_up"], (0, "Count"))
+
+    async def test_ping_exitoso_emite_metrica_resultado_up(self):
+        mock_client = AsyncMock()
+        mock_client.ping = AsyncMock(return_value=True)
+        redis_module.redis_client = mock_client
+        with patch("app.db.redis.emit_emf_metric") as mock_emit:
+            await redis_module.ping_redis()
+
+        mock_emit.assert_called_once()
+        self.assertEqual(mock_emit.call_args.kwargs["dimensions"]["resultado"], "up")
+        self.assertEqual(mock_emit.call_args.kwargs["metrics"]["redis_up"], (1, "Count"))
+
+    async def test_ping_fallido_emite_metrica_resultado_down(self):
+        mock_client = AsyncMock()
+        mock_client.ping = AsyncMock(side_effect=ConnectionError("timeout"))
+        redis_module.redis_client = mock_client
+        with patch("app.db.redis.emit_emf_metric") as mock_emit:
+            await redis_module.ping_redis()
+
+        mock_emit.assert_called_once()
+        self.assertEqual(mock_emit.call_args.kwargs["dimensions"]["resultado"], "down")
+        self.assertEqual(mock_emit.call_args.kwargs["metrics"]["redis_up"], (0, "Count"))
+
+
 if __name__ == "__main__":
     unittest.main()

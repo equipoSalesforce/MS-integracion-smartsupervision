@@ -3,6 +3,7 @@ import asyncio
 import logging
 from typing import Optional
 from app.core.config import settings
+from app.core.metrics import emit_emf_metric
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,14 @@ def get_redis_client():
     return redis_client
 
 
+def _emitir_metrica_salud_redis(resultado: str) -> None:
+    emit_emf_metric(
+        namespace="SSV/RedisHealth",
+        metrics={"redis_up": (1 if resultado == "up" else 0, "Count")},
+        dimensions={"Environment": settings.ENVIRONMENT, "resultado": resultado}
+    )
+
+
 async def ping_redis() -> bool:
     """
     PING contra Redis reutilizable entre /health/ready y otros endpoints de
@@ -181,9 +190,12 @@ async def ping_redis() -> bool:
     """
     client = get_redis_client()
     if not client:
+        _emitir_metrica_salud_redis(resultado="down")
         return False
     try:
         await client.ping()
+        _emitir_metrica_salud_redis(resultado="up")
         return True
     except Exception:
+        _emitir_metrica_salud_redis(resultado="down")
         return False
