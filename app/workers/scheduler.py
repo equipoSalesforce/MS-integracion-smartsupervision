@@ -386,6 +386,39 @@ async def _ejecutar_paso_sfc(
     return True, resultado_sfc
 
 
+def _calcular_edad_horas_item(item) -> Optional[float]:
+    try:
+        return (
+            datetime.now(ZoneInfo("America/Bogota")) - datetime.fromisoformat(item.created_at)
+        ).total_seconds() / 3600.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _loguear_fallo_webhook(item, es_infra: bool, error_msg: str, webhook_error_detalle: str) -> None:
+    """
+    🟡 FIX (hallazgo de revisión externa, 2026-08-25, §12): sin esto, un reintento
+    infinito de webhook (no consume intentos, nunca llega a FAILED_FINAL) se ve en
+    logs igual que un fallo normal -- indistinguible de un caso recién encolado hasta
+    que la alerta de SLA de 12h lo atrape, sin decir siquiera que la causa es el
+    webhook y no la SFC.
+    """
+    if not es_infra:
+        logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+        return
+
+    edad_horas = _calcular_edad_horas_item(item)
+    if edad_horas is not None and edad_horas >= UMBRAL_HORAS_ALERTA_WEBHOOK_ESTANCADO:
+        logger.error(
+            f"🔴 [Scheduler Job] REINTENTO_INFINITO_WEBHOOK: caso {item.smart_code} lleva "
+            f"{edad_horas:.1f}h reintentando la notificación al CRM sin consumir presupuesto "
+            f"de intentos (la SFC ya proceso el caso con éxito) -- revisar conectividad/estado "
+            f"del webhook del CRM. Último error: {webhook_error_detalle}"
+        )
+    else:
+        logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+
+
 async def _ejecutar_paso_notificacion_crm(
     queue_service: QueueService,
     item,
@@ -414,32 +447,7 @@ async def _ejecutar_paso_notificacion_crm(
         # trámite ante la SFC ya esté resuelto.
         es_infra = _es_falla_infraestructura(webhook_error_detalle)
         consumir_intento = not es_infra
-
-        # 🟡 FIX (hallazgo de revisión externa, 2026-08-25, §12): sin esto, un
-        # reintento infinito de webhook (no consume intentos, nunca llega a
-        # FAILED_FINAL) se ve en logs igual que un fallo normal -- indistinguible
-        # de un caso recién encolado hasta que la alerta de SLA de 12h lo atrape,
-        # sin decir siquiera que la causa es el webhook y no la SFC.
-        if es_infra:
-            edad_horas = None
-            try:
-                edad_horas = (
-                    datetime.now(ZoneInfo("America/Bogota")) - datetime.fromisoformat(item.created_at)
-                ).total_seconds() / 3600.0
-            except (TypeError, ValueError):
-                pass
-
-            if edad_horas is not None and edad_horas >= UMBRAL_HORAS_ALERTA_WEBHOOK_ESTANCADO:
-                logger.error(
-                    f"🔴 [Scheduler Job] REINTENTO_INFINITO_WEBHOOK: caso {item.smart_code} lleva "
-                    f"{edad_horas:.1f}h reintentando la notificación al CRM sin consumir presupuesto "
-                    f"de intentos (la SFC ya proceso el caso con éxito) -- revisar conectividad/estado "
-                    f"del webhook del CRM. Último error: {webhook_error_detalle}"
-                )
-            else:
-                logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
-        else:
-            logger.warning(f"⚠️ [Scheduler Job] {error_msg}")
+        _loguear_fallo_webhook(item, es_infra, error_msg, webhook_error_detalle)
         resultado_fallo = await queue_service.registrar_fallo(
             item=item, error_msg=error_msg, worker_id=worker_id,
             consumir_intento=consumir_intento

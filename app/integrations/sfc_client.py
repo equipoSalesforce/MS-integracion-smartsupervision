@@ -116,6 +116,28 @@ async def log_response(response: httpx.Response):
     })
 
 
+def _es_respuesta_throttled(exc: SfcIntegrationException) -> bool:
+    """🟢 FIX HALLAZGO 39: sólo respuestas de regulación de cuota o Rate Limit 429,
+    separadas de fallas de infraestructura (5xx, Timeouts, DNS) o errores de negocio."""
+    raw_msg_lower = str(getattr(exc, "raw_message", "") or "").lower()
+    error_type_str = str(getattr(exc, "error_type", "") or "").upper()
+    return (
+        exc.status_code == 429
+        or error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR")
+        or "throttled" in raw_msg_lower
+        or "quota" in raw_msg_lower
+        or "resource_exhausted" in raw_msg_lower
+    )
+
+
+def _emitir_metrica_throttling(endpoint: str, resultado: str) -> None:
+    emit_emf_metric(
+        namespace="SSV/ThrottlingSfc",
+        metrics={"throttle_count": (1, "Count")},
+        dimensions={"Environment": settings.ENVIRONMENT, "endpoint": endpoint, "resultado": resultado}
+    )
+
+
 def handle_sfc_throttling(func):
     """
     🟢 FIX HALLAZGO 39: Clasificación estricta de Throttling / Rate Limiting (429)
@@ -131,40 +153,21 @@ def handle_sfc_throttling(func):
             try:
                 return await func(*args, **kwargs)
             except SfcIntegrationException as exc:
-                raw_msg_lower = str(getattr(exc, "raw_message", "") or "").lower()
-                error_type_str = str(getattr(exc, "error_type", "") or "").upper()
-                
-                # 🟢 Solo respuestas de regulación de cuota o Rate Limit 429
-                is_throttled = (
-                    exc.status_code == 429 or 
-                    error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR") or
-                    "throttled" in raw_msg_lower or
-                    "quota" in raw_msg_lower or
-                    "resource_exhausted" in raw_msg_lower
-                )
-
-                if is_throttled:
-                    emit_emf_metric(
-                        namespace="SSV/ThrottlingSfc",
-                        metrics={"throttle_count": (1, "Count")},
-                        dimensions={
-                            "Environment": settings.ENVIRONMENT,
-                            "endpoint": func.__name__,
-                            "resultado": "retried" if attempts < max_retries else "exhausted"
-                        }
-                    )
-
-                if is_throttled and attempts < max_retries:
-                    attempts += 1
-                    logger.warning(
-                        f"⏳ [SfcClient] Solicitud regulada / cuota superada por la SFC (HTTP 429 Throttled/Quota). "
-                        f"Ejecutando mini-delay de {delay}s antes del reintento {attempts}/{max_retries}..."
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-
                 # Errores de infraestructura (500, 502, 503, timeouts, DNS) o de negocio se elevan directamente
-                raise
+                if not _es_respuesta_throttled(exc):
+                    raise
+
+                if attempts >= max_retries:
+                    _emitir_metrica_throttling(func.__name__, resultado="exhausted")
+                    raise
+
+                _emitir_metrica_throttling(func.__name__, resultado="retried")
+                attempts += 1
+                logger.warning(
+                    f"⏳ [SfcClient] Solicitud regulada / cuota superada por la SFC (HTTP 429 Throttled/Quota). "
+                    f"Ejecutando mini-delay de {delay}s antes del reintento {attempts}/{max_retries}..."
+                )
+                await asyncio.sleep(delay)
 
     return wrapper
 
