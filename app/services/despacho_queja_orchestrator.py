@@ -7,6 +7,8 @@ from app.integrations.sfc_client import SfcClient
 from app.schemas.crm_payloads import ArchivoS3Schema, QuejaUnificadaCrmInput
 from app.services.momento_2_sync import Momento2SincronizacionService
 from app.services.momento_3_sync import Momento3SincronizacionService
+from app.services.idempotency_service import IdempotencyService
+from app.db.redis import get_redis_client
 from app.core.exceptions import SfcIntegrationException
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,28 @@ class DespachoQuejaOrquestador:
         # instancia los servicios reales usando sfc_client y s3_client.
         self.m2_service = m2_service or Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
         self.m3_service = m3_service or Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
+
+    @staticmethod
+    async def _limpiar_checkpoint_si_cierre_exitoso(
+        resultado: Dict[str, Any], smart_code: str, es_cierre: bool
+    ) -> Dict[str, Any]:
+        """
+        🟡 FIX (hallazgo de revisión externa, 2026-08-25, §6): libera el checkpoint de
+        adjuntos (IdempotencyService.limpiar_checkpoint_archivos, antes sin ningún
+        caller) apenas el CIERRE del caso se confirma exitoso -- después de esto no hay
+        más pasos de Momento 3 esperados para este smart_code, así que no hay razón
+        para seguir bloqueando el reenvío de un archivo bajo la misma s3_key hasta que
+        expire el TTL de 30 días del checkpoint (ej. una corrección/reemplazo del mismo
+        documento si el caso se reabre más adelante). Best-effort: nunca lanza, un
+        fallo aquí sólo implica que el checkpoint sigue vivo hasta su propio TTL, no
+        pérdida ni corrupción de datos.
+        """
+        if es_cierre and isinstance(resultado, dict) and resultado.get("status") == "success":
+            try:
+                await IdempotencyService(get_redis_client()).limpiar_checkpoint_archivos(smart_code)
+            except Exception as e:
+                logger.warning(f"⚠️ [Orquestador] No se pudo limpiar el checkpoint de adjuntos para {smart_code}: {e}")
+        return resultado
 
     async def procesar_despacho_raw_json(self, payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Rehidrata un diccionario/JSON desde Redis al esquema Pydantic 'QuejaUnificadaCrmInput'."""
@@ -135,7 +159,8 @@ class DespachoQuejaOrquestador:
 
             # 2. Intento de Momento 3 (Trámite, Fraude o Cierre)
             # Si el caso no existe en la SFC, saltará el 404 y el bloque except ejecutará el Self-Healing (M2 -> M3)
-            return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
+            resultado_m3 = await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
+            return await self._limpiar_checkpoint_si_cierre_exitoso(resultado_m3, smart_code, es_cierre)
 
         except SfcIntegrationException as exc:
             error_tipo = getattr(exc, "error_type", None)
@@ -174,7 +199,8 @@ class DespachoQuejaOrquestador:
 
                 # Paso B: Aplicar la actualización de Momento 3 (procesa adjuntos con sus afijos normativos)
                 logger.info(f"[Auto-Recuperación 2/2] Re-ejecutando pipeline de Momento 3 para {smart_code}...")
-                return await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
+                resultado_m3_healing = await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
+                return await self._limpiar_checkpoint_si_cierre_exitoso(resultado_m3_healing, smart_code, es_cierre)
             
             # ⚠️ EVALUACIÓN DE ERROR NO MAPEADO
             if is_unmapped:

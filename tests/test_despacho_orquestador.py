@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
@@ -565,6 +565,217 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(resultado["status"], "error")
         self.orquestador.m3_service.ejecutar_cierre_definitivo.assert_not_called()
+
+
+class TestLimpiarCheckpointSiCierreExitoso(unittest.IsolatedAsyncioTestCase):
+    """
+    🟡 FIX (hallazgo de revisión externa, 2026-08-25, §6): limpiar_checkpoint_archivos
+    (IdempotencyService) existía sin ningún caller en app/ -- el checkpoint de
+    adjuntos por caso vivía hasta su TTL fijo de 30 días aunque el caso ya hubiera
+    cerrado, bloqueando el reenvío de una corrección al mismo s3_key si el caso se
+    reabría dentro de esa ventana. Se conecta: se libera apenas el CIERRE del caso
+    se confirma exitoso -- no antes (un tramite/fraude sin cierre puede tener más
+    pasos de M3 por delante para el mismo caso).
+    """
+
+    def setUp(self):
+        self.mock_sfc_client = MagicMock()
+        self.mock_s3_client = MagicMock()
+        self.orquestador = DespachoQuejaOrquestador(
+            sfc_client=self.mock_sfc_client, s3_client=self.mock_s3_client
+        )
+        self.orquestador.m2_service.ejecutar_envio_momento_2 = AsyncMock(
+            return_value={"status": "success", "codigo_queja_sfc": "1423999000111222"}
+        )
+        self.orquestador.m3_service.ejecutar_gestion_fraude = AsyncMock(
+            return_value={"status": "success", "message": "Fraude actualizado"}
+        )
+        self.orquestador.m3_service.ejecutar_cierre_definitivo = AsyncMock(
+            return_value={"status": "success", "message": "Caso cerrado"}
+        )
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite = AsyncMock(
+            return_value={"status": "success", "message": "Tramite actualizado"}
+        )
+
+        hoy_bogota = datetime.now(ZoneInfo("America/Bogota"))
+        fecha_creacion_reciente = (hoy_bogota - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S")
+        self.fecha_cierre_reciente = (hoy_bogota - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        self.base_payload_dict = {
+            "Smart_Code__c": "999000111222",
+            "CreatedDate": fecha_creacion_reciente,
+            "Status": "In Progress",
+            "SuppliedName": "Juan Perez",
+            "SC_id_type__c": "CC",
+            "id_number__c": "123456789",
+            "sc_genero__c": "Masculino",
+            "tipo_de_persona__c": "B2C",
+            "sc_LGBTIQ__c": None,
+            "sc_Condicion_especial__c": None,
+            "producto_digital__c": None,
+            "admision_col__c": "No Aplica",
+            "SuppliedPhone": "3001234567",
+            "SuppliedEmail": "juan@test.com",
+            "direccion__c": "Calle 123",
+            "Departamento__c": "Bogotá D.C.",
+            "SC_municipio__c": "Bogotá D.C.",
+            "canal__c": "Internet",
+            "punto_recepcion": "WhatsApp",
+            "Instancia_de_recepcion__c": "Entidad vigilada",
+            "Product__c": "Cuenta perfil",
+            "smart_Producto_nombre__c": "Ahorro",
+            "Categorias_COL__c": "Transacción no reconocida",
+            "Description": "Prueba de limpieza de checkpoint",
+            "smart_anexo_queja__c": False,
+            "smart_escalamiento_DCF__c": "No",
+            "archivos_s3": []
+        }
+
+    async def test_cierre_exitoso_limpia_el_checkpoint(self):
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre.</p>",
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_awaited_once_with(payload.Smart_Code__c)
+
+    async def test_tramite_sin_cierre_no_limpia_el_checkpoint(self):
+        payload = QuejaUnificadaCrmInput.model_validate(self.base_payload_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+    async def test_fraude_sin_cierre_no_limpia_el_checkpoint(self):
+        fraude_dict = self.base_payload_dict.copy()
+        fraude_dict.update({
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "nombre_archivo_fraude": "dictamen_fraude.pdf",
+            "archivos_s3": [{"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}]
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(fraude_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+    async def test_fraude_y_cierre_limpia_el_checkpoint(self):
+        completo_dict = self.base_payload_dict.copy()
+        completo_dict.update({
+            "Status": "Closed",
+            "tipo_fraude__c": "Externo",
+            "modalidad_fraude__c": "Phishing",
+            "card_amount__c": 100000.0,
+            "Total_Devuelto_por_Desconocimiento__c": 0.0,
+            "nombre_archivo_fraude": "dictamen_fraude.pdf",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Fraude y cierre.</p>",
+            "archivos_s3": [{"nombre_archivo": "dictamen_fraude.pdf", "s3_key": "q/f.pdf", "bucket": "b1"}]
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(completo_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_awaited_once_with(payload.Smart_Code__c)
+
+    async def test_fallo_al_limpiar_checkpoint_no_afecta_la_respuesta_exitosa(self):
+        """Best-effort: un fallo al limpiar el checkpoint no debe convertir un cierre
+        ya exitoso en un error -- el peor caso es que el checkpoint sigue vivo hasta
+        su propio TTL, no una pérdida de datos."""
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre.</p>",
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock(side_effect=ConnectionError("redis caido"))
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+
+    async def test_cierre_ya_aplicado_previamente_tambien_limpia_el_checkpoint(self):
+        """El camino de 'ya cerrada' (SFC rechaza porque el caso ya cuenta con
+        respuesta final) también cuenta como cierre exitoso -- debe limpiar el
+        checkpoint igual que un cierre normal."""
+        from app.core.exceptions import SfcIntegrationException
+
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre ya aplicado.</p>",
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        self.orquestador.m3_service.ejecutar_cierre_definitivo = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "BUSINESS_RULE_ERROR", None,
+                "La queja ya cuenta con un documento de respuesta final",
+                "Ya está cerrada"
+            )
+        )
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_awaited_once_with(payload.Smart_Code__c)
 
 
 if __name__ == "__main__":
