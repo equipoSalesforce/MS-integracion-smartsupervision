@@ -258,5 +258,143 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completados, [])
 
 
+class TestS3ServiceMetricaEmf(unittest.IsolatedAsyncioTestCase):
+    """Métrica EMF SSV/S3Service (propuesta de observabilidad CX) -- panel de
+    éxito/fallo de adjuntos. Se emite por archivo individual, no por lote."""
+
+    def setUp(self):
+        self.service = S3StorageService(s3_client=MagicMock())
+        self.service.obtener_stream_archivo = AsyncMock(return_value=b"contenido")
+        self.service.validar_integridad_archivo = MagicMock()
+
+        self.stub_redis = _StubRedisHash()
+        self.patcher_redis = patch("app.services.s3_service.get_redis_client", return_value=self.stub_redis)
+        self.patcher_redis.start()
+        self.addCleanup(self.patcher_redis.stop)
+
+        self.patcher_metrica = patch("app.services.s3_service.emit_emf_metric")
+        self.mock_emit = self.patcher_metrica.start()
+        self.addCleanup(self.patcher_metrica.stop)
+
+    async def test_envio_exitoso_emite_metrica_resultado_success(self):
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(return_value={"id": "doc.pdf"})
+        archivo = [{"nombre_archivo": "doc.pdf", "s3_key": "caso/M/doc.pdf", "bytes": b"x"}]
+
+        await self.service.transferir_lote_s3_a_sfc(
+            sfc_client=sfc_client, sfc_codigo_queja="CASO-M", adjuntos_crm=archivo
+        )
+
+        namespaces = [c.kwargs["namespace"] for c in self.mock_emit.call_args_list]
+        self.assertIn("SSV/S3Service", namespaces)
+        resultados = [
+            c.kwargs["dimensions"]["resultado"]
+            for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/S3Service"
+        ]
+        self.assertIn("success", resultados)
+
+    async def test_archivo_ya_confirmado_por_checkpoint_emite_metrica_skipped_checkpoint(self):
+        sfc_client = MagicMock()
+
+        async def post_falla(sfc_codigo_queja, file_data, file_type, file_name):
+            raise SfcIntegrationException(500, "SFC_INTERNAL_ERROR", None, "Error inesperado", "reintentar")
+
+        sfc_client.post_adjunto_queja = post_falla
+        archivo = [
+            {"nombre_archivo": "doc1.pdf", "s3_key": "caso/N/doc1.pdf", "bytes": b"x"},
+            {"nombre_archivo": "doc2.pdf", "s3_key": "caso/N/doc2.pdf", "bytes": b"x"},
+        ]
+
+        async def post_ok(sfc_codigo_queja, file_data, file_type, file_name):
+            if file_name == "doc2.pdf":
+                raise SfcIntegrationException(500, "SFC_INTERNAL_ERROR", None, "Error inesperado", "reintentar")
+            return {"id": file_name}
+
+        sfc_client.post_adjunto_queja = post_ok
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-N", adjuntos_crm=archivo
+            )
+
+        self.mock_emit.reset_mock()
+        sfc_client.post_adjunto_queja = AsyncMock(return_value={"id": "doc2.pdf"})
+        await self.service.transferir_lote_s3_a_sfc(
+            sfc_client=sfc_client, sfc_codigo_queja="CASO-N", adjuntos_crm=archivo
+        )
+
+        resultados = [
+            c.kwargs["dimensions"]["resultado"]
+            for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/S3Service"
+        ]
+        self.assertIn("skipped_checkpoint", resultados)
+        self.assertIn("success", resultados)
+
+    async def test_duplicado_absorbido_emite_metrica_skipped_duplicate_or_closed(self):
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "DUPLICATE_FILE", None,
+                "El archivo ya existe para esta queja (código 556240)",
+                "No reenviar"
+            )
+        )
+        archivo = [{"nombre_archivo": "doc.pdf", "s3_key": "caso/O/doc.pdf", "bytes": b"x"}]
+
+        await self.service.transferir_lote_s3_a_sfc(
+            sfc_client=sfc_client, sfc_codigo_queja="CASO-O", adjuntos_crm=archivo
+        )
+
+        resultados = [
+            c.kwargs["dimensions"]["resultado"]
+            for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/S3Service"
+        ]
+        self.assertIn("skipped_duplicate_or_closed", resultados)
+
+    async def test_error_sfc_no_absorbido_emite_metrica_error_con_error_type(self):
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "BUSINESS_RULE_ERROR", None,
+                "No se puede actualizar el anexo debido a que la queja se encuentra cerrada",
+                "El caso ya está cerrado"
+            )
+        )
+        archivo = [{"nombre_archivo": "doc.pdf", "s3_key": "caso/P/doc.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-P", adjuntos_crm=archivo
+            )
+
+        llamadas_error = [
+            c for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/S3Service"
+            and c.kwargs["dimensions"]["resultado"] == "error"
+        ]
+        self.assertEqual(len(llamadas_error), 1)
+        self.assertEqual(llamadas_error[0].kwargs["dimensions"]["categoria_error"], "BUSINESS_RULE_ERROR")
+
+    async def test_error_no_controlado_emite_metrica_error_con_nombre_de_excepcion(self):
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(side_effect=ValueError("algo salió mal"))
+        archivo = [{"nombre_archivo": "doc.pdf", "s3_key": "caso/Q/doc.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(ValueError):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-Q", adjuntos_crm=archivo
+            )
+
+        llamadas_error = [
+            c for c in self.mock_emit.call_args_list
+            if c.kwargs["namespace"] == "SSV/S3Service"
+            and c.kwargs["dimensions"]["resultado"] == "error"
+        ]
+        self.assertEqual(len(llamadas_error), 1)
+        self.assertEqual(llamadas_error[0].kwargs["dimensions"]["categoria_error"], "ValueError")
+
+
 if __name__ == "__main__":
     unittest.main()

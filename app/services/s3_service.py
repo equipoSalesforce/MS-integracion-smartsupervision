@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
 from app.db.redis import get_redis_client
 from app.services.idempotency_service import IdempotencyService
+from app.core.metrics import emit_emf_metric
 
 logger = logging.getLogger(__name__)
 
@@ -726,6 +727,24 @@ class S3StorageService:
         return final_send_name
 
     @staticmethod
+    def _emitir_metrica_adjunto(resultado: str, categoria_error: str = "N/A") -> None:
+        """
+        Métrica EMF de salud de la persistencia de archivos -- pedida en la
+        propuesta de observabilidad de CX (Grafana), panel "Adjuntos S3
+        (éxito/fallo)". Se emite por archivo individual (no por lote), para que
+        un lote con éxitos y fallos mezclados quede reflejado con precisión.
+        """
+        emit_emf_metric(
+            namespace="SSV/S3Service",
+            metrics={"adjunto_count": (1, "Count")},
+            dimensions={
+                "Environment": settings.ENVIRONMENT,
+                "resultado": resultado,
+                "categoria_error": categoria_error
+            }
+        )
+
+    @staticmethod
     async def _enviar_adjunto_y_marcar_checkpoint(
         sfc_client, checkpoint_service: IdempotencyService, sfc_codigo_queja: str, identificador_archivo: str,
         file_obj_or_bytes: Any, file_type: str, final_send_name: str
@@ -823,6 +842,7 @@ class S3StorageService:
                     f"⏭️ [S3 Storage] Archivo '{original_name}' ya estaba confirmado por checkpoint "
                     f"previo para {ctx.sfc_codigo_queja}; se omite el reenvío."
                 )
+                self._emitir_metrica_adjunto(resultado="skipped_checkpoint")
                 return {"file_name": original_name, "status": "ALREADY_CONFIRMED_CHECKPOINT"}
 
             file_type = original_name.split(".")[-1] if "." in original_name else "pdf"
@@ -836,20 +856,25 @@ class S3StorageService:
                     original_name, ctx.target_file_name, ctx.afijo_regulatorio, ctx.afijo_masivo, file_type
                 )
 
-                return await self._enviar_adjunto_y_marcar_checkpoint(
+                resultado_envio = await self._enviar_adjunto_y_marcar_checkpoint(
                     ctx.sfc_client, ctx.checkpoint_service, ctx.sfc_codigo_queja,
                     identificador_archivo, file_obj_or_bytes, file_type, final_send_name
                 )
+                self._emitir_metrica_adjunto(resultado="success")
+                return resultado_envio
 
             except SfcIntegrationException as exc:
                 resultado = await self._manejar_duplicado_o_cerrado(
                     exc, ctx.checkpoint_service, ctx.sfc_codigo_queja, identificador_archivo, original_name
                 )
                 if resultado is not None:
+                    self._emitir_metrica_adjunto(resultado="skipped_duplicate_or_closed")
                     return resultado
+                self._emitir_metrica_adjunto(resultado="error", categoria_error=exc.error_type or "UNKNOWN_SFC_ERROR")
                 raise
             except Exception as e:
                 logger.error(f"❌ Error al transferir '{original_name}' a la SFC: {e}")
+                self._emitir_metrica_adjunto(resultado="error", categoria_error=type(e).__name__)
                 raise
             finally:
                 if tmp_stream:
