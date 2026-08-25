@@ -99,6 +99,25 @@ class TestIniciarScheduler(unittest.TestCase):
         self.assertEqual(mock_scheduler.add_job.call_count, 2)
         mock_scheduler.start.assert_called_once()
 
+    def test_purga_usa_timezone_america_bogota(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-25): sin `timezone=` explícito,
+        el cron de purga corría en la zona horaria local del contenedor (lo que
+        APScheduler detecte vía tzlocal) -- no necesariamente UTC como decía el log,
+        y desde luego no America/Bogota como el resto del dominio.
+        """
+        mock_scheduler = MagicMock()
+        mock_scheduler.running = False
+        with patch.object(settings, "QUEUE_ENABLED", True), \
+             patch("app.workers.scheduler.scheduler", mock_scheduler):
+            iniciar_scheduler()
+
+        llamada_purga = next(
+            c for c in mock_scheduler.add_job.call_args_list
+            if c.kwargs.get("id") == "sfc_queue_purge_job"
+        )
+        self.assertEqual(str(llamada_purga.kwargs["timezone"]), "America/Bogota")
+
     def test_no_hace_nada_si_la_cola_esta_deshabilitada(self):
         mock_scheduler = MagicMock()
         mock_scheduler.running = False

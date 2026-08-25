@@ -4,6 +4,7 @@ import uuid
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from zoneinfo import ZoneInfo
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -638,11 +639,20 @@ def iniciar_scheduler():
             coalesce=True
         )
 
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): sin `timezone=` explícito,
+        # el trigger usa la zona horaria local del contenedor (lo que APScheduler
+        # detecte vía tzlocal) -- no necesariamente UTC, a pesar de lo que decía el
+        # log de abajo, y desde luego no America/Bogota como el resto del dominio
+        # (created_at/updated_at/proximo_reintento_at, todos calculados con
+        # ZoneInfo("America/Bogota") en queue_service.py). Se fija explícitamente
+        # para que la purga corra a medianoche Bogotá sin importar dónde despliegue
+        # el contenedor.
         scheduler.add_job(
             purgar_cola_job,
             trigger="cron",
             hour=0,
             minute=0,
+            timezone=ZoneInfo("America/Bogota"),
             id="sfc_queue_purge_job",
             replace_existing=True,
             max_instances=1
@@ -651,7 +661,7 @@ def iniciar_scheduler():
         scheduler.start()
         logger.info(
             f"🚀 APScheduler corriendo reintentos sobre Redis cada {settings.QUEUE_RETRY_INTERVAL_MINUTES}m "
-            f"y purga nocturna a las 00:00 UTC."
+            f"y purga nocturna a las 00:00 hora Bogotá."
         )
 
 
