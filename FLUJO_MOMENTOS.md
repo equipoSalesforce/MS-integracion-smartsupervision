@@ -344,6 +344,28 @@ pendiente es la misma categoría de operación que el despacho que acaba de tene
 `app/services/queue_service.py::cancelar_pendiente_por_smart_code` y
 `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py::TestCancelarPendienteRespetaCategoriaDeOperacion`.
 
+**El mismo hallazgo tenía una brecha simétrica sin corregir en `encolar_despacho` (hallazgo de
+revisión, 2026-08-26):** N1 hizo consciente de la operación a la *cancelación*, pero no a la
+*sobrescritura* -- `ENQUEUE_LUA_SCRIPT` seguía reemplazando el `payload_json` de un item pendiente
+incondicionalmente, sin mirar si el evento entrante era la misma obligación regulatoria que el
+contenido ya encolado. Reproducido contra Redis real: un reporte de **fraude** encolado (con
+`tipo_fraude__c` y evidencia en `archivos_s3`) quedaba completamente reemplazado y perdido cuando
+un **trámite** del mismo `smart_code` también fallaba y se encolaba después -- el trámite no traía
+ninguno de esos campos, así que se perdían para siempre bajo el mismo `item_id`.
+
+**Corregido:** `ENQUEUE_LUA_SCRIPT` ahora guarda `operacion` (calculada en Python vía
+`IdempotencyService.infer_operation_type`, la misma fuente que ya usa
+`cancelar_pendiente_por_smart_code`) junto con cada item, y **rechaza la sobrescritura** -- sin
+tocar el contenido ya encolado -- si la operación entrante difiere de la ya encolada.
+`encolar_despacho` traduce ese rechazo en `SfcIntegrationException(status_code=409,
+error_type="QUEUE_OPERATION_CONFLICT")`; el endpoint le responde al CRM con un `409` explícito
+("reintente esta operación más tarde") en vez de un `202` que ocultaría la pérdida. Un item
+encolado *antes* de este fix (sin el campo `operacion`) se trata como compatible y sí permite la
+sobrescritura, para no romper items ya en vuelo al desplegar el cambio -- mismo criterio que
+`IdempotencyService._item_de_cola_sigue_vigente`. Ver
+`app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, y
+`tests/test_queue_encolar_respeta_categoria_de_operacion.py`.
+
 ---
 
 ## ¿Por qué la cascada de timeouts no llega hasta el ALB?
@@ -763,6 +785,7 @@ simplificada).
 | DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                                                       |
 | Replay administrativo de DLQ                                                                              | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`)                                                              |
 | Cancelación de pendiente tras éxito síncrono (respeta la operación)                                   | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py`                                                                              |
+| Encolado respeta la categoría de operación (rechaza sobrescritura entre categorías, corregido)        | `app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py`                                                                         |
 | Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                                                |
 | Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                                              |
 | Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)        | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                  |

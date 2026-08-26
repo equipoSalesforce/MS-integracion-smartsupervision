@@ -103,6 +103,20 @@ RESPUESTAS_DESPACHO_OPENAPI = {
             }
         }
     },
+    status.HTTP_409_CONFLICT: {
+        "description": "⚠️ **Conflicto de Operación en Cola**: ya existe una operación pendiente de una categoría distinta (ej. fraude) para este mismo `Smart_Code__c`. Reintente más tarde.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "status_code": 409,
+                    "error_type": "QUEUE_OPERATION_CONFLICT",
+                    "sfc_field": None,
+                    "raw_message": "Ya existe una operación 'M3_FRAUD' pendiente en cola para el caso 1286SEQ_20260804_0001, distinta de la entrante ('M3_UPDATE').",
+                    "crm_action_friendly": "Reintente esta operación más tarde, una vez se procese la operación distinta que ya está pendiente para este mismo caso."
+                }
+            }
+        }
+    },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "description": "🚨 **Falla Crítica Doble de Infraestructura**: Tanto la SFC como la cola centralizada de Redis están inalcanzables.",
         "content": {
@@ -252,6 +266,25 @@ async def _encolar_despacho_por_contingencia(
                 "error_origen": error_detalle
             }
         ), True
+    except SfcIntegrationException as conflict_err:
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): un conflicto de operación
+        # (QueueService.encolar_despacho rechazando la sobrescritura de una operación
+        # pendiente de categoría distinta -- ver ENQUEUE_LUA_SCRIPT) NO es una falla de
+        # infraestructura -- no debe caer en el except genérico de abajo, que lo
+        # reportaría como "fallo doble SFC + Redis" (ambos genuinamente caídos), una
+        # categorización falsa que dispararía la alerta crítica equivocada.
+        if conflict_err.error_type == "QUEUE_OPERATION_CONFLICT":
+            return JSONResponse(
+                status_code=conflict_err.status_code,
+                content={
+                    "status_code": conflict_err.status_code,
+                    "error_type": conflict_err.error_type,
+                    "sfc_field": conflict_err.sfc_field,
+                    "raw_message": conflict_err.raw_message,
+                    "crm_action_friendly": conflict_err.crm_action
+                }
+            ), False
+        raise
     except Exception as redis_err:
         logger.critical(
             f"🔥 [CRÍTICO] Fallo doble de infraestructura para caso {payload.Smart_Code__c}: "

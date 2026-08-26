@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.core.constants import SmartStatus
+from app.core.exceptions import SfcIntegrationException
 from app.services.email_service import EmailAlertService
 from app.core.middleware import get_correlation_id
 
@@ -54,6 +55,7 @@ local proximo_reintento_ts = tonumber(ARGV[9])
 local correlation_id = ARGV[10]
 local estado_pendiente = ARGV[11]
 local payload_hash = ARGV[12]
+local operacion_actual = ARGV[13]
 
 local existing_id = redis.call("GET", index_key)
 local pendientes_count = redis.call("SCARD", pending_set_key)
@@ -65,6 +67,24 @@ if existing_id then
         local raw_item = redis.call("GET", item_key)
         if raw_item then
             local data = cjson.decode(raw_item)
+            -- 🔴 FIX (hallazgo de revisión, 2026-08-26): mismo principio que la
+            -- cancelación consciente de operación (hallazgo N1) -- fraude, trámite y
+            -- cierre son obligaciones regulatorias separadas que comparten smart_code
+            -- por el endpoint unificado. Antes, un evento de una categoría distinta a
+            -- la ya encolada pisaba el payload sin darse cuenta -- ej. un trámite
+            -- reemplazando un reporte de fraude genuinamente pendiente, perdiéndolo
+            -- para siempre. `data["operacion"]` es nil para items encolados antes de
+            -- este fix -- se asume compatible (no se rechaza) para no romper items ya
+            -- en vuelo al desplegar el cambio, mismo criterio que
+            -- IdempotencyService._item_de_cola_sigue_vigente.
+            if data["operacion"] and data["operacion"] ~= operacion_actual then
+                return cjson.encode({
+                    conflict = true,
+                    operacion_pendiente = data["operacion"],
+                    operacion_actual = operacion_actual,
+                    pendientes_previos = pendientes_count
+                })
+            end
             -- 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): payload_json_raw se
             -- guarda TAL CUAL (string JSON opaco), sin pasar por cjson.decode -- el propio
             -- Lua cjson no distingue lista vacía de objeto vacío al re-serializar (una tabla
@@ -114,6 +134,9 @@ if existing_id then
             -- reintentos. El contenido nuevo nunca fue intentado; debe arrancar en 1,
             -- igual que cualquier item recién encolado (ver rama de inserción abajo).
             data["intentos"] = 1
+            -- Se guarda/actualiza siempre, incluso para items legacy sin este campo
+            -- (nil arriba), para que la próxima sobrescritura ya pueda compararla.
+            data["operacion"] = operacion_actual
 
             redis.call("SET", item_key, cjson.encode(data))
             redis.call("ZADD", pending_zset_key, proximo_reintento_ts, existing_id)
@@ -138,6 +161,7 @@ local item_data = {
     -- arriba en la rama de sobrescritura -- mismo motivo.
     payload_json = payload_json_raw,
     payload_hash = payload_hash,
+    operacion = operacion_actual,
     estado = estado_pendiente,
     sfc_completado = false,
     sfc_response = nil,
@@ -808,6 +832,12 @@ class QueueService:
         # idempotency_service (mismo patrón que registrar_fallo/marcar_sfc_completado).
         from app.services.idempotency_service import IdempotencyService
         payload_hash = IdempotencyService.compute_payload_hash(payload_json)
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): mismo criterio que
+        # cancelar_pendiente_por_smart_code (hallazgo N1) -- se calcula la categoría de
+        # la operación ENTRANTE para que el script Lua pueda rechazar, en vez de pisar
+        # en silencio, la sobrescritura de un item pendiente de una categoría distinta
+        # (ver comentario largo en ENQUEUE_LUA_SCRIPT).
+        operacion_actual = IdempotencyService.infer_operation_type(payload_json)
 
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
         proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
@@ -832,12 +862,43 @@ class QueueService:
             str(proximo_reintento.timestamp()),
             get_correlation_id() or "N/A",
             SmartStatus.PENDING.value,
-            payload_hash
+            payload_hash,
+            operacion_actual
         ]
 
         try:
             raw_result = await self.redis.eval(ENQUEUE_LUA_SCRIPT, len(keys), *keys, *args)
             result = json.loads(raw_result)
+
+            if result.get("conflict"):
+                operacion_pendiente = result.get("operacion_pendiente")
+                logger.warning(
+                    f"⚠️ [Cola Redis] Conflicto de operación para {smart_code}: ya hay una "
+                    f"operación '{operacion_pendiente}' pendiente en cola, distinta de la "
+                    f"entrante ('{operacion_actual}'). No se sobrescribe."
+                )
+                await EmailAlertService.notificar_falla_infraestructura(
+                    smart_code=smart_code,
+                    error_msg=(
+                        f"Operación '{operacion_actual}' no se pudo encolar: ya existe una "
+                        f"operación pendiente '{operacion_pendiente}' distinta para este caso. "
+                        f"Reintente esta operación una vez se procese la pendiente."
+                    ),
+                    categoria="conflicto_operacion_cola"
+                )
+                raise SfcIntegrationException(
+                    status_code=409,
+                    error_type="QUEUE_OPERATION_CONFLICT",
+                    sfc_field=None,
+                    raw_message=(
+                        f"Ya existe una operación '{operacion_pendiente}' pendiente en cola para "
+                        f"el caso {smart_code}, distinta de la entrante ('{operacion_actual}')."
+                    ),
+                    crm_action=(
+                        "Reintente esta operación más tarde, una vez se procese la operación "
+                        "distinta que ya está pendiente para este mismo caso."
+                    )
+                )
 
             item_data = result["data"]
             is_new = result["is_new"]
