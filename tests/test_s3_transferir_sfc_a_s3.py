@@ -121,6 +121,34 @@ class TestDescargarAdjuntoStreaming(unittest.IsolatedAsyncioTestCase):
                 await S3StorageService._descargar_adjunto_streaming(client, "https://sfc.test/x.pdf", tmp_file, "x.pdf")
             self.assertEqual(ctx.exception.error_type, "FILE_SIZE_EXCEEDED")
 
+    async def test_sin_content_length_pero_supera_el_limite_durante_la_descarga(self):
+        """
+        La verificación por Content-Length (arriba) es sólo la defensa TEMPRANA --
+        si la SFC responde sin ese header (chunked transfer real, o un header
+        ausente/no confiable), la única defensa restante es el conteo de bytes
+        acumulados durante el streaming mismo (antes sin cobertura). Se genera
+        contenido real >30MB porque el límite está fijado como literal dentro de
+        la función (no es inyectable).
+        """
+        from app.core.exceptions import SfcIntegrationException
+        import io
+
+        contenido_grande = b"x" * (30 * 1024 * 1024 + 1024)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            response = httpx.Response(200, content=contenido_grande)
+            del response.headers["content-length"]
+            return response
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            tmp_file = io.BytesIO()
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await S3StorageService._descargar_adjunto_streaming(
+                    client, "https://sfc.test/grande.pdf", tmp_file, "grande.pdf"
+                )
+            self.assertEqual(ctx.exception.error_type, "FILE_SIZE_EXCEEDED")
+
 
 if __name__ == "__main__":
     unittest.main()

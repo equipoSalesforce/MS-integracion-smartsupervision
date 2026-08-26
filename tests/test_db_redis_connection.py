@@ -11,9 +11,10 @@ suite que sí dependen de un Redis real inyectado aparte.
 """
 import asyncio
 import unittest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import app.db.redis as redis_module
+from app.core.config import settings
 
 
 class _RedisModuleStateTestCase(unittest.IsolatedAsyncioTestCase):
@@ -34,6 +35,104 @@ class _RedisModuleStateTestCase(unittest.IsolatedAsyncioTestCase):
                 pass
         redis_module.redis_client = self._orig_client
         redis_module._reconnect_task = self._orig_task
+
+
+class TestBuildRedisClient(unittest.TestCase):
+    """
+    Cobertura de _build_redis_client -- antes sin ejercitar (toda la suite mockea
+    la función completa en vez de sus ramas internas). Se patchean los constructores
+    de redis.asyncio directamente (el import dentro de la función sólo re-vincula
+    el nombre local al mismo módulo ya cargado en sys.modules, así que el patch
+    sobre el módulo real se ve igual desde adentro).
+
+    Cubre en particular REDIS_CLUSTER_MODE=True -- el modo real usado en producción
+    contra AWS ElastiCache Cluster (ver config.py::_validar_redis_produccion), que
+    no tenía ninguna cobertura: un kwarg incorrecto ahí sólo se habría descubierto
+    en un despliegue real.
+    """
+
+    def test_sin_cluster_ni_url_usa_redis_por_host_puerto(self):
+        with patch.object(settings, "REDIS_CLUSTER_MODE", False), \
+             patch.object(settings, "REDIS_URL", None), \
+             patch.object(settings, "REDIS_HOST", "mi-host"), \
+             patch.object(settings, "REDIS_PORT", 6380), \
+             patch.object(settings, "REDIS_PASSWORD", "secreto"), \
+             patch.object(settings, "REDIS_DB", 2), \
+             patch.object(settings, "REDIS_SSL", True), \
+             patch("redis.asyncio.Redis") as mock_redis_ctor, \
+             patch("redis.asyncio.from_url") as mock_from_url, \
+             patch("redis.asyncio.RedisCluster") as mock_cluster_ctor:
+            redis_module._build_redis_client()
+
+        mock_redis_ctor.assert_called_once()
+        self.assertEqual(mock_redis_ctor.call_args.kwargs["host"], "mi-host")
+        self.assertEqual(mock_redis_ctor.call_args.kwargs["port"], 6380)
+        self.assertEqual(mock_redis_ctor.call_args.kwargs["password"], "secreto")
+        self.assertEqual(mock_redis_ctor.call_args.kwargs["db"], 2)
+        self.assertTrue(mock_redis_ctor.call_args.kwargs["ssl"])
+        mock_from_url.assert_not_called()
+        mock_cluster_ctor.assert_not_called()
+
+    def test_sin_cluster_con_url_usa_from_url(self):
+        with patch.object(settings, "REDIS_CLUSTER_MODE", False), \
+             patch.object(settings, "REDIS_URL", "redis://usuario:pass@elasticache:6379/0"), \
+             patch("redis.asyncio.Redis") as mock_redis_ctor, \
+             patch("redis.asyncio.from_url") as mock_from_url:
+            redis_module._build_redis_client()
+
+        mock_from_url.assert_called_once()
+        self.assertEqual(mock_from_url.call_args.args[0], "redis://usuario:pass@elasticache:6379/0")
+        mock_redis_ctor.assert_not_called()
+
+    def test_cluster_sin_url_usa_rediscluster_por_host_puerto(self):
+        with patch.object(settings, "REDIS_CLUSTER_MODE", True), \
+             patch.object(settings, "REDIS_URL", None), \
+             patch.object(settings, "REDIS_HOST", "cluster-host"), \
+             patch.object(settings, "REDIS_PORT", 6379), \
+             patch.object(settings, "REDIS_PASSWORD", "secreto-cluster"), \
+             patch.object(settings, "REDIS_SSL", True), \
+             patch("redis.asyncio.RedisCluster") as mock_cluster_ctor, \
+             patch("redis.asyncio.Redis") as mock_redis_ctor, \
+             patch("redis.asyncio.from_url") as mock_from_url:
+            redis_module._build_redis_client()
+
+        mock_cluster_ctor.assert_called_once()
+        self.assertEqual(mock_cluster_ctor.call_args.kwargs["host"], "cluster-host")
+        self.assertEqual(mock_cluster_ctor.call_args.kwargs["port"], 6379)
+        self.assertEqual(mock_cluster_ctor.call_args.kwargs["password"], "secreto-cluster")
+        self.assertTrue(mock_cluster_ctor.call_args.kwargs["ssl"])
+        mock_cluster_ctor.from_url.assert_not_called()
+        mock_redis_ctor.assert_not_called()
+        mock_from_url.assert_not_called()
+
+    def test_cluster_con_url_usa_rediscluster_from_url(self):
+        with patch.object(settings, "REDIS_CLUSTER_MODE", True), \
+             patch.object(settings, "REDIS_URL", "redis://usuario:pass@cluster-elasticache:6379/0"), \
+             patch("redis.asyncio.RedisCluster") as mock_cluster_ctor:
+            redis_module._build_redis_client()
+
+        mock_cluster_ctor.from_url.assert_called_once()
+        self.assertEqual(
+            mock_cluster_ctor.from_url.call_args.args[0],
+            "redis://usuario:pass@cluster-elasticache:6379/0"
+        )
+        mock_cluster_ctor.assert_not_called()
+
+    def test_common_kwargs_de_resiliencia_se_propagan_siempre(self):
+        """decode_responses/timeouts/retry -- las mismas kwargs de resiliencia deben
+        llegar sin importar la rama (host/puerto vs. URL, cluster vs. standalone)."""
+        with patch.object(settings, "REDIS_CLUSTER_MODE", False), \
+             patch.object(settings, "REDIS_URL", None), \
+             patch("redis.asyncio.Redis") as mock_redis_ctor:
+            redis_module._build_redis_client()
+
+        kwargs = mock_redis_ctor.call_args.kwargs
+        self.assertTrue(kwargs["decode_responses"])
+        self.assertEqual(kwargs["socket_timeout"], 5.0)
+        self.assertEqual(kwargs["socket_connect_timeout"], 5.0)
+        self.assertTrue(kwargs["retry_on_timeout"])
+        self.assertIn("retry", kwargs)
+        self.assertIn("retry_on_error", kwargs)
 
 
 class TestInitRedis(_RedisModuleStateTestCase):

@@ -70,6 +70,39 @@ class TestS3ServiceErrorHandling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(exc.status_code, 500)
         self.assertEqual(exc.error_type, "S3_ACCESS_DENIED")
 
+    async def test_obtener_stream_not_found_raises_404(self):
+        """head_object con código 404/NoSuchKey/NotFound debe lanzar S3_FILE_NOT_FOUND (404),
+        distinto de AccessDenied (500) -- antes sin cobertura directa de esta rama."""
+        client_error = ClientError(
+            error_response={"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}},
+            operation_name="HeadObject"
+        )
+        self.mock_boto_client.head_object.side_effect = client_error
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.service.obtener_stream_archivo(s3_key="quejas/123/doc.pdf")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 404)
+        self.assertEqual(exc.error_type, "S3_FILE_NOT_FOUND")
+
+    async def test_obtener_stream_error_code_no_clasificado_raises_infraestructura(self):
+        """Un ClientError con un código que no es 404-family ni 403-family (ej. un
+        InternalError transitorio de S3) debe caer en el fallback genérico
+        S3_INFRASTRUCTURE_ERROR (500) -- antes sin cobertura directa."""
+        client_error = ClientError(
+            error_response={"Error": {"Code": "InternalError", "Message": "We encountered an internal error."}},
+            operation_name="HeadObject"
+        )
+        self.mock_boto_client.head_object.side_effect = client_error
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.service.obtener_stream_archivo(s3_key="quejas/123/doc.pdf")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 500)
+        self.assertEqual(exc.error_type, "S3_INFRASTRUCTURE_ERROR")
+
     async def test_s3_key_de_otro_caso_es_rechazada(self):
         """
         Auditoría 2026-08-13, item 19 / P1-10: intentar leer una s3_key que no
