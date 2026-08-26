@@ -307,12 +307,20 @@ de coordinación entre equipos, no de código faltante en este microservicio.
 **El costo real de esta limitación** (y por qué no es "aceptalo y ya"): hoy la única señal de un
 caso perdido es un correo a operaciones (`notificar_caso_fallido_definitivo` — éste sí se envía uno
 por caso, sin deduplicar, a diferencia de las alertas de infraestructura descritas más abajo) — así
-que si nadie lo lee, o si además de esto el bug de `cancelar_pendiente_por_smart_code` descarta un
-evento antes de que llegue siquiera a fallar (ver issue abierto por separado), un caso regulatorio
-puede perderse sin que nadie se entere hasta una auditoría de la SFC. Ese riesgo residual es real y
-queda anotado — la falta de endpoint de replay es la parte que no se puede cerrar sin el contrato
-del CRM; el resto (que no se pierdan casos que ni siquiera llegaron a fallar) es un bug aparte y sí
-es responsabilidad de este microservicio.
+que si nadie lo lee, un caso regulatorio puede perderse sin que nadie se entere hasta una auditoría
+de la SFC. Ese riesgo residual es real y queda anotado — la falta de endpoint de replay es la parte
+que no se puede cerrar sin el contrato del CRM.
+
+**Corregido (hallazgo N1, revisión externa v5, 2026-08-25):** hasta esta ronda, `QueueService.
+cancelar_pendiente_por_smart_code` (invocado tras un despacho síncrono exitoso, ver más arriba)
+podía descartar de la cola un evento que **nunca había llegado a intentarse siquiera** — no un
+fallo definitivo, directamente lo borraba sin que pasara por la DLQ ni generara ningún correo,
+porque el endpoint de despacho es unificado y ese método cancelaba cualquier item pendiente del
+mismo `smart_code` sin mirar si era la misma operación (ej. un trámite exitoso podía borrar un
+reporte de fraude que seguía genuinamente pendiente de transmitir). Ahora sólo cancela si el item
+pendiente es la misma categoría de operación que el despacho que acaba de tener éxito -- ver
+`app/services/queue_service.py::cancelar_pendiente_por_smart_code` y
+`tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py::TestCancelarPendienteRespetaCategoriaDeOperacion`.
 
 ---
 
@@ -476,6 +484,7 @@ microservicio.
 | Colección Postman oficial de la SFC (referencia de mensajes de error) | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json` |
 | Webhook al CRM (`status: "CREATED"` fijo) | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia` |
 | DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
+| Cancelación de pendiente tras éxito síncrono (respeta la operación) | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py` |
 | Cascada de timeouts | `infrastructure/Dockerfile`, `infrastructure/nginx.conf`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
 | Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
