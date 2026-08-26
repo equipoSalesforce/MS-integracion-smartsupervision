@@ -192,6 +192,7 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
             await EmailAlertService.notificar_recuperacion_sfc(total_despachados=25)
         mock_programar.assert_called_once()
         self.assertIn("25", mock_programar.call_args.kwargs["asunto"])
+        self.assertEqual(mock_programar.call_args.kwargs["clave_dedup"], "recuperacion_sfc")
 
     async def test_catalogo_stale(self):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
@@ -445,6 +446,24 @@ class TestVencimientoSlaYCatalogoStaleDedupIntegracion(unittest.IsolatedAsyncioT
                 nombre_componente="SfcSalesforceMapper", edad_horas=25.0, error_msg="x"
             )
         self.assertEqual(mock_create_task.call_count, 2)
+
+    async def test_ciclos_sucesivos_de_recuperacion_sfc_no_reenvian(self):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): a diferencia de notificar_caso_
+        fallido_definitivo (una transición de estado que sólo ocurre una vez por
+        fallo genuino), 'la cola llegó a cero después de despachar algo' puede
+        repetirse en ciclos sucesivos si la SFC está intermitente -- la cola se
+        vacía y se vuelve a llenar varias veces mientras la situación sigue
+        inestable. Simula 3 ciclos del scheduler donde la cola llega a cero cada
+        vez (SFC flaky, no una recuperación limpia y única)."""
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=5)
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=2)
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=1)
+        self.assertEqual(mock_create_task.call_count, 1)
 
 
 if __name__ == "__main__":

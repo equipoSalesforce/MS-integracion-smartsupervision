@@ -440,6 +440,20 @@ class EmailAlertService:
     async def notificar_recuperacion_sfc(
         cls, total_despachados: int, ambiente: str = settings.ENVIRONMENT
     ):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): mismo patrón que
+        `notificar_casos_vencimiento_sla`/`notificar_catalogo_stale` -- sin
+        `clave_dedup`, este correo no está acotado en el tiempo. A diferencia de
+        `notificar_caso_fallido_definitivo` (una transición de estado que sólo
+        ocurre una vez por fallo genuino), "la cola llegó a cero después de
+        despachar algo" NO es necesariamente un evento único: con la SFC
+        intermitente (no caída del todo, fallando a ratos), la cola de
+        contingencia puede vaciarse y volver a llenarse en ciclos sucesivos de
+        `QUEUE_RETRY_INTERVAL_MINUTES` (5 min por defecto,
+        `_notificar_autorrecuperacion_si_aplica` en scheduler.py), disparando
+        este correo repetidamente mientras la situación sigue siendo inestable
+        -- justo el escenario de "recuperación" que menos necesita ruido.
+        """
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
@@ -466,9 +480,10 @@ class EmailAlertService:
         cls._programar_envio_background(
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            clave_dedup="recuperacion_sfc"
         )
-        
+
     # app/services/email_service.py (fragmento adicionado en EmailAlertService)
 
     # =========================================================================

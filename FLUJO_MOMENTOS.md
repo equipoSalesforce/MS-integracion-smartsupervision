@@ -454,6 +454,21 @@ cada tipo de incidente tiene ahora su propia ventana de 15 minutos, independient
 siendo global por categoría (no por `smart_code`): una caída de infraestructura del mismo tipo sigue
 siendo un solo evento, no N eventos independientes por cada caso que la sufre.
 
+**Ya corregido (dos notificadores sin ventana de dedup, hallazgo de revisión, 2026-08-26):**
+`notificar_casos_vencimiento_sla` y `notificar_catalogo_stale` no tenían `clave_dedup` en absoluto --
+se reenviaban en cada ciclo del job que los dispara (cada `QUEUE_RETRY_INTERVAL_MINUTES`/
+`CACHE_TTL_SEGUNDOS`) mientras persistiera la condición. Corregido con el mismo patrón de arriba.
+
+**Ya corregido (un tercer notificador con el mismo problema, barrido de verificación, 2026-08-26):**
+`notificar_recuperacion_sfc` tampoco tenía `clave_dedup`. A diferencia de
+`notificar_caso_fallido_definitivo` (dispara una vez por transición de estado genuina a
+`FALLIDO_DEFINITIVO`, que no puede repetirse para el mismo fallo), "la cola llegó a cero después de
+despachar algo" no es necesariamente un evento único: con la SFC intermitente (fallando a ratos, no
+caída del todo), la cola de contingencia puede vaciarse y volver a llenarse en ciclos sucesivos de
+`_notificar_autorrecuperacion_si_aplica` (scheduler.py, cada `QUEUE_RETRY_INTERVAL_MINUTES`),
+reenviando el correo de "recuperación" repetidamente mientras la situación sigue inestable -- justo
+el escenario que menos necesita ruido. Se agregó `clave_dedup="recuperacion_sfc"`.
+
 ---
 
 ## ¿Por qué la validación de ownership de adjuntos en S3 usa `Case_id` y es estrictamente posicional?
