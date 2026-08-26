@@ -27,8 +27,8 @@
 - [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
-- [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (revisado, no corregido)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-revisado-no-corregido)
-- [Momento 1 no deduplica quejas repetidas entre páginas (pendiente de arreglar)](#momento-1-no-deduplica-quejas-repetidas-entre-páginas-pendiente-de-arreglar)
+- [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
+- [Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)](#momento-1-no-deduplicaba-quejas-repetidas-entre-páginas-corregido)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -604,7 +604,7 @@ engañoso. Corregido exigiendo `expected_version` igual que los demás scripts d
 transición; ahora recibe los items completos (`registros`, no sólo sus ids)
 para poder validarla.
 
-## ¿Por qué la firma HMAC no es byte-exacta sobre el body real? (revisado, no corregido)
+## ¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)
 
 **Código:** `app/core/security/signatures.py::PayloadSignatureStrategy`,
 `app/core/auth.py::_preparar_headers_y_firma`.
@@ -619,41 +619,39 @@ re-serialización, no el body que efectivamente sale por la red -- confirmado
 empíricamente (ver `tests/test_auth_flow_interceptor.py::
 test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado`).
 
-**Por qué no se "corrigió" para que coincida con los bytes reales:** el sistema
-funciona en producción hoy con este comportamiento, lo que sólo se explica si el
-lado de la SFC también normaliza/re-serializa el body antes de comparar la firma
-(en vez de comparar HMACs byte-exactos sobre lo que recibió crudo) -- una suposición
-razonable dado que el sistema funciona, pero no verificable desde este repositorio.
-Cambiar los separadores de `PayloadSignatureStrategy` para que coincidan con los de
-httpx parecería una corrección obvia sin este contexto, y podría romper en silencio
-la integración real si la verificación del lado de la SFC depende de la
-re-serialización actual.
+**Por qué esto es correcto, no un bug:** `docs/SignatureGenerator_comment (1).txt`
+es el script de referencia que la propia SFC entrega a cada entidad vigilada para
+generar la firma -- y firma exactamente así: `json.dumps(data, ensure_ascii=False)`,
+sin fijar `separators` (es decir, con espacios). El comportamiento de este
+microservicio replica al dedillo esa especificación. Confirmado también
+operativamente: un intento de "corregir" los separadores para que coincidieran con
+los bytes compactos de httpx generó el mismo error de firma inválida del lado del
+ambiente QA real de la SFC -- prueba directa de que su verificación depende de esta
+re-serialización específica, no del body crudo que reciben. No cambiar estos
+separadores.
 
-**Qué haría falta para cerrar esto de verdad:** confirmar con el equipo dueño de la
-integración de la SFC (o con su documentación de firma) cómo verifican exactamente
-el HMAC -- si normalizan el JSON antes de comparar (en cuyo caso este comportamiento
-es intencional y debería quedar explícito, no accidental) o si son byte-exactos (en
-cuyo caso este es un bug real que hoy "funciona" por una razón distinta que no se ha
-identificado, y ameritaría investigación adicional antes de cualquier cambio).
+## Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)
 
-## Momento 1 no deduplica quejas repetidas entre páginas (pendiente de arreglar)
-
-**Código:** `app/services/momento_1_sync.py::ejecutar_flujo_completo_momento_1`.
+**Código:** `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja`.
 
 `momento_4_sync.py` tiene un fix explícito ("hallazgo 50") que deduplica usuarios
 por `numero_id_CF` dentro de un mismo lote, porque la paginación por cursor `next`
 de la SFC puede devolver el **mismo registro en dos páginas consecutivas** si el
 backlog cambia entre un fetch y el siguiente (un registro nuevo se inserta antes del
-cursor y desplaza al resto una posición). Momento 1 comparte exactamente el mismo
-patrón de paginación contra la misma SFC, pero nunca recibió el mismo tratamiento
-por `codigo_queja` -- confirmado con un test que reproduce dos páginas con la misma
-queja y muestra que se entrega **duplicada** al CRM (`tests/test_momento_1.py::
-test_misma_codigo_queja_en_dos_paginas_se_entrega_duplicada_al_crm`).
+cursor y desplaza al resto una posición). Momento 1 compartía exactamente el mismo
+patrón de paginación contra la misma SFC, pero nunca había recibido el mismo
+tratamiento por `codigo_queja` -- confirmado con un test que reproducía dos páginas
+con la misma queja y mostraba que se entregaba **duplicada** al CRM.
 
-**Por qué queda pendiente:** encontrado en la revisión de puntos críticos del
-2026-08-26, con la corrección obvia disponible (mismo patrón `vistos_ids` que ya
-existe en Momento 4) -- pendiente de implementar a pedido explícito, mientras se
-completa el resto de la revisión.
+**Corregido (hallazgo del 2026-08-26):** se agregó `_filtrar_duplicados_por_codigo_queja`,
+mismo patrón que Momento 4 (`vistos_codigos_queja`, un `set` acumulado a lo largo de
+TODAS las páginas del ciclo, no sólo dentro de una). Se filtra antes de despachar el
+procesamiento concurrente de cada queja -- evita además descargar sus adjuntos dos
+veces. No deduplica códigos ausentes/vacíos entre sí (un registro malformado no debe
+"comerse" a otro). Ver `tests/test_momento_1.py::
+test_misma_codigo_queja_en_dos_paginas_se_deduplica`,
+`test_duplicado_dentro_de_la_misma_pagina_tambien_se_deduplica`,
+`test_codigo_queja_ausente_no_se_deduplica_contra_otro_ausente`.
 
 ## Referencias en el código
 
@@ -684,6 +682,6 @@ completa el resto de la revisión.
 | Lock por caso también en el worker de reintentos                                                        | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX` |
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                       | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm` |
 | Version esperada en el diferimiento por caída de SFC                                                    | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT` |
-| Firma HMAC no byte-exacta sobre el body real (revisado, no corregido)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `app/core/auth.py::_preparar_headers_y_firma`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
-| Momento 1 sin dedup entre páginas (pendiente de arreglar)                                                | `app/services/momento_1_sync.py::ejecutar_flujo_completo_momento_1`, `tests/test_momento_1.py::test_misma_codigo_queja_en_dos_paginas_se_entrega_duplicada_al_crm` |
+| Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                 | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
+| Dedup de quejas repetidas entre páginas (Momento 1)                                                      | `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja` |
 | Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |

@@ -28,6 +28,14 @@ class SincronizacionService:
         # SFC indefinidamente (ciclo de paginación, backlog anómalo, etc.).
         pagina_actual = 0
         inicio = time.monotonic()
+        # 🔴 FIX (hallazgo de flujo/reintentos, 2026-08-26): dedup por codigo_queja
+        # entre páginas -- mismo riesgo, mismo motivo y mismo patrón que
+        # momento_4_sync.py::_procesar_usuario_sfc (hallazgo 50): la paginación por
+        # cursor 'next' de la SFC puede devolver el MISMO registro en dos páginas
+        # consecutivas si el backlog cambia entre un fetch y el siguiente (un
+        # registro nuevo se inserta antes del cursor y desplaza al resto una
+        # posición). Sin esto, la misma queja se entregaba duplicada al CRM.
+        vistos_codigos_queja: set = set()
 
         while True:
             pagina_actual += 1
@@ -55,7 +63,7 @@ class SincronizacionService:
             if not lista_quejas:
                 break
 
-            quejas_procesadas_pagina = await self._procesar_pagina_quejas(lista_quejas)
+            quejas_procesadas_pagina = await self._procesar_pagina_quejas(lista_quejas, vistos_codigos_queja)
             quejas_finales_crm.extend(quejas_procesadas_pagina)
 
             url_actual = response_data.get("next")
@@ -64,11 +72,37 @@ class SincronizacionService:
 
         return quejas_finales_crm
 
-    async def _procesar_pagina_quejas(self, raw_quejas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _filtrar_duplicados_por_codigo_queja(
+        raw_quejas: List[Dict[str, Any]], vistos_codigos_queja: set
+    ) -> List[Dict[str, Any]]:
+        """Filtra duplicados ANTES de despachar -- evita además descargar sus
+        adjuntos dos veces (cada queja duplicada dispararía su propia llamada a
+        S3/SFC en _procesar_queja_individual si no se filtrara acá). No deduplica
+        códigos ausentes/vacíos entre sí (un registro malformado no debe "comerse"
+        a otro)."""
+        quejas_unicas = []
+        for queja in raw_quejas:
+            codigo_queja = queja.get("codigo_queja") if isinstance(queja, dict) else None
+            if codigo_queja and codigo_queja in vistos_codigos_queja:
+                logger.info(
+                    f"ℹ️ [Momento 1] Queja duplicada '{codigo_queja}' omitida (ya vista en "
+                    f"esta página o en una anterior)."
+                )
+                continue
+            if codigo_queja:
+                vistos_codigos_queja.add(codigo_queja)
+            quejas_unicas.append(queja)
+        return quejas_unicas
+
+    async def _procesar_pagina_quejas(
+        self, raw_quejas: List[Dict[str, Any]], vistos_codigos_queja: set
+    ) -> List[Dict[str, Any]]:
         TAMANO_CHUNK = 10
-        chunks = [raw_quejas[i:i + TAMANO_CHUNK] for i in range(0, len(raw_quejas), TAMANO_CHUNK)]
+        quejas_unicas = self._filtrar_duplicados_por_codigo_queja(raw_quejas, vistos_codigos_queja)
+        chunks = [quejas_unicas[i:i + TAMANO_CHUNK] for i in range(0, len(quejas_unicas), TAMANO_CHUNK)]
         resultados = []
-        
+
         for chunk in chunks:
             tareas = [self._procesar_queja_individual(queja) for queja in chunk]
             resultados_chunk = await asyncio.gather(*tareas, return_exceptions=True)

@@ -92,29 +92,29 @@ class TestAsyncAuthFlow(unittest.IsolatedAsyncioTestCase):
 
     async def test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado(self):
         """
-        Auditoría del flujo de despacho/reintentos (2026-08-26), hallazgo estructural:
-        el test de arriba construye el Request con `content=json.dumps(body).encode()`
-        -- separadores de Python por defecto (con espacios: ', ' / ': ') -- así que el
-        round-trip json.loads/json.dumps que hace _preparar_headers_y_firma reproduce
+        Auditoría del flujo de despacho/reintentos (2026-08-26): el test de arriba
+        construye el Request con `content=json.dumps(body).encode()` -- separadores
+        de Python por defecto (con espacios: ', ' / ': ') -- así que el round-trip
+        json.loads/json.dumps que hace _preparar_headers_y_firma reproduce
         exactamente esos mismos bytes por casualidad. Pero sfc_client.py, en la vida
         real, SIEMPRE construye sus requests con `client.post(url, json=payload, ...)`
         (ver post_nueva_queja, put_actualizar_queja, etc.) -- y httpx serializa `json=`
         con separadores COMPACTOS (',' / ':', sin espacios, ver httpx/_content.py). Ese
         es el request que este test reproduce.
 
-        Resultado confirmado: la firma que este cliente calcula y envía en
-        X-SFC-Signature NO es un HMAC byte-exacto sobre `request.content` (los bytes
-        que realmente viajan por la red) -- es un HMAC sobre una re-serialización con
-        espacios de ese mismo contenido. Esto funciona en producción hoy porque
-        (asumido, no verificado desde este repo) el lado de la SFC también
-        normaliza/re-serializa el body antes de comparar la firma, en vez de comparar
-        HMACs byte-exactos sobre el body crudo recibido.
+        Confirmado (no un bug): la firma que este cliente calcula y envía en
+        X-SFC-Signature no es un HMAC byte-exacto sobre `request.content` -- es un
+        HMAC sobre una re-serialización con espacios de ese mismo contenido, EXACTAMENTE
+        como especifica el script de referencia que la propia SFC entrega a cada
+        entidad vigilada (`docs/SignatureGenerator_comment (1).txt`:
+        `json.dumps(data, ensure_ascii=False)`, sin fijar `separators`). Confirmado
+        también contra el ambiente QA real de la SFC.
 
-        Este test NO arregla nada -- fija el comportamiento ACTUAL como contrato
-        explícito, para que un cambio futuro que "corrija" los separadores de
-        PayloadSignatureStrategy para que coincidan con los bytes reales (un cambio
-        que parecería obviamente correcto sin este contexto) no rompa en silencio la
-        integración real con la SFC sin que nadie entienda por qué.
+        Este test fija el comportamiento CORRECTO como contrato explícito, para que un
+        cambio futuro que "corrija" los separadores de PayloadSignatureStrategy para
+        que coincidan con los bytes reales de httpx (un cambio que parecería
+        obviamente correcto sin este contexto) no rompa la integración real con la
+        SFC -- ya se intentó y produjo el mismo error de firma inválida del lado SFC.
         """
         body = {"Smart_Code__c": "12345", "Description": "Reclamo por transacción no reconocida"}
         # Igual que sfc_client.py de verdad: json= (no content=), para que httpx
