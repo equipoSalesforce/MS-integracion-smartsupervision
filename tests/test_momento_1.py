@@ -188,6 +188,35 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(resultado), 3)
         mock_alerta.assert_called_once()
 
+    async def test_misma_codigo_queja_en_dos_paginas_se_entrega_duplicada_al_crm(self):
+        """
+        Auditoría de puntos críticos no revisados (2026-08-26): Momento 4
+        (momento_4_sync.py, "hallazgo 50") deduplica explícitamente por
+        numero_id_CF porque la paginación por cursor 'next' de la SFC puede
+        devolver el mismo registro en dos páginas consecutivas si el backlog
+        cambia entre un fetch y el siguiente (un registro nuevo se inserta
+        antes del cursor y desplaza al resto). Momento 1 nunca recibió el
+        mismo tratamiento por codigo_queja, pese a compartir exactamente el
+        mismo patrón de paginación contra la misma SFC. Este test documenta
+        el comportamiento actual: la MISMA queja, repetida en dos páginas
+        consecutivas, se entrega al CRM DOS VECES -- riesgo real de casos
+        regulatorios duplicados en el CRM, no sólo un desperdicio de
+        cómputo.
+        """
+        queja_repetida = dict(self.mock_quejas_response["Response"]["results"][0], anexo_queja=False)
+
+        paginas = [
+            {"Response": {"count": 2, "next": "https://sfc.example.com/quejas?page=2", "results": [queja_repetida]}},
+            {"Response": {"count": 2, "next": None, "results": [queja_repetida]}},
+        ]
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(side_effect=paginas)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        # Comportamiento actual: se entregan las 2 (una por página), sin deduplicar.
+        self.assertEqual(len(resultado), 2, "Documenta el comportamiento actual -- ver hallazgo en FLUJO_MOMENTOS.md")
+
 
 class TestMomento1Integration(unittest.TestCase):
 

@@ -28,6 +28,7 @@
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (revisado, no corregido)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-revisado-no-corregido)
+- [Momento 1 no deduplica quejas repetidas entre páginas (pendiente de arreglar)](#momento-1-no-deduplica-quejas-repetidas-entre-páginas-pendiente-de-arreglar)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -635,6 +636,25 @@ es intencional y debería quedar explícito, no accidental) o si son byte-exacto
 cuyo caso este es un bug real que hoy "funciona" por una razón distinta que no se ha
 identificado, y ameritaría investigación adicional antes de cualquier cambio).
 
+## Momento 1 no deduplica quejas repetidas entre páginas (pendiente de arreglar)
+
+**Código:** `app/services/momento_1_sync.py::ejecutar_flujo_completo_momento_1`.
+
+`momento_4_sync.py` tiene un fix explícito ("hallazgo 50") que deduplica usuarios
+por `numero_id_CF` dentro de un mismo lote, porque la paginación por cursor `next`
+de la SFC puede devolver el **mismo registro en dos páginas consecutivas** si el
+backlog cambia entre un fetch y el siguiente (un registro nuevo se inserta antes del
+cursor y desplaza al resto una posición). Momento 1 comparte exactamente el mismo
+patrón de paginación contra la misma SFC, pero nunca recibió el mismo tratamiento
+por `codigo_queja` -- confirmado con un test que reproduce dos páginas con la misma
+queja y muestra que se entrega **duplicada** al CRM (`tests/test_momento_1.py::
+test_misma_codigo_queja_en_dos_paginas_se_entrega_duplicada_al_crm`).
+
+**Por qué queda pendiente:** encontrado en la revisión de puntos críticos del
+2026-08-26, con la corrección obvia disponible (mismo patrón `vistos_ids` que ya
+existe en Momento 4) -- pendiente de implementar a pedido explícito, mientras se
+completa el resto de la revisión.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                               |
@@ -665,4 +685,5 @@ identificado, y ameritaría investigación adicional antes de cualquier cambio).
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                       | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm` |
 | Version esperada en el diferimiento por caída de SFC                                                    | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT` |
 | Firma HMAC no byte-exacta sobre el body real (revisado, no corregido)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `app/core/auth.py::_preparar_headers_y_firma`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
+| Momento 1 sin dedup entre páginas (pendiente de arreglar)                                                | `app/services/momento_1_sync.py::ejecutar_flujo_completo_momento_1`, `tests/test_momento_1.py::test_misma_codigo_queja_en_dos_paginas_se_entrega_duplicada_al_crm` |
 | Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |
