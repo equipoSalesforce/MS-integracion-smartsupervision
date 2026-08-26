@@ -328,35 +328,52 @@ class SfcErrorTranslator:
     @classmethod
     async def procesar_y_lanzar(cls, status_code: int, response_text: str) -> None:
         """
-        🔴 FIX (hallazgo de revisión, 2026-08-26): NOT_FOUND_ERROR se evalúa con
-        PRIORIDAD sobre el resto de la matriz, sin importar el orden real de las
-        reglas (local o desde Google Sheets, ambas fuentes comparten el mismo
-        riesgo). La regla 'codigo_queja'→ALREADY_EXISTS es una coincidencia por
-        NOMBRE de campo, no por contenido del mensaje -- 'codigo_queja' aparece en
-        prácticamente cualquier error de la SFC sobre una queja, incluido el 400 de
-        "Add File" cuando el caso NO existe todavía
+        🔴 FIX (hallazgo de revisión, 2026-08-26; corregido de nuevo el mismo día
+        tras encontrarse una regresión propia -- ver abajo): la regla
+        'codigo_queja'→ALREADY_EXISTS es una coincidencia por NOMBRE de campo, no
+        por contenido del mensaje -- 'codigo_queja' aparece en prácticamente
+        cualquier error de la SFC sobre una queja, incluido el 400 de "Add File"
+        cuando el caso NO existe todavía
         (`{"codigo_queja": ["Object with codigo_queja=X does not exist."]}`).
-        Reproducido: con el orden anterior de la matriz, ese caso se clasificaba
+        Reproducido: con el orden original de la matriz, ese caso se clasificaba
         como ALREADY_EXISTS -- lo que
         Momento2SincronizacionService._es_error_queja_ya_existe_m2 tolera como
         éxito idempotente, y que despacho_queja_orchestrator._es_error_caso_no_
         encontrado nunca reconoce como 404 -- dejando el self-healing M2->M3
-        permanentemente inalcanzable para esa forma de error, con un
-        crm_action que además afirma lo contrario de lo que realmente pasó.
-        "El caso no existe" es la señal más crítica de toda la matriz (dispara la
-        auto-recuperación); perderla detrás de una coincidencia de nombre de campo
-        la deja rota en silencio. Las reglas NOT_FOUND_ERROR son frases completas
-        con espacios ("not found", "no existe", "does not exist"), con mucho menos
-        riesgo de colisión que un nombre de campo suelto.
+        permanentemente inalcanzable para esa forma de error, con un crm_action
+        que además afirma lo contrario de lo que realmente pasó.
+
+        La primera versión de este fix le daba prioridad a NOT_FOUND_ERROR sobre
+        TODA la matriz, sin importar el campo -- demasiado amplio: reclasificaba
+        también errores de VALIDACIÓN genuinos de OTROS campos catálogo
+        (departamento_cod, municipio_cod, canal_cod, etc.) que la SFC también
+        puede reportar con la misma frase "does not exist" (mismo patrón
+        SlugRelatedField de Django REST Framework) para SUS PROPIOS valores
+        inválidos -- reproducido con
+        `{"departamento_cod": ["Object with departamento_cod=999 does not exist."]}`,
+        que antes de esa primera versión clasificaba correctamente VALIDATION_ERROR
+        y con ella pasó a clasificar (mal) NOT_FOUND_ERROR, dañando el self-healing
+        para un caso que en realidad necesitaba corrección de datos, no
+        recuperación automática. Las reglas de nombre de campo para esos OTROS
+        campos ya mapean correctamente a VALIDATION_ERROR (el tipo correcto para
+        "este valor de catálogo no existe") -- sólo 'codigo_queja' tiene un tipo
+        (ALREADY_EXISTS) que CONTRADICE lo que "does not exist" realmente
+        significa. La prioridad se restringe entonces a mensajes que son
+        específicamente sobre 'codigo_queja' (vía sfc_field, reconstruido por
+        _extraer_informacion_error a partir de las llaves del JSON de error) --
+        el resto de la matriz conserva su orden real, sin tocar ninguna otra
+        clasificación ya correcta.
         """
         matriz = await cls.obtener_matriz_errores()
         sfc_field, raw_message = cls._extraer_informacion_error(response_text)
 
         textos_lower = (raw_message.lower(), (sfc_field or "").lower(), response_text.lower())
 
-        reglas_not_found = [r for r in matriz if r.get("tipo") == "NOT_FOUND_ERROR"]
-        regla = cls._buscar_primera_coincidencia(reglas_not_found, textos_lower) or \
-            cls._buscar_primera_coincidencia(matriz, textos_lower)
+        regla = None
+        if "codigo_queja" in (sfc_field or "").lower():
+            reglas_not_found = [r for r in matriz if r.get("tipo") == "NOT_FOUND_ERROR"]
+            regla = cls._buscar_primera_coincidencia(reglas_not_found, textos_lower)
+        regla = regla or cls._buscar_primera_coincidencia(matriz, textos_lower)
 
         if regla:
             error_type = regla.get("tipo", "UNKNOWN_SFC_ERROR")

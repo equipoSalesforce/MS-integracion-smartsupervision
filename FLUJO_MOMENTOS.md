@@ -812,16 +812,30 @@ corregir desde este repositorio.
 
 **Corregido (hallazgo de revisión, 2026-08-26):** `procesar_y_lanzar` ahora
 evalúa las reglas `NOT_FOUND_ERROR` de la matriz **con prioridad**, sin
-importar su posición real (local o Google Sheets) — "el caso no existe" es la
-señal más crítica de toda la matriz porque dispara la auto-recuperación, y sus
-frases (`"not found"`, `"no existe"`, `"does not exist"`) son textos completos
-con espacios, con mucho menor riesgo de colisión que un nombre de campo suelto.
-Un mensaje de "ya existe" genuino (sin ninguna de esas frases) sigue
-clasificando `ALREADY_EXISTS` normalmente. Ver
-`tests/test_sfc_error_translator.py::test_not_found_tiene_prioridad_sobre_coincidencia_por_nombre_de_campo`
-y `TestProcesarYLanzarContraMatrizLocalReal` (reproduce el body real de la
-colección Postman contra la matriz local real, no una matriz de prueba
-simplificada).
+importar su posición real (local o Google Sheets). Un mensaje de "ya existe"
+genuino (sin ninguna de esas frases) sigue clasificando `ALREADY_EXISTS`
+normalmente.
+
+**Autocorrección el mismo día (auditoría de los propios fixes):** la primera
+versión de este fix le daba esa prioridad a `NOT_FOUND_ERROR` sobre **toda**
+la matriz, sin restringirla a `codigo_queja` -- demasiado amplio. Reproducido:
+un error de VALIDACIÓN genuino de OTRO campo catálogo (`departamento_cod`,
+`municipio_cod`, etc.), que la SFC también puede reportar con la misma frase
+"does not exist" (mismo patrón `SlugRelatedField` de Django REST Framework)
+para SUS PROPIOS valores inválidos, se reclasificaba de `VALIDATION_ERROR` a
+`NOT_FOUND_ERROR` -- dañando el self-healing para un caso que en realidad
+necesitaba corrección de datos del CRM, no una auto-recuperación. La causa
+raíz real es más estrecha que "NOT_FOUND_ERROR debe ganar siempre": sólo
+`codigo_queja` tiene una regla (`ALREADY_EXISTS`) cuyo tipo **contradice** lo
+que "does not exist" significa -- las reglas de nombre de campo para los
+demás campos catálogo ya mapean correctamente a `VALIDATION_ERROR`, el tipo
+correcto para "este valor no existe en el catálogo". La prioridad quedó
+restringida a mensajes específicamente sobre `codigo_queja` (vía `sfc_field`);
+el resto de la matriz conserva su orden real. Ver
+`tests/test_sfc_error_translator.py::test_not_found_tiene_prioridad_sobre_coincidencia_por_nombre_de_campo`,
+`test_not_found_no_reclasifica_error_de_validacion_de_otro_campo`, y
+`TestProcesarYLanzarContraMatrizLocalReal` (ambos escenarios reproducidos
+contra la matriz local real, no una matriz de prueba simplificada).
 
 **El mismo patrón apareció en un segundo lugar (barrido de verificación,
 2026-08-26):** `S3StorageService._manejar_duplicado_o_cerrado`

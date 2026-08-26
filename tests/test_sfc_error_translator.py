@@ -173,6 +173,31 @@ class TestProcesarYLanzar(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual(ctx.exception.error_type, "NOT_FOUND_ERROR")
 
+    async def test_not_found_no_reclasifica_error_de_validacion_de_otro_campo(self):
+        """
+        🔴 Regresión propia (encontrada y corregida el mismo día): la primera
+        versión de este fix le daba prioridad a NOT_FOUND_ERROR sobre TODA la
+        matriz, sin restringirlo a 'codigo_queja' -- reclasificaba también errores
+        de VALIDACIÓN genuinos de otros campos catálogo (departamento_cod,
+        municipio_cod, etc.) que la SFC también puede reportar con la misma frase
+        "does not exist" (mismo patrón SlugRelatedField de Django REST Framework)
+        para SUS PROPIOS valores inválidos -- sin relación alguna con que el CASO
+        no exista. Ese tipo de mensaje debe seguir respetando el orden real de la
+        matriz (donde 'departamento_cod' ya mapea correctamente a VALIDATION_ERROR,
+        el tipo correcto para un valor de catálogo inválido).
+        """
+        reglas = [
+            {"subcadena": "departamento_cod", "tipo": "VALIDATION_ERROR", "accion": "Verificar el departamento."},
+            {"subcadena": "does not exist", "tipo": "NOT_FOUND_ERROR", "accion": "Autorrecuperar (self-healing)."},
+        ]
+        with self._mockear_matriz(reglas), \
+             patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"departamento_cod": ["Object with departamento_cod=999 does not exist."]}'
+                )
+            self.assertEqual(ctx.exception.error_type, "VALIDATION_ERROR")
+
     async def test_already_exists_genuino_sigue_funcionando_con_not_found_en_la_matriz(self):
         """Contraprueba: un mensaje de 'ya existe' genuino (sin ninguna de las frases
         NOT_FOUND) debe seguir clasificando ALREADY_EXISTS aunque la matriz también
@@ -240,6 +265,21 @@ class TestProcesarYLanzarContraMatrizLocalReal(unittest.IsolatedAsyncioTestCase)
                     400, '{"message": "Ya existe queja con este codigo queja"}'
                 )
         self.assertEqual(ctx.exception.error_type, "ALREADY_EXISTS")
+
+    async def test_respuesta_real_departamento_cod_invalido_sigue_clasificando_validation_error(self):
+        """
+        🔴 Regresión propia (encontrada y corregida el mismo día): reproduce contra
+        la matriz LOCAL REAL (no una matriz de prueba simplificada) el mismo patrón
+        DRF SlugRelatedField ("Object with X=Y does not exist.") pero para
+        departamento_cod -- un valor de catálogo inválido, sin ninguna relación con
+        que el caso no exista. Debe seguir clasificando VALIDATION_ERROR.
+        """
+        with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"departamento_cod": ["Object with departamento_cod=999 does not exist."]}'
+                )
+        self.assertEqual(ctx.exception.error_type, "VALIDATION_ERROR")
 
 
 if __name__ == "__main__":
