@@ -211,6 +211,54 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(data["sfc_response"]), {"status": "success"})
         self.assertIn("pospuesto automáticamente", data["ultimo_error"])
 
+    async def test_diferir_sobre_item_ya_sobrescrito_por_evento_mas_nuevo_no_verifica_version(self):
+        """
+        Auditoría del flujo completo de despacho/reintentos (2026-08-26): a
+        diferencia de marcar_exitoso/marcar_sfc_completado/registrar_fallo (que
+        exigen expected_version y rechazan con version_mismatch si el contenido
+        cambió bajo sus pies), diferir_pendientes_por_caida_sfc NO recibe ni valida
+        una versión esperada -- opera sobre el id sin importar si el contenido que
+        está a punto de tocar sigue siendo el mismo que motivó la decisión de
+        diferir. Si un evento NUEVO del mismo smart_code sobrescribe el item
+        (mismo id, versión mayor) entre el listado del lote y la ejecución de
+        diferir, el reintento programado (proximo_reintento_at) y el mensaje de
+        error del contenido NUEVO quedan pisados con los del incidente de
+        infraestructura que en realidad era sobre el contenido VIEJO -- no se
+        pierden datos (el payload_json más reciente se conserva intacto), pero el
+        caso recién llegado se retrasa sin motivo y queda con un ultimo_error que
+        no describe su propia situación. Se documenta el comportamiento actual tal
+        cual es -- no hay assertNotEqual de "arreglado", esto caracteriza la brecha.
+        """
+        item_v1 = await self.queue_service.encolar_despacho(
+            smart_code="SC-DIFERIR-STALE", tipo_operacion="AUTO",
+            payload_json={"evento": "viejo"}, error_inicial="fallo infra"
+        )
+
+        # Llega un evento nuevo del mismo caso -- mismo item_id, version sube a 2.
+        item_v2 = await self.queue_service.encolar_despacho(
+            smart_code="SC-DIFERIR-STALE", tipo_operacion="AUTO",
+            payload_json={"evento": "nuevo"}, error_inicial="fallo infra 2"
+        )
+        self.assertEqual(item_v2.id, item_v1.id)
+        self.assertEqual(item_v2.version, 2)
+        proximo_reintento_antes_de_diferir = item_v2.proximo_reintento_at
+
+        # El scheduler decide diferir el lote (la decisión se tomó sobre lo que
+        # vio al listar, que en ese momento era el contenido viejo/v1).
+        await self.queue_service.diferir_pendientes_por_caida_sfc(
+            registro_ids=[item_v1.id], minutos_delay=120
+        )
+
+        raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_v1.id}")
+        data = json.loads(raw_item)
+        # El payload más reciente (v2) se conserva -- no hay pérdida de datos.
+        self.assertEqual(json.loads(data["payload_json"]), {"evento": "nuevo"})
+        self.assertEqual(data["version"], 2)
+        # Pero su reintento programado y su último error quedaron pisados por la
+        # decisión que en realidad era sobre el contenido viejo.
+        self.assertNotEqual(data["proximo_reintento_at"], proximo_reintento_antes_de_diferir)
+        self.assertIn("pospuesto automáticamente", data["ultimo_error"])
+
     async def test_diferir_ignora_ids_inexistentes_sin_lanzar(self):
         modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[999999])
         self.assertEqual(modificados, 0)

@@ -212,6 +212,61 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             instance_qs.marcar_exitoso.assert_called_once_with(reg.id, worker_id=ANY, expected_version=reg.version)
             instance_qs.registrar_fallo.assert_not_called()
 
+    async def test_webhook_exitoso_pero_marcar_exitoso_falla_no_alerta_ni_consume_intento(self):
+        """
+        Auditoría del flujo completo de despacho/reintentos (2026-08-26): asimetría
+        real encontrada frente al escenario hermano de _ejecutar_paso_sfc (arriba,
+        test_sfc_200_pero_persistencia_falla_...) -- si marcar_sfc_completado falla
+        tras un envío exitoso a la SFC, SÍ se alerta como "riesgo_duplicado_post_sfc".
+        Pero si el webhook al CRM YA tuvo éxito y es marcar_exitoso (el registro final
+        en Redis) el que falla, el código actual sólo hace un log crítico -- sin
+        alertar, y sin registrar_fallo (no consume presupuesto de reintentos). El
+        item queda con sfc_completado=True y PENDIENTE para siempre: el próximo
+        ciclo salta la SFC (ya completada) y vuelve a intentar el webhook -- que ya
+        había tenido éxito -- reenviando una notificación DUPLICADA al CRM en cada
+        ciclo, indefinidamente, sin que nada lo escale ni lo detenga. Este test
+        documenta el comportamiento actual tal cual es (no el deseado) para dejar
+        registrada la brecha con evidencia concreta.
+        """
+        reg = self._item_base(sfc_completado=True, sfc_response={"status": "success"})
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_alerta, \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock, return_value=(True, None)
+             ) as mock_webhook, \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock()
+            instance_qs.marcar_exitoso = AsyncMock(side_effect=RuntimeError("Redis no disponible al marcar éxito"))
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            await reintentar_despachos_pendientes_job()
+
+            mock_webhook.assert_called_once()  # el CRM ya recibió la notificación de éxito
+            instance_qs.marcar_exitoso.assert_called_once()
+
+            # Comportamiento ACTUAL (la brecha): ni se alerta, ni se consume intento --
+            # el item queda listo para repetir el webhook indefinidamente en el
+            # próximo ciclo, sin ninguna señal visible salvo un log crítico.
+            mock_alerta.assert_not_called()
+            instance_qs.registrar_fallo.assert_not_called()
+
     async def test_sfc_200_llama_marcar_sfc_completado_con_smart_code_y_payload(self):
         """
         Nivel 1 (auditoría adversarial v10, P0-02): tras SFC 200, scheduler.py debe
