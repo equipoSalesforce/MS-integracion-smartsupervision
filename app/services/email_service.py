@@ -322,6 +322,16 @@ class EmailAlertService:
     async def notificar_casos_vencimiento_sla(
         cls, casos_vencidos: List[Dict[str, Any]], ambiente: str = settings.ENVIRONMENT
     ):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): sin `clave_dedup`, a diferencia de
+        TODAS las demás categorías de alerta (ver `notificar_falla_infraestructura`,
+        fix N7), este correo se reenviaba en CADA ciclo del scheduler
+        (`QUEUE_RETRY_INTERVAL_MINUTES`, 5 min por defecto) mientras persistiera al
+        menos un caso vencido -- durante una caída larga de la SFC (el escenario que
+        este sistema está diseñado para sobrevivir) inundaba la bandeja de ops con el
+        mismo correo cada 5 minutos, sin límite. Mismo criterio que las demás alertas:
+        "casos vencidos en cola" es un solo evento en curso, no uno nuevo por ciclo.
+        """
         if not settings.ALERT_EMAILS_ENABLED or not casos_vencidos:
             return
 
@@ -380,7 +390,8 @@ class EmailAlertService:
         cls._programar_envio_background(
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            clave_dedup="casos_vencimiento_sla"
         )
 
     @classmethod
@@ -471,7 +482,17 @@ class EmailAlertService:
         error_msg: str,
         ambiente: str = settings.ENVIRONMENT
     ):
-        """Notifica cuando la sincronización con Google Sheets falla y la caché supera el umbral máximo (24h)."""
+        """
+        Notifica cuando la sincronización con Google Sheets falla y la caché supera el umbral máximo (24h).
+
+        🔴 FIX (hallazgo de revisión, 2026-08-26): mismo problema que
+        `notificar_casos_vencimiento_sla` -- sin `clave_dedup`, cada intento fallido de
+        refresco posterior al umbral de 24h (uno cada `CACHE_TTL_SEGUNDOS`, ~10 min)
+        reenviaba este correo mientras persistiera la caída de Google Sheets. Se
+        dedupica por componente: la matriz de errores (SfcErrorTranslator) y los
+        catálogos (SfcSalesforceMapper) son componentes independientes y cada uno
+        puede quedar stale por su cuenta.
+        """
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
@@ -500,5 +521,6 @@ class EmailAlertService:
         cls._programar_envio_background(
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            clave_dedup=f"catalogo_stale:{nombre_componente}"
         )

@@ -169,6 +169,7 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
             await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos)
         mock_programar.assert_called_once()
         self.assertIn("SC-3", mock_programar.call_args.kwargs["cuerpo_html"])
+        self.assertEqual(mock_programar.call_args.kwargs["clave_dedup"], "casos_vencimiento_sla")
 
     async def test_casos_vencimiento_sla_lista_vacia_no_notifica(self):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
@@ -200,6 +201,9 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
             )
         mock_programar.assert_called_once()
         self.assertIn("SfcErrorTranslator", mock_programar.call_args.kwargs["asunto"])
+        self.assertEqual(
+            mock_programar.call_args.kwargs["clave_dedup"], "catalogo_stale:SfcErrorTranslator"
+        )
 
 
 class TestDedupClaveVentana(unittest.TestCase):
@@ -375,6 +379,72 @@ class TestFallaInfraestructuraYErrorNoMapeadoDedupIntegracion(unittest.IsolatedA
                 status_code=500, raw_message="x", sfc_field="f", smart_code="SC-2"
             )
         self.assertEqual(mock_create_task.call_count, 1)
+
+
+class TestVencimientoSlaYCatalogoStaleDedupIntegracion(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo de revisión, 2026-08-26): a diferencia de notificar_falla_
+    infraestructura/notificar_error_no_mapeado (ya cubiertos arriba), estos dos
+    notificadores NO tenían clave_dedup -- se reenviaban en cada ciclo del job
+    que los dispara (_verificar_sla_vencido corre cada QUEUE_RETRY_INTERVAL_MINUTES,
+    el refresco de catálogos falla cada CACHE_TTL_SEGUNDOS) mientras persistiera la
+    condición, inundando la bandeja de ops durante justo el escenario -- una caída
+    larga de la SFC/Google Sheets -- que más necesita una señal clara y no ruidosa.
+    """
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+        EmailAlertService._background_tasks = set()
+
+    async def test_ciclos_sucesivos_de_sla_vencido_no_reenvian_dentro_de_la_ventana(self):
+        casos = [{
+            "smart_code": "SC-1", "correlation_id": "cid-1", "fecha_encolado": "2026-08-01",
+            "horas_en_cola": 13.0, "reintentos": 2, "ultimo_error": "timeout"
+        }]
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            # Simula 3 ciclos sucesivos del scheduler mientras la SFC sigue caída:
+            # el conjunto de casos vencidos cambia (crece), pero es el MISMO incidente.
+            await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos)
+            await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos + [{
+                "smart_code": "SC-2", "horas_en_cola": 12.1
+            }])
+            await EmailAlertService.notificar_casos_vencimiento_sla(casos_vencidos=casos)
+        self.assertEqual(mock_create_task.call_count, 1)
+
+    async def test_intentos_sucesivos_de_refresco_de_catalogo_stale_no_reenvian(self):
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            # Simula reintentos sucesivos de refresco, todos fallando, mientras Google
+            # Sheets sigue caído (edad_horas crece en cada intento, pero es el mismo
+            # incidente de staleness para el mismo componente).
+            await EmailAlertService.notificar_catalogo_stale(
+                nombre_componente="SfcSalesforceMapper", edad_horas=24.2, error_msg="timeout"
+            )
+            await EmailAlertService.notificar_catalogo_stale(
+                nombre_componente="SfcSalesforceMapper", edad_horas=24.4, error_msg="timeout"
+            )
+        self.assertEqual(mock_create_task.call_count, 1)
+
+    async def test_catalogo_stale_de_componentes_distintos_si_reenvia(self):
+        """La matriz de errores (SfcErrorTranslator) y los catálogos
+        (SfcSalesforceMapper) son componentes independientes -- uno stale no debe
+        silenciar la alerta del otro."""
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_catalogo_stale(
+                nombre_componente="SfcErrorTranslator", edad_horas=25.0, error_msg="x"
+            )
+            await EmailAlertService.notificar_catalogo_stale(
+                nombre_componente="SfcSalesforceMapper", edad_horas=25.0, error_msg="x"
+            )
+        self.assertEqual(mock_create_task.call_count, 2)
 
 
 if __name__ == "__main__":
