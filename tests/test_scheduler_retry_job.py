@@ -83,6 +83,55 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             instance_qs.marcar_exitoso.assert_not_called()
             mock_alerta.assert_called_once()
 
+    async def test_sfc_completado_sin_sfc_response_no_lanza_attributeerror(self):
+        """
+        🔴 FIX N5 (revisión externa v5, 2026-08-25): MARK_SFC_DONE_LUA_SCRIPT sólo
+        escribe sfc_response si hubo un valor -- un item con sfc_completado=True y
+        sfc_response=None es representable. Sin el "or {}" de respaldo,
+        _ejecutar_paso_notificacion_crm hace resultado_sfc.get(...) sobre None y
+        lanza AttributeError, que el except genérico interpreta como fallo real
+        (consume intento) en vez de completar el reintento del webhook con normalidad.
+        """
+        reg = self._item_base(sfc_completado=True, sfc_response=None)
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock,
+                 return_value=(False, "Fallo de red/comunicación al notificar al CRM: 503 Service Unavailable")
+             ), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            instance_qs.marcar_sfc_completado = AsyncMock()
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            await reintentar_despachos_pendientes_job()
+
+            # El fallo debe venir de que el webhook falló por infraestructura
+            # (consumir_intento=False) -- NO de un AttributeError genérico
+            # (que hubiera hecho que registrar_fallo se llame sin ese kwarg explícito
+            # y sin distinguir infraestructura de negocio).
+            instance_qs.registrar_fallo.assert_called_once_with(
+                item=reg, error_msg=ANY, worker_id=ANY, consumir_intento=False
+            )
+            error_msg_usado = instance_qs.registrar_fallo.call_args.kwargs["error_msg"]
+            self.assertNotIn("AttributeError", error_msg_usado)
+
     async def test_sfc_ya_completado_no_vuelve_a_llamar_sfc_solo_reintenta_callback(self):
         """
         Auditoría item 6 / escenario 4.2: si sfc_completado ya es True (persistido

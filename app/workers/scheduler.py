@@ -310,7 +310,15 @@ async def _ejecutar_paso_sfc(
     Retorna (continuar_a_paso_2, resultado_sfc).
     """
     if item.sfc_completado:
-        return True, item.sfc_response
+        # 🔴 FIX (hallazgo N5, revisión externa v5, 2026-08-25): MARK_SFC_DONE_LUA_SCRIPT
+        # sólo escribe sfc_response si has_sfc_response == "1" -- un item con
+        # sfc_completado=True puede perfectamente no tener sfc_response (None). El
+        # consumidor (_ejecutar_paso_notificacion_crm) hace resultado_sfc.get("message", "")
+        # sobre este valor; sin el "or {}" de respaldo, eso es un AttributeError sobre
+        # None que el except genérico interpreta como fallo real, consume un intento y
+        # repite cada ciclo hasta DLQ -- con un mensaje de error que no dice nada del
+        # problema real.
+        return True, item.sfc_response or {}
 
     resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual)
 
