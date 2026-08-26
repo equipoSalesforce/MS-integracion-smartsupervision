@@ -11,8 +11,15 @@ import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
 
 import app.workers.scheduler as scheduler_module
-from app.workers.scheduler import purgar_cola_job, iniciar_scheduler, detener_scheduler, SchedulerJobLock
+from app.workers.scheduler import (
+    purgar_cola_job,
+    refrescar_catalogos_job,
+    iniciar_scheduler,
+    detener_scheduler,
+    SchedulerJobLock,
+)
 from app.core.config import settings
+from app.core.mapping import SfcSalesforceMapper
 
 
 class TestSchedulerHttpClient(unittest.IsolatedAsyncioTestCase):
@@ -87,17 +94,73 @@ class TestPurgarColaJob(unittest.IsolatedAsyncioTestCase):
         mock_release.assert_awaited_once()
 
 
+class TestRefrescarCatalogosJob(unittest.IsolatedAsyncioTestCase):
+    """
+    Cobertura del hallazgo C1 (revisión externa v5): obtener_catalogos_y_mapeos
+    tenía TTL + single-flight pero nunca se volvía a invocar tras el arranque.
+    Este job sólo dispara ese refresco periódicamente bajo un lock de scheduler,
+    igual que purgar_cola_job.
+    """
+
+    async def test_sin_redis_no_hace_nada(self):
+        with patch("app.workers.scheduler.get_redis_client", return_value=None), \
+             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock) as mock_acquire:
+            await refrescar_catalogos_job()
+        mock_acquire.assert_not_called()
+
+    async def test_lock_no_adquirido_no_refresca(self):
+        with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
+             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=False), \
+             patch.object(SfcSalesforceMapper, "obtener_catalogos_y_mapeos", new_callable=AsyncMock) as mock_refresh:
+            await refrescar_catalogos_job()
+        mock_refresh.assert_not_called()
+
+    async def test_refresca_y_libera_el_lock(self):
+        with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
+             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(SfcSalesforceMapper, "obtener_catalogos_y_mapeos", new_callable=AsyncMock) as mock_refresh:
+            await refrescar_catalogos_job()
+        mock_refresh.assert_awaited_once_with()
+        mock_release.assert_awaited_once()
+
+    async def test_libera_el_lock_incluso_si_el_refresco_falla(self):
+        with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
+             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(
+                 SfcSalesforceMapper, "obtener_catalogos_y_mapeos",
+                 new_callable=AsyncMock, side_effect=RuntimeError("google sheets caído")
+             ):
+            with self.assertRaises(RuntimeError):
+                await refrescar_catalogos_job()
+        mock_release.assert_awaited_once()
+
+
 class TestIniciarScheduler(unittest.TestCase):
 
-    def test_agrega_los_dos_jobs_y_arranca(self):
+    def test_agrega_los_tres_jobs_y_arranca(self):
         mock_scheduler = MagicMock()
         mock_scheduler.running = False
         with patch.object(settings, "QUEUE_ENABLED", True), \
              patch("app.workers.scheduler.scheduler", mock_scheduler):
             iniciar_scheduler()
 
-        self.assertEqual(mock_scheduler.add_job.call_count, 2)
+        self.assertEqual(mock_scheduler.add_job.call_count, 3)
         mock_scheduler.start.assert_called_once()
+
+    def test_catalogos_usa_intervalo_igual_al_ttl_del_cache(self):
+        mock_scheduler = MagicMock()
+        mock_scheduler.running = False
+        with patch.object(settings, "QUEUE_ENABLED", True), \
+             patch("app.workers.scheduler.scheduler", mock_scheduler):
+            iniciar_scheduler()
+
+        llamada_catalogos = next(
+            c for c in mock_scheduler.add_job.call_args_list
+            if c.kwargs.get("id") == "sfc_catalogos_refresh_job"
+        )
+        self.assertEqual(llamada_catalogos.kwargs["seconds"], SfcSalesforceMapper.CACHE_TTL_SEGUNDOS)
 
     def test_purga_usa_timezone_america_bogota(self):
         """

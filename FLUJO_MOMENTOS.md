@@ -24,6 +24,7 @@
 - [¿Por qué la cascada de timeouts no llega hasta nginx/ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-nginxalb)
 - [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
+- [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -474,6 +475,28 @@ microservicio.
 
 ---
 
+## Refresco periódico de catálogos/mapeos (hallazgo C1)
+
+`SfcSalesforceMapper.obtener_catalogos_y_mapeos()` sincroniza contra Google
+Sheets los catálogos/mapeos que usan tanto la validación de payloads
+(`crm_payloads.py`) como el mapeo hacia/desde la SFC en los cuatro Momentos.
+Ese método siempre tuvo su propio TTL (`CACHE_TTL_SEGUNDOS`, 10 min) y un
+lock single-flight para evitar estampidas -- pero **nada lo volvía a invocar
+después del arranque**: tanto `main.py` como `worker.py` lo llaman una única
+vez, al iniciar el proceso. Un cambio en el catálogo de Google Sheets no se
+reflejaba hasta el siguiente despliegue/reinicio del contenedor.
+
+**Corregido (hallazgo C1, revisión externa v5):** se agregó
+`refrescar_catalogos_job`, un job periódico de APScheduler (mismo intervalo
+que `CACHE_TTL_SEGUNDOS`, con el mismo patrón de lock de Redis que
+`purgar_cola_job`) que simplemente vuelve a invocar
+`obtener_catalogos_y_mapeos()`. No hace falta lógica nueva de refresco: el
+fast-path interno de ese método ya hace que una llamada con caché fresca sea
+barata, y una falla de red ahí no borra el catálogo ya cargado en RAM (sólo
+retrasa el próximo intento). El job corre en ambos procesos (API cuando
+`RUN_SCHEDULER` está activo, y worker) porque cada uno mantiene su propia
+copia de `CATALOGOS` en memoria de proceso.
+
 ## Referencias en el código
 
 | Concepto | Archivo |
@@ -497,3 +520,4 @@ microservicio.
 | Cascada de timeouts | `infrastructure/Dockerfile`, `infrastructure/nginx.conf`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
 | Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
+| Refresco periódico de catálogos/mapeos | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job` |
