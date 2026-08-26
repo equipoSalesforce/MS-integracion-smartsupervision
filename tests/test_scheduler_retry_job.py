@@ -606,5 +606,106 @@ class TestUmbralFallasInfraConsecutivasParaDiferir(unittest.IsolatedAsyncioTestC
         self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 5)
 
 
+class TestLimpiarCheckpointTrasPersistenciaDurable(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo N2, revisión externa v5, 2026-08-25): el checkpoint de adjuntos
+    se limpiaba apenas la SFC confirmaba éxito, ANTES de que marcar_sfc_completado
+    persistiera ese hecho de forma durable -- si esa persistencia fallaba, el
+    próximo ciclo reejecutaba Momento 3 completo con el checkpoint ya vacío,
+    retransmitiendo TODOS los adjuntos a la SFC por segunda vez. Ahora el worker
+    limpia por su cuenta, sólo después de confirmar que SFC_DONE quedó persistido
+    (limpiar_checkpoint_en_exito=False evita que el orquestador limpie antes).
+    """
+
+    def _item_base(self, payload_json: dict) -> MagicMock:
+        reg = MagicMock()
+        reg.id = 1
+        reg.smart_code = "SC-CHK"
+        reg.payload_json = payload_json
+        reg.correlation_id = "N/A"
+        reg.sfc_completado = False
+        reg.sfc_response = {}
+        reg.version = 1
+        reg.payload_hash = "hash-de-prueba"
+        reg.to_dict = MagicMock(return_value={"correlation_id": "N/A"})
+        return reg
+
+    async def _ejecutar_ciclo(self, item, marcar_sfc_completado_return=None, marcar_sfc_completado_side_effect=None):
+        redis_mock = AsyncMock()
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch(
+                 "app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia",
+                 new_callable=AsyncMock, return_value=(True, None)
+             ), \
+             patch("app.services.despacho_queja_orchestrator.IdempotencyService") as MockIdempotencyService, \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instancia_idempotencia = MockIdempotencyService.return_value
+            instancia_idempotencia.limpiar_checkpoint_archivos = AsyncMock()
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[item])
+            instance_qs.contar_pendientes = AsyncMock(return_value=0)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=None)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.marcar_exitoso = AsyncMock(return_value="completed")
+            if marcar_sfc_completado_side_effect is not None:
+                instance_qs.marcar_sfc_completado = AsyncMock(side_effect=marcar_sfc_completado_side_effect)
+            else:
+                instance_qs.marcar_sfc_completado = AsyncMock(return_value=marcar_sfc_completado_return)
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=item)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+
+            await reintentar_despachos_pendientes_job()
+
+            return instance_orq, instancia_idempotencia
+
+    async def test_llama_a_procesar_despacho_raw_json_con_limpiar_checkpoint_en_exito_false(self):
+        item = self._item_base({"Smart_Code__c": "SC-CHK"})
+
+        instance_orq, _ = await self._ejecutar_ciclo(item, marcar_sfc_completado_return="completed")
+
+        instance_orq.procesar_despacho_raw_json.assert_awaited_once_with(
+            item.payload_json, limpiar_checkpoint_en_exito=False
+        )
+
+    async def test_completed_y_cierre_limpia_el_checkpoint(self):
+        item = self._item_base({"Smart_Code__c": "SC-CHK", "ClosedDate": "2026-01-01T00:00:00"})
+
+        _, instancia_idempotencia = await self._ejecutar_ciclo(item, marcar_sfc_completado_return="completed")
+
+        instancia_idempotencia.limpiar_checkpoint_archivos.assert_awaited_once_with("SC-CHK")
+
+    async def test_completed_pero_no_es_cierre_no_limpia_el_checkpoint(self):
+        item = self._item_base({"Smart_Code__c": "SC-CHK"})  # sin ClosedDate/Favorabilidad__c -> trámite
+
+        _, instancia_idempotencia = await self._ejecutar_ciclo(item, marcar_sfc_completado_return="completed")
+
+        instancia_idempotencia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+    async def test_version_mismatch_no_limpia_el_checkpoint_pese_a_ser_cierre(self):
+        item = self._item_base({"Smart_Code__c": "SC-CHK", "ClosedDate": "2026-01-01T00:00:00"})
+
+        _, instancia_idempotencia = await self._ejecutar_ciclo(item, marcar_sfc_completado_return="version_mismatch")
+
+        instancia_idempotencia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+    async def test_persistencia_fallida_no_limpia_el_checkpoint_pese_a_ser_cierre(self):
+        item = self._item_base({"Smart_Code__c": "SC-CHK", "ClosedDate": "2026-01-01T00:00:00"})
+
+        _, instancia_idempotencia = await self._ejecutar_ciclo(
+            item, marcar_sfc_completado_side_effect=RuntimeError("Redis no disponible")
+        )
+
+        instancia_idempotencia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

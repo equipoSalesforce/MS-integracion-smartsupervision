@@ -11,8 +11,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.db.redis import get_redis_client
 from app.services.queue_service import QueueService
-from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador
+from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador, limpiar_checkpoint_si_cierre_exitoso
 from app.services.email_service import EmailAlertService
+from app.services.idempotency_service import IdempotencyService
 from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.exceptions import SfcIntegrationException
@@ -297,6 +298,23 @@ class _ResultadoItemReintento:
     es_falla_infraestructura: bool = False
 
 
+async def _limpiar_checkpoint_tras_persistencia_durable(
+    item, payload_actual: Dict[str, Any], resultado_sfc: Dict[str, Any]
+) -> None:
+    """
+    🔴 FIX (hallazgo N2, revisión externa v5, 2026-08-25): contraparte de
+    limpiar_checkpoint_en_exito=False en procesar_despacho_raw_json -- se llama
+    únicamente cuando SFC_DONE ya quedó persistido de forma durable (ver
+    _ejecutar_paso_sfc), nunca antes. Reutiliza IdempotencyService.infer_operation_type
+    (misma fuente que ya usan las métricas EMF y el fix de cancelar_pendiente_por_
+    smart_code) para saber si es un cierre, en vez de sumar una cuarta definición de
+    "es cierre" divergente de las tres que ya existen en el repo.
+    """
+    operacion = IdempotencyService.infer_operation_type(payload_actual)
+    es_cierre = operacion in ("M3_CLOSE", "M3_FRAUD_AND_CLOSE")
+    await limpiar_checkpoint_si_cierre_exitoso(resultado_sfc, item.smart_code, es_cierre)
+
+
 async def _ejecutar_paso_sfc(
     orquestador: DespachoQuejaOrquestador,
     queue_service: QueueService,
@@ -320,7 +338,13 @@ async def _ejecutar_paso_sfc(
         # problema real.
         return True, item.sfc_response or {}
 
-    resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual)
+    # 🔴 FIX (hallazgo N2, revisión externa v5, 2026-08-25): limpiar_checkpoint_en_exito=False
+    # -- en este camino (worker) todavía falta un paso de persistencia durable
+    # (marcar_sfc_completado, más abajo) después de que la SFC confirme éxito. Limpiar el
+    # checkpoint acá, antes de esa persistencia, retransmitiría TODOS los adjuntos si ese
+    # paso falla y el próximo ciclo reejecuta Momento 3. Se limpia explícitamente en
+    # _limpiar_checkpoint_tras_persistencia_durable, sólo una vez confirmado SFC_DONE.
+    resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual, limpiar_checkpoint_en_exito=False)
 
     if resultado_sfc.get("status") == "error":
         error_msg = resultado_sfc.get("message") or "Error en el despacho a la SFC"
@@ -391,6 +415,7 @@ async def _ejecutar_paso_sfc(
         )
         return False, resultado_sfc
 
+    await _limpiar_checkpoint_tras_persistencia_durable(item, payload_actual, resultado_sfc)
     return True, resultado_sfc
 
 

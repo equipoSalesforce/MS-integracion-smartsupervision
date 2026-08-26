@@ -38,16 +38,58 @@ def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     ]
     return any(frase in raw_msg for frase in frases_ya_cerrada)
 
+async def limpiar_checkpoint_si_cierre_exitoso(
+    resultado: Dict[str, Any], smart_code: str, es_cierre: bool, limpiar_checkpoint_en_exito: bool = True
+) -> Dict[str, Any]:
+    """
+    🟡 FIX (hallazgo de revisión externa, 2026-08-25, §6): libera el checkpoint de
+    adjuntos (IdempotencyService.limpiar_checkpoint_archivos, antes sin ningún
+    caller) apenas el CIERRE del caso se confirma exitoso -- después de esto no hay
+    más pasos de Momento 3 esperados para este smart_code, así que no hay razón
+    para seguir bloqueando el reenvío de un archivo bajo la misma s3_key hasta que
+    expire el TTL de 30 días del checkpoint (ej. una corrección/reemplazo del mismo
+    documento si el caso se reabre más adelante). Best-effort: nunca lanza, un
+    fallo aquí sólo implica que el checkpoint sigue vivo hasta su propio TTL, no
+    pérdida ni corrupción de datos.
+
+    🔴 FIX (hallazgo N2, revisión externa v5, 2026-08-25): `limpiar_checkpoint_en_exito`
+    permite que el CALLER decida si este es el momento correcto para limpiar. El
+    camino síncrono (routes_quejas.py) no pasa nada -- ahí el 200 al CRM ya es la
+    confirmación terminal, no hay ningún paso de persistencia posterior. El camino
+    del worker (scheduler.py) pasa False: ahí SIGUE un paso de persistencia durable
+    (marcar_sfc_completado) después de este punto, y si ese paso falla, el próximo
+    ciclo reejecuta todo Momento 3 -- limpiar el checkpoint acá, antes de esa
+    persistencia, retransmitiría TODOS los adjuntos a la SFC por segunda vez.
+    scheduler.py limpia por su cuenta, llamando a esta misma función, sólo después
+    de confirmar que SFC_DONE quedó persistido.
+
+    🔴 Es una función de MÓDULO (no un método de DespachoQuejaOrquestador) a propósito:
+    scheduler.py la importa y llama directamente, independiente de cómo los tests
+    mockeen la clase DespachoQuejaOrquestador -- si fuera un método/staticmethod
+    accedido como DespachoQuejaOrquestador._algo(...), cualquier test que reemplace
+    la clase completa por un MagicMock (patrón ya establecido en test_scheduler_
+    retry_job.py) rompería este await en silencio.
+    """
+    if not limpiar_checkpoint_en_exito:
+        return resultado
+    if es_cierre and isinstance(resultado, dict) and resultado.get("status") == "success":
+        try:
+            await IdempotencyService(get_redis_client()).limpiar_checkpoint_archivos(smart_code)
+        except Exception as e:
+            logger.warning(f"⚠️ [Orquestador] No se pudo limpiar el checkpoint de adjuntos para {smart_code}: {e}")
+    return resultado
+
+
 class DespachoQuejaOrquestador:
     """
-    Servicio Stateless que actúa como fachada/orquestador único para la transmisión 
+    Servicio Stateless que actúa como fachada/orquestador único para la transmisión
     de quejas desde Salesforce hacia la SFC (Momento 2 + Momento 3).
     Incluye lógica de inferencia automática y auto-recuperación (Self-Healing).
     """
 
     def __init__(
-        self, 
-        sfc_client: SfcClient, 
+        self,
+        sfc_client: SfcClient,
         s3_client=None,
         m2_service: Optional[Momento2SincronizacionService] = None,
         m3_service: Optional[Momento3SincronizacionService] = None
@@ -60,33 +102,15 @@ class DespachoQuejaOrquestador:
         self.m2_service = m2_service or Momento2SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
         self.m3_service = m3_service or Momento3SincronizacionService(sfc_client=sfc_client, s3_client=s3_client)
 
-    @staticmethod
-    async def _limpiar_checkpoint_si_cierre_exitoso(
-        resultado: Dict[str, Any], smart_code: str, es_cierre: bool
+    async def procesar_despacho_raw_json(
+        self, payload_dict: Dict[str, Any], limpiar_checkpoint_en_exito: bool = True
     ) -> Dict[str, Any]:
-        """
-        🟡 FIX (hallazgo de revisión externa, 2026-08-25, §6): libera el checkpoint de
-        adjuntos (IdempotencyService.limpiar_checkpoint_archivos, antes sin ningún
-        caller) apenas el CIERRE del caso se confirma exitoso -- después de esto no hay
-        más pasos de Momento 3 esperados para este smart_code, así que no hay razón
-        para seguir bloqueando el reenvío de un archivo bajo la misma s3_key hasta que
-        expire el TTL de 30 días del checkpoint (ej. una corrección/reemplazo del mismo
-        documento si el caso se reabre más adelante). Best-effort: nunca lanza, un
-        fallo aquí sólo implica que el checkpoint sigue vivo hasta su propio TTL, no
-        pérdida ni corrupción de datos.
-        """
-        if es_cierre and isinstance(resultado, dict) and resultado.get("status") == "success":
-            try:
-                await IdempotencyService(get_redis_client()).limpiar_checkpoint_archivos(smart_code)
-            except Exception as e:
-                logger.warning(f"⚠️ [Orquestador] No se pudo limpiar el checkpoint de adjuntos para {smart_code}: {e}")
-        return resultado
-
-    async def procesar_despacho_raw_json(self, payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Rehidrata un diccionario/JSON desde Redis al esquema Pydantic 'QuejaUnificadaCrmInput'."""
         try:
             payload = QuejaUnificadaCrmInput.model_validate(payload_dict)
-            return await self.procesar_despacho(payload=payload)
+            return await self.procesar_despacho(
+                payload=payload, limpiar_checkpoint_en_exito=limpiar_checkpoint_en_exito
+            )
         except ValidationError as ve:
             logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola Redis: {ve.json()}")
             raise SfcIntegrationException(
@@ -97,7 +121,9 @@ class DespachoQuejaOrquestador:
                 crm_action="Contactar al equipo de infraestructura: un ítem de la cola quedó con datos corruptos/incompletos."
             ) from ve
 
-    async def procesar_despacho(self, payload: QuejaUnificadaCrmInput) -> Dict[str, Any]:
+    async def procesar_despacho(
+        self, payload: QuejaUnificadaCrmInput, limpiar_checkpoint_en_exito: bool = True
+    ) -> Dict[str, Any]:
         smart_code = payload.Smart_Code__c
         status_raw = (payload.Status or "").strip().lower()
 
@@ -160,7 +186,9 @@ class DespachoQuejaOrquestador:
             # 2. Intento de Momento 3 (Trámite, Fraude o Cierre)
             # Si el caso no existe en la SFC, saltará el 404 y el bloque except ejecutará el Self-Healing (M2 -> M3)
             resultado_m3 = await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
-            return await self._limpiar_checkpoint_si_cierre_exitoso(resultado_m3, smart_code, es_cierre)
+            return await limpiar_checkpoint_si_cierre_exitoso(
+                resultado_m3, smart_code, es_cierre, limpiar_checkpoint_en_exito
+            )
 
         except SfcIntegrationException as exc:
             error_tipo = getattr(exc, "error_type", None)
@@ -200,7 +228,9 @@ class DespachoQuejaOrquestador:
                 # Paso B: Aplicar la actualización de Momento 3 (procesa adjuntos con sus afijos normativos)
                 logger.info(f"[Auto-Recuperación 2/2] Re-ejecutando pipeline de Momento 3 para {smart_code}...")
                 resultado_m3_healing = await self._ejecutar_pasos_momento_3(payload, es_fraude=es_fraude, es_cierre=es_cierre)
-                return await self._limpiar_checkpoint_si_cierre_exitoso(resultado_m3_healing, smart_code, es_cierre)
+                return await limpiar_checkpoint_si_cierre_exitoso(
+                    resultado_m3_healing, smart_code, es_cierre, limpiar_checkpoint_en_exito
+                )
             
             # ⚠️ EVALUACIÓN DE ERROR NO MAPEADO
             if is_unmapped:

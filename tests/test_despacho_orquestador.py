@@ -653,6 +653,60 @@ class TestLimpiarCheckpointSiCierreExitoso(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado["status"], "success")
         instancia.limpiar_checkpoint_archivos.assert_awaited_once_with(payload.Smart_Code__c)
 
+    async def test_limpiar_checkpoint_en_exito_false_no_limpia_pese_a_cierre_exitoso(self):
+        """
+        🔴 FIX (hallazgo N2, revisión externa v5, 2026-08-25): el camino del worker
+        (scheduler.py) pasa limpiar_checkpoint_en_exito=False porque todavía le falta
+        persistir SFC_DONE de forma durable después de esto -- el orquestador NO debe
+        limpiar el checkpoint por su cuenta en ese caso, sin importar que el cierre
+        haya sido exitoso.
+        """
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre.</p>",
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(cierre_dict)
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho(payload, limpiar_checkpoint_en_exito=False)
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_not_awaited()
+
+    async def test_procesar_despacho_raw_json_propaga_limpiar_checkpoint_en_exito(self):
+        """procesar_despacho_raw_json (el punto de entrada que usa el scheduler) debe
+        propagar el flag hacia procesar_despacho, no perderlo en la rehidratación."""
+        cierre_dict = self.base_payload_dict.copy()
+        cierre_dict.update({
+            "Status": "Closed",
+            "ClosedDate": self.fecha_cierre_reciente,
+            "Favorabilidad__c": "No favorable",
+            "Aceptacion__c": "Respuesta final a favor del consumidor financiero no aceptadas por la entidad",
+            "cuerpo_respuesta_final": "<p>Cierre.</p>",
+        })
+
+        with patch(
+            "app.services.despacho_queja_orchestrator.IdempotencyService"
+        ) as MockIdempotencyService:
+            instancia = MockIdempotencyService.return_value
+            instancia.limpiar_checkpoint_archivos = AsyncMock()
+
+            resultado = await self.orquestador.procesar_despacho_raw_json(
+                cierre_dict, limpiar_checkpoint_en_exito=False
+            )
+
+        self.assertEqual(resultado["status"], "success")
+        instancia.limpiar_checkpoint_archivos.assert_not_awaited()
+
     async def test_tramite_sin_cierre_no_limpia_el_checkpoint(self):
         payload = QuejaUnificadaCrmInput.model_validate(self.base_payload_dict)
 
