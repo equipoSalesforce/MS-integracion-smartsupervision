@@ -144,6 +144,50 @@ class TestReencolarItemFallido(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado["reason"], "not_failed_final")
         self.assertEqual(resultado["estado_actual"], "PENDIENTE")
 
+    async def test_reencolar_item_actualmente_en_processing_se_niega(self):
+        """
+        El escenario más peligroso de dejar sin probar: un admin hace clic en
+        "reencolar" justo cuando un worker YA tiene el item reclamado y lo está
+        procesando en ese instante (estado PROCESSING, no PENDIENTE ni
+        FALLIDO_DEFINITIVO). El mismo chequeo de estado debe rechazarlo -- si no lo
+        hiciera, el reencolado pisaría un item que un worker tiene activamente en
+        vuelo, con un worker real de por medio (no sólo una condición de carrera
+        teórica entre dos escrituras)."""
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-8", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-8"}, error_inicial="timeout"
+        )
+        await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_activo", lease_segundos=60
+        )
+
+        resultado = await self.queue_service.reencolar_item_fallido(item.id)
+
+        self.assertFalse(resultado["success"])
+        self.assertEqual(resultado["reason"], "not_failed_final")
+        self.assertEqual(resultado["estado_actual"], "PROCESSING")
+
+        # El claim del worker activo no debe verse afectado por el intento rechazado.
+        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:claim:{item.id}"), "worker_activo")
+
+    async def test_reencolar_item_completado_se_niega(self):
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-9", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-9"}, error_inicial="timeout"
+        )
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_1", lease_segundos=60
+        )
+        await self.queue_service.marcar_exitoso(
+            item.id, worker_id="worker_1", expected_version=claim.version
+        )
+
+        resultado = await self.queue_service.reencolar_item_fallido(item.id)
+
+        self.assertFalse(resultado["success"])
+        self.assertEqual(resultado["reason"], "not_failed_final")
+        self.assertEqual(resultado["estado_actual"], "EXITOSO")
+
     async def test_reencolar_item_inexistente_retorna_item_not_found(self):
         resultado = await self.queue_service.reencolar_item_fallido(999999)
 

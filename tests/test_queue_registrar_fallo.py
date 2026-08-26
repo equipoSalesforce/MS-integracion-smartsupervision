@@ -103,6 +103,28 @@ class TestRegistrarFallo(unittest.IsolatedAsyncioTestCase):
             await self.redis.scard(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO"), 1
         )
 
+    async def test_queue_max_retries_en_cero_cae_a_dlq_desde_el_primer_fallo_sin_crashear(self):
+        """
+        Auditoría de casos límite (2026-08-26): QUEUE_MAX_RETRIES=0 es una
+        configuración degenerada (nadie debería fijarla así a propósito), pero si
+        ocurre por error, el sistema debe degradar de forma predecible -- el primer
+        fallo real ya cuenta como agotado (intentos arranca en 1 desde
+        encolar_despacho, así que 1+1=2 >= 0 es verdadero de inmediato) -- en vez de
+        comportarse de forma indefinida o lanzar."""
+        with patch.object(settings, "QUEUE_MAX_RETRIES", 0):
+            item_reclamado = await self._encolar_y_reclamar("SC-ZERO")
+            with patch("app.services.queue_service.EmailAlertService.notificar_caso_fallido_definitivo", new_callable=AsyncMock) as mock_alert:
+                resultado = await self.queue_service.registrar_fallo(
+                    item=item_reclamado, error_msg="fallo inmediato", worker_id="worker_1"
+                )
+
+        self.assertEqual(resultado, "failed")
+        mock_alert.assert_awaited_once()
+        self.assertEqual(await self.queue_service.contar_pendientes(), 0)
+        self.assertEqual(
+            await self.redis.scard(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO"), 1
+        )
+
     async def test_consumir_intento_false_no_incrementa_ni_marca_definitivo(self):
         with patch.object(settings, "QUEUE_MAX_RETRIES", 1):
             item_reclamado = await self._encolar_y_reclamar("SC-3")

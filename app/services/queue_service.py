@@ -174,18 +174,31 @@ if is_pending == 0 then
     return cjson.encode({claimed = false, reason = "not_pending"})
 end
 
-local set_res = redis.call("SET", claim_key, worker_id, "NX", "PX", lease_px)
-if not set_res then
-    return cjson.encode({claimed = false, reason = "already_claimed"})
-end
-
 -- 🟢 FIX P0-04: devolver el item TAL COMO ESTÁ en Redis en el mismo paso atómico que el
 -- claim, en vez de que el caller reutilice una copia leída antes de reclamar (ventana en
 -- la que el payload pudo haber sido sobrescrito por un evento más nuevo del mismo caso).
+--
+-- 🔴 FIX (auditoría de concurrencia, 2026-08-26): el GET+decode del item se hace ANTES
+-- de tomar el claim (a diferencia del orden que tenía este script antes) -- si
+-- cjson.decode lanza (item con JSON corrupto en Redis), Lua aborta el script de
+-- inmediato SIN haber escrito nada todavía. Con el orden anterior (SET claim_key NX
+-- primero, decode después), un item corrupto dejaba el claim_key huérfano: el error se
+-- propagaba como excepción de Python (capturada, se retorna None), pero el claim_key ya
+-- había quedado escrito en Redis con su propio TTL -- bloqueando cualquier claim
+-- legítimo de ese item hasta que expirara solo, sin que nadie estuviera realmente
+-- procesándolo. Los scripts Lua de Redis NO revierten llamadas ya ejecutadas cuando el
+-- script aborta a mitad de camino por un error -- por eso todo lo que pueda fallar
+-- (el decode) debe ir antes de cualquier escritura, no después.
 local raw_item = redis.call("GET", item_key)
 if not raw_item then
-    redis.call("DEL", claim_key)
     return cjson.encode({claimed = false, reason = "item_not_found"})
+end
+
+local data = cjson.decode(raw_item)
+
+local set_res = redis.call("SET", claim_key, worker_id, "NX", "PX", lease_px)
+if not set_res then
+    return cjson.encode({claimed = false, reason = "already_claimed"})
 end
 
 -- 🟢 FIX observabilidad (auditoría adversarial v9, sección 6): reflejar en el propio
@@ -193,7 +206,6 @@ end
 -- el tiempo que duraba el procesamiento, indistinguible (desde /queue) de un item que
 -- ni siquiera había sido reclamado. SmartStatus.PROCESSING existía declarado pero
 -- nunca se usaba.
-local data = cjson.decode(raw_item)
 data["estado"] = estado_procesando
 redis.call("SET", item_key, cjson.encode(data))
 

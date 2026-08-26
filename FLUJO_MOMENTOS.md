@@ -17,7 +17,7 @@
 - [El endpoint único de despacho y el self-healing M2→M3](#el-endpoint-único-de-despacho-y-el-self-healing-m2m3)
 - [Momento 4 — Usuarios (consumidores financieros)](#momento-4--usuarios-consumidores-financieros)
 - [¿Por qué la sobrescritura en cola NO es un bug?](#por-qué-la-sobrescritura-en-cola-no-es-un-bug)
-- [¿Por qué "caso ya cerrado" se trata como éxito?](#por-qué-caso-ya-cerrado-se-trata-como-éxito)
+- [¿Por qué &#34;caso ya cerrado&#34; se trata como éxito?](#por-qué-caso-ya-cerrado-se-trata-como-éxito)
 - [¿Por qué la clasificación de errores de negocio de la SFC usa coincidencia de texto?](#por-qué-la-clasificación-de-errores-de-negocio-de-la-sfc-usa-coincidencia-de-texto)
 - [¿Por qué el webhook al CRM siempre reporta `status: "CREATED"`?](#por-qué-el-webhook-al-crm-siempre-reporta-status-created)
 - [¿Por qué la cola de fallidos (DLQ) no tiene endpoint de replay?](#por-qué-la-cola-de-fallidos-dlq-no-tiene-endpoint-de-replay)
@@ -35,12 +35,12 @@
 La SFC define 4 "Momentos" (fases regulatorias) para el intercambio de información de quejas/PQRs
 entre la entidad vigilada (Global66, vía su CRM) y la Superintendencia:
 
-| Momento | Dirección | Qué hace | ¿Se usa en producción? |
-|---|---|---|---|
-| **1** | SFC → CRM | Descarga quejas nuevas radicadas directamente en la SFC y sus adjuntos, las crea en el CRM. | Sí — pipeline propio, cron periódico. |
-| **2** | CRM → SFC | Alta de una queja completamente nueva, originada en el CRM. | Casi nunca por sí solo — casi todo caso real llega ya con trámite/fraude/cierre, así que el sistema lo resuelve vía self-healing (ver abajo) en vez de una llamada explícita a "Momento 2 puro". |
-| **3** | CRM → SFC | Actualiza una queja que ya existe en la SFC: trámite intermedio, reporte de fraude, cierre definitivo (con generación de PDF de respuesta). | **Sí, es el flujo principal.** Casi todo el tráfico real de despacho es Momento 3. |
-| **4** | Bidireccional | Sincroniza información de consumidores financieros (usuarios) entre SFC y CRM, con su propio ACK. | Sí — pipeline propio, independiente de 1/2/3. |
+| Momento     | Dirección    | Qué hace                                                                                                                                     | ¿Se usa en producción?                                                                                                                                                                               |
+| ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1** | SFC → CRM    | Descarga quejas nuevas radicadas directamente en la SFC y sus adjuntos, las crea en el CRM.                                                   | Sí — pipeline propio, cron periódico.                                                                                                                                                               |
+| **2** | CRM → SFC    | Alta de una queja completamente nueva, originada en el CRM.                                                                                   | Casi nunca por sí solo — casi todo caso real llega ya con trámite/fraude/cierre, así que el sistema lo resuelve vía self-healing (ver abajo) en vez de una llamada explícita a "Momento 2 puro". |
+| **3** | CRM → SFC    | Actualiza una queja que ya existe en la SFC: trámite intermedio, reporte de fraude, cierre definitivo (con generación de PDF de respuesta). | **Sí, es el flujo principal.** Casi todo el tráfico real de despacho es Momento 3.                                                                                                             |
+| **4** | Bidireccional | Sincroniza información de consumidores financieros (usuarios) entre SFC y CRM, con su propio ACK.                                            | Sí — pipeline propio, independiente de 1/2/3.                                                                                                                                                        |
 
 Momentos 2 y 3 **no son endpoints separados** desde la perspectiva del CRM: ambos se disparan a través
 de un único endpoint de despacho (`POST /api/v1/quejas/sync/despacho`), que infiere automáticamente cuál
@@ -165,8 +165,7 @@ gap de deduplicación.
    `tests/test_queue_race_protection.py::test_overwrite_en_vuelo_no_marca_completed_el_evento_nuevo`.
 3. **La SFC es idempotente para las operaciones de Momento 3.** `PATCH /api/queja/{codigo}/`
    (`put_actualizar_queja`) — el endpoint que cubre trámite, fraude y cierre — **no rechaza ni duplica**
-   una actualización reenviada con la misma información: responde `200 OK` de nuevo. Confirmado
-   operativamente y registrado en memoria del proyecto (`sfc_m3_update_idempotente.md`).
+   una actualización reenviada con la misma información: responde `200 OK` de nuevo. 
 
 Con esos tres puntos juntos, el peor escenario posible es:
 
@@ -322,8 +321,7 @@ consciente de operación de N1. Ver `app/services/queue_service.py::reencolar_it
 y fue reencolado -- sólo lo sabe operaciones, a través del mismo correo de siempre. Cerrar eso de
 verdad requiere el mismo contrato ausente descrito arriba.
 
-**Corregido (hallazgo N1, revisión externa v5, 2026-08-25):** hasta esta ronda, `QueueService.
-cancelar_pendiente_por_smart_code` (invocado tras un despacho síncrono exitoso, ver más arriba)
+**Corregido (hallazgo N1, revisión externa v5, 2026-08-25):** hasta esta ronda, `QueueService. cancelar_pendiente_por_smart_code` (invocado tras un despacho síncrono exitoso, ver más arriba)
 podía descartar de la cola un evento que **nunca había llegado a intentarse siquiera** — no un
 fallo definitivo, directamente lo borraba sin que pasara por la DLQ ni generara ningún correo,
 porque el endpoint de despacho es unificado y ese método cancelaba cualquier item pendiente del
@@ -563,27 +561,28 @@ dos pasos. Ahora los tres pasos comparten el mismo helper
 
 ## Referencias en el código
 
-| Concepto | Archivo |
-|---|---|
-| Endpoint único de despacho | `app/api/routes_quejas.py::despachar_queja_crm` |
-| Inferencia M2/M3 + self-healing | `app/services/despacho_queja_orchestrator.py` |
-| Momento 1 | `app/services/momento_1_sync.py` |
-| Momento 2 | `app/services/momento_2_sync.py` |
-| Momento 3 (trámite/fraude/cierre) | `app/services/momento_3_sync.py` |
-| Momento 4 | `app/services/momento_4_sync.py` |
-| Cola centralizada + versión + Lua scripts | `app/services/queue_service.py` |
-| Worker de reintentos | `app/workers/scheduler.py::reintentar_despachos_pendientes_job` |
-| Idempotencia (hash + store) | `app/services/idempotency_service.py` |
-| Test: no-completar contenido sobrescrito | `tests/test_queue_race_protection.py` |
-| Test: fraude + cierre simultáneo | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo` |
-| Clasificación de errores SFC por texto | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json` |
-| Colección Postman oficial de la SFC (referencia de mensajes de error) | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json` |
-| Webhook al CRM (`status: "CREATED"` fijo) | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia` |
-| DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
-| Replay administrativo de DLQ | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`) |
-| Cancelación de pendiente tras éxito síncrono (respeta la operación) | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py` |
-| Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
-| Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
-| Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
-| Refresco periódico de catálogos/mapeos | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job` |
-| Lock por caso en despacho síncrono + "ya cerrado" en trámite | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado` |
+| Concepto                                                                                                  | Archivo                                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoint único de despacho                                                                               | `app/api/routes_quejas.py::despachar_queja_crm`                                                                                                                                     |
+| Inferencia M2/M3 + self-healing                                                                           | `app/services/despacho_queja_orchestrator.py`                                                                                                                                       |
+| Momento 1                                                                                                 | `app/services/momento_1_sync.py`                                                                                                                                                    |
+| Momento 2                                                                                                 | `app/services/momento_2_sync.py`                                                                                                                                                    |
+| Momento 3 (trámite/fraude/cierre)                                                                        | `app/services/momento_3_sync.py`                                                                                                                                                    |
+| Momento 4                                                                                                 | `app/services/momento_4_sync.py`                                                                                                                                                    |
+| Cola centralizada + versión + Lua scripts                                                                | `app/services/queue_service.py`                                                                                                                                                     |
+| Worker de reintentos                                                                                      | `app/workers/scheduler.py::reintentar_despachos_pendientes_job`                                                                                                                     |
+| Idempotencia (hash + store)                                                                               | `app/services/idempotency_service.py`                                                                                                                                               |
+| Test: no-completar contenido sobrescrito                                                                  | `tests/test_queue_race_protection.py`                                                                                                                                               |
+| Test: fraude + cierre simultáneo                                                                         | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo`                                                                                            |
+| Clasificación de errores SFC por texto                                                                   | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json`                                                                                                |
+| Colección Postman oficial de la SFC (referencia de mensajes de error)                                    | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`                                                                                                |
+| Webhook al CRM (`status: "CREATED"` fijo)                                                               | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia`                                                                                                            |
+| DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                           |
+| Replay administrativo de DLQ                                                                              | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`)                                  |
+| Cancelación de pendiente tras éxito síncrono (respeta la operación)                                   | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py`                                                  |
+| Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                    |
+| Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                  |
+| Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                       |
+| Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                        |
+| Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado` |
+| Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |
