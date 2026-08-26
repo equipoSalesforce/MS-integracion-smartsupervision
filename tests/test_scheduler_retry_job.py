@@ -212,21 +212,21 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             instance_qs.marcar_exitoso.assert_called_once_with(reg.id, worker_id=ANY, expected_version=reg.version)
             instance_qs.registrar_fallo.assert_not_called()
 
-    async def test_webhook_exitoso_pero_marcar_exitoso_falla_no_alerta_ni_consume_intento(self):
+    async def test_webhook_exitoso_pero_marcar_exitoso_falla_alerta_riesgo_duplicado(self):
         """
-        Auditoría del flujo completo de despacho/reintentos (2026-08-26): asimetría
-        real encontrada frente al escenario hermano de _ejecutar_paso_sfc (arriba,
-        test_sfc_200_pero_persistencia_falla_...) -- si marcar_sfc_completado falla
-        tras un envío exitoso a la SFC, SÍ se alerta como "riesgo_duplicado_post_sfc".
-        Pero si el webhook al CRM YA tuvo éxito y es marcar_exitoso (el registro final
-        en Redis) el que falla, el código actual sólo hace un log crítico -- sin
-        alertar, y sin registrar_fallo (no consume presupuesto de reintentos). El
-        item queda con sfc_completado=True y PENDIENTE para siempre: el próximo
-        ciclo salta la SFC (ya completada) y vuelve a intentar el webhook -- que ya
-        había tenido éxito -- reenviando una notificación DUPLICADA al CRM en cada
-        ciclo, indefinidamente, sin que nada lo escale ni lo detenga. Este test
-        documenta el comportamiento actual tal cual es (no el deseado) para dejar
-        registrada la brecha con evidencia concreta.
+        Auditoría del flujo completo de despacho/reintentos (2026-08-26): antes esto
+        era una asimetría real frente al escenario hermano de _ejecutar_paso_sfc
+        (arriba, test_sfc_200_pero_persistencia_falla_...) -- si marcar_sfc_completado
+        falla tras un envío exitoso a la SFC, sí se alertaba como
+        "riesgo_duplicado_post_sfc", pero si el webhook al CRM ya tuvo éxito y es
+        marcar_exitoso el que falla, sólo quedaba un log crítico sin alertar. El item
+        queda sfc_completado=True y pendiente: el próximo ciclo salta la SFC (ya
+        completada) y reintenta el webhook -- ya exitoso -- reenviando una
+        notificación duplicada al CRM en cada ciclo hasta que esta escritura logre
+        persistir. Corregido para alertar con la misma categoría que el escenario
+        hermano. No se espera registrar_fallo a propósito: el trabajo real (SFC+CRM)
+        ya se completó, así que esto no debe consumir presupuesto de reintentos ni
+        poder empujar el caso a FALLIDO_DEFINITIVO/DLQ.
         """
         reg = self._item_base(sfc_completado=True, sfc_response={"status": "success"})
         redis_mock = AsyncMock()
@@ -261,10 +261,11 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             mock_webhook.assert_called_once()  # el CRM ya recibió la notificación de éxito
             instance_qs.marcar_exitoso.assert_called_once()
 
-            # Comportamiento ACTUAL (la brecha): ni se alerta, ni se consume intento --
-            # el item queda listo para repetir el webhook indefinidamente en el
-            # próximo ciclo, sin ninguna señal visible salvo un log crítico.
-            mock_alerta.assert_not_called()
+            mock_alerta.assert_called_once()
+            self.assertEqual(mock_alerta.call_args.kwargs["categoria"], "riesgo_duplicado_post_sfc")
+            self.assertEqual(mock_alerta.call_args.kwargs["smart_code"], reg.smart_code)
+            # No debe tratarse como un fallo de reintentos: el trabajo real ya se
+            # completó, esto sólo es una falla de persistencia propia.
             instance_qs.registrar_fallo.assert_not_called()
 
     async def test_sfc_200_llama_marcar_sfc_completado_con_smart_code_y_payload(self):
@@ -680,8 +681,8 @@ class TestUmbralFallasInfraConsecutivasParaDiferir(unittest.IsolatedAsyncioTestC
         instance_qs, instance_orq = await self._ejecutar_ciclo(items, side_effects)
 
         instance_qs.diferir_pendientes_por_caida_sfc.assert_called_once()
-        ids_diferidos = instance_qs.diferir_pendientes_por_caida_sfc.call_args.kwargs["registro_ids"]
-        self.assertEqual(ids_diferidos, [4, 5])
+        registros_diferidos = instance_qs.diferir_pendientes_por_caida_sfc.call_args.kwargs["registros"]
+        self.assertEqual([r.id for r in registros_diferidos], [4, 5])
         # El ciclo se cortó tras la tercera falla -- los items 4 y 5 no se intentaron.
         self.assertEqual(instance_orq.procesar_despacho_raw_json.await_count, 3)
 

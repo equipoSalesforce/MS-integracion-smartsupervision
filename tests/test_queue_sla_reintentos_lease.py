@@ -14,7 +14,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from zoneinfo import ZoneInfo
 
 try:
@@ -162,7 +162,7 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         )
 
         modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(
-            registro_ids=[item.id], minutos_delay=30
+            registros=[item], minutos_delay=30
         )
 
         self.assertEqual(modificados, 1)
@@ -198,7 +198,7 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         )
 
         modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(
-            registro_ids=[item.id], minutos_delay=30
+            registros=[item], minutos_delay=30
         )
 
         self.assertEqual(modificados, 1)
@@ -214,20 +214,18 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
     async def test_diferir_sobre_item_ya_sobrescrito_por_evento_mas_nuevo_no_verifica_version(self):
         """
         Auditoría del flujo completo de despacho/reintentos (2026-08-26): a
-        diferencia de marcar_exitoso/marcar_sfc_completado/registrar_fallo (que
-        exigen expected_version y rechazan con version_mismatch si el contenido
-        cambió bajo sus pies), diferir_pendientes_por_caida_sfc NO recibe ni valida
-        una versión esperada -- opera sobre el id sin importar si el contenido que
-        está a punto de tocar sigue siendo el mismo que motivó la decisión de
-        diferir. Si un evento NUEVO del mismo smart_code sobrescribe el item
-        (mismo id, versión mayor) entre el listado del lote y la ejecución de
-        diferir, el reintento programado (proximo_reintento_at) y el mensaje de
-        error del contenido NUEVO quedan pisados con los del incidente de
-        infraestructura que en realidad era sobre el contenido VIEJO -- no se
-        pierden datos (el payload_json más reciente se conserva intacto), pero el
-        caso recién llegado se retrasa sin motivo y queda con un ultimo_error que
-        no describe su propia situación. Se documenta el comportamiento actual tal
-        cual es -- no hay assertNotEqual de "arreglado", esto caracteriza la brecha.
+        diferencia de marcar_exitoso/marcar_sfc_completado/registrar_fallo,
+        diferir_pendientes_por_caida_sfc no exigía expected_version -- si un evento
+        NUEVO del mismo smart_code sobrescribía el item (mismo id, versión mayor)
+        entre el listado del lote y la ejecución de diferir, el reintento programado
+        y el último error del contenido NUEVO quedaban pisados con los del
+        incidente de infraestructura que en realidad era sobre el contenido VIEJO.
+
+        Corregido: ahora exige expected_version igual que los demás scripts de
+        transición. Este test reproduce exactamente ese escenario (la decisión de
+        diferir se toma sobre un snapshot -- item_v1 -- que ya no es el vigente) y
+        confirma que, tras el fix, diferir se niega en vez de pisar el contenido
+        nuevo -- el reintento y el error de la versión vigente quedan intactos.
         """
         item_v1 = await self.queue_service.encolar_despacho(
             smart_code="SC-DIFERIR-STALE", tipo_operacion="AUTO",
@@ -243,32 +241,37 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item_v2.version, 2)
         proximo_reintento_antes_de_diferir = item_v2.proximo_reintento_at
 
-        # El scheduler decide diferir el lote (la decisión se tomó sobre lo que
-        # vio al listar, que en ese momento era el contenido viejo/v1).
-        await self.queue_service.diferir_pendientes_por_caida_sfc(
-            registro_ids=[item_v1.id], minutos_delay=120
+        # El scheduler decide diferir el lote sobre el snapshot que listó (item_v1,
+        # versión 1) -- ya no es el contenido vigente (versión 2).
+        modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(
+            registros=[item_v1], minutos_delay=120
         )
 
+        self.assertEqual(modificados, 0, "No debe contarse como diferido: la versión ya no coincide")
         raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item_v1.id}")
         data = json.loads(raw_item)
-        # El payload más reciente (v2) se conserva -- no hay pérdida de datos.
+        # El contenido vigente (v2) queda intacto -- ni el payload, ni su propio
+        # reintento programado, ni su propio último error se tocan.
         self.assertEqual(json.loads(data["payload_json"]), {"evento": "nuevo"})
         self.assertEqual(data["version"], 2)
-        # Pero su reintento programado y su último error quedaron pisados por la
-        # decisión que en realidad era sobre el contenido viejo.
-        self.assertNotEqual(data["proximo_reintento_at"], proximo_reintento_antes_de_diferir)
-        self.assertIn("pospuesto automáticamente", data["ultimo_error"])
+        self.assertEqual(data["proximo_reintento_at"], proximo_reintento_antes_de_diferir)
+        self.assertEqual(data["ultimo_error"], "fallo infra 2")
 
     async def test_diferir_ignora_ids_inexistentes_sin_lanzar(self):
-        modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[999999])
+        registro_inexistente = MagicMock(id=999999, version=1)
+        modificados = await self.queue_service.diferir_pendientes_por_caida_sfc(
+            registros=[registro_inexistente]
+        )
         self.assertEqual(modificados, 0)
 
     async def test_diferir_lista_vacia_no_toca_redis(self):
-        self.assertEqual(await self.queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[]), 0)
+        self.assertEqual(await self.queue_service.diferir_pendientes_por_caida_sfc(registros=[]), 0)
 
     async def test_diferir_sin_redis_retorna_cero(self):
         queue_service = QueueService(redis_client=None)
-        self.assertEqual(await queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[1]), 0)
+        self.assertEqual(
+            await queue_service.diferir_pendientes_por_caida_sfc(registros=[MagicMock(id=1, version=1)]), 0
+        )
 
     # ------------------------------------------------------------------
     # extender_lease_item

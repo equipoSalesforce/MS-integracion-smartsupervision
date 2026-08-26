@@ -10,7 +10,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.db.redis import get_redis_client
-from app.services.queue_service import QueueService
+from app.services.queue_service import QueueService, DESPACHO_LOCK_PREFIX
 from app.services.despacho_queja_orchestrator import DespachoQuejaOrquestador, limpiar_checkpoint_si_cierre_exitoso
 from app.services.email_service import EmailAlertService
 from app.services.idempotency_service import IdempotencyService
@@ -433,6 +433,26 @@ async def _ejecutar_paso_notificacion_crm(
             f"🔥 [Scheduler Job] ERROR CRÍTICO DE PERSISTENCIA: Caso {item.smart_code} (ID: {item.id}) "
             f"se procesó en SFC y CRM, pero falló la actualización en Redis: {redis_err}"
         )
+        # 🔴 FIX (hallazgo del flujo de despacho/reintentos, 2026-08-26): antes esto
+        # sólo quedaba en el log crítico de arriba -- a diferencia del escenario
+        # hermano en _ejecutar_paso_sfc (persistencia de SFC_DONE fallida), que sí
+        # alerta como "riesgo_duplicado_post_sfc". Sin esta alerta, el item queda
+        # sfc_completado=True y pendiente indefinidamente: el próximo ciclo salta la
+        # SFC (ya hecha) y vuelve a intentar el webhook -- que YA tuvo éxito --
+        # reenviando una notificación duplicada al CRM en cada ciclo hasta que esta
+        # escritura finalmente logre persistir, sin ninguna señal visible salvo ese
+        # log. No se llama a registrar_fallo a propósito: el trabajo real (SFC +
+        # CRM) ya se completó, así que esto no debe consumir presupuesto de
+        # reintentos ni poder empujar el caso a FALLIDO_DEFINITIVO/DLQ.
+        await EmailAlertService.notificar_falla_infraestructura(
+            smart_code=item.smart_code,
+            error_msg=(
+                f"Caso procesado en SFC y notificado al CRM, pero falló la persistencia "
+                f"final en Redis (riesgo de reenvío duplicado del webhook al CRM en el "
+                f"próximo ciclo): {redis_err}"
+            ),
+            categoria="riesgo_duplicado_post_sfc"
+        )
 
 
 async def _verificar_sla_vencido(queue_service: QueueService) -> None:
@@ -510,6 +530,59 @@ async def _procesar_item_reclamado(
     return resultado
 
 
+async def _reclamar_y_procesar_si_lock_disponible(
+    redis,
+    queue_service: QueueService,
+    orquestador: DespachoQuejaOrquestador,
+    item,
+    worker_id: str,
+) -> Optional["_ResultadoItemReintento"]:
+    """
+    🔴 FIX (hallazgo del flujo de despacho/reintentos, 2026-08-26): el lock por
+    caso del hallazgo E (RedisLock, ver despachar_queja_crm) sólo protegía el
+    despacho SÍNCRONO -- este camino (el worker de reintentos) llamaba a la SFC
+    directo, sin adquirir ningún lock por caso. Un request síncrono nuevo del
+    mismo Smart_Code__c podía correr en paralelo con un reintento en background
+    del mismo caso, exactamente la carrera que el hallazgo E se suponía que
+    cerraba, por una puerta que no cubría. Probado de forma directa en
+    tests/test_scheduler_worker_ignora_despacho_lock.py.
+
+    Ahora el worker adquiere el mismo lock (misma llave, mismo prefijo
+    DESPACHO_LOCK_PREFIX) ANTES de reclamar el item -- si está ocupado (un
+    request síncrono del mismo caso está en vuelo), el item se deja SIN
+    RECLAMAR para el próximo ciclo, en vez de competir por la SFC o bloquear el
+    resto del lote esperando. No es necesario "diferir" explícitamente: al no
+    reclamarlo, sigue pendiente con su proximo_reintento_at intacto y el
+    siguiente ciclo del scheduler lo vuelve a intentar con normalidad.
+    """
+    despacho_lock = RedisLock(
+        redis_client=redis,
+        lock_key=f"{DESPACHO_LOCK_PREFIX}:lock:{item.smart_code}",
+        lease_segundos=180,
+        intervalo_heartbeat=45
+    )
+
+    if not await despacho_lock.acquire():
+        logger.info(
+            f"ℹ️ [Scheduler Job] Caso {item.smart_code} tiene un despacho síncrono en curso "
+            f"-- se deja el reintento para el próximo ciclo en vez de competir por la SFC."
+        )
+        return None
+
+    try:
+        item_reclamado = await queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id,
+            worker_id=worker_id,
+            lease_segundos=60
+        )
+        if item_reclamado is None:
+            return None
+
+        return await _procesar_item_reclamado(orquestador, queue_service, item_reclamado, worker_id)
+    finally:
+        await despacho_lock.release()
+
+
 async def _diferir_resto_del_lote(queue_service: QueueService, pendientes: list, index: int) -> None:
     """Difiere el resto del lote (a partir de `index`) tras alcanzar
     UMBRAL_FALLAS_INFRA_CONSECUTIVAS_PARA_DIFERIR fallas de infraestructura seguidas
@@ -517,9 +590,8 @@ async def _diferir_resto_del_lote(queue_service: QueueService, pendientes: list,
     casos_restantes = pendientes[index + 1:]
     if not casos_restantes:
         return
-    ids_restantes = [r.id for r in casos_restantes]
     await queue_service.diferir_pendientes_por_caida_sfc(
-        registro_ids=ids_restantes,
+        registros=casos_restantes,
         minutos_delay=settings.QUEUE_RETRY_INTERVAL_MINUTES
     )
 
@@ -582,22 +654,20 @@ async def reintentar_despachos_pendientes_job():
         fallas_infra_consecutivas = 0
 
         for index, item in enumerate(pendientes):
-            # 🟢 FIX P0-04: el claim ahora devuelve el item TAL COMO ESTÁ en Redis en ese
+            # 🟢 FIX P0-04: el claim devuelve el item TAL COMO ESTÁ en Redis en ese
             # instante (no la copia leída durante el listado previo), cerrando la ventana
             # en la que el payload pudo haber sido sobrescrito por un evento más nuevo del
-            # mismo smart_code entre `obtener_pendientes_para_reintento` y el claim.
-            item_reclamado = await queue_service.reclamar_item_para_procesamiento(
-                registro_id=item.id,
-                worker_id=worker_id,
-                lease_segundos=60
+            # mismo smart_code entre `obtener_pendientes_para_reintento` y el claim. El
+            # lock por caso (ver _reclamar_y_procesar_si_lock_disponible) se adquiere
+            # ANTES de ese claim, para que un despacho síncrono en curso del mismo caso
+            # no compita por la SFC con este reintento.
+            resultado_item = await _reclamar_y_procesar_si_lock_disponible(
+                redis, queue_service, orquestador, item, worker_id
             )
 
-            if item_reclamado is None:
+            if resultado_item is None:
                 continue
 
-            resultado_item = await _procesar_item_reclamado(
-                orquestador, queue_service, item_reclamado, worker_id
-            )
             casos_despachados_exito += int(resultado_item.despachado_exito)
             casos_fallidos += int(resultado_item.fallido)
 

@@ -29,14 +29,12 @@ from app.services.idempotency_service import IdempotencyService
 from app.core.distributed_lock import RedisLock
 
 from app.db.redis import get_redis_client, ping_redis
-from app.services.queue_service import QueueService
+from app.services.queue_service import QueueService, DESPACHO_LOCK_PREFIX
 from app.core.metrics import emit_emf_metric
 from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-DESPACHO_LOCK_PREFIX = "{sfc:despacho}"
 
 
 def _emitir_metrica_despacho(operacion_inferida: str, resultado: str, categoria_error: str = "N/A") -> None:

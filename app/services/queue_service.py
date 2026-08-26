@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 QUEUE_PREFIX = "{sfc:queue}"
 
+# 🟢 Definido acá (no en routes_quejas.py) para que scheduler.py también pueda
+# importarlo sin crear un cruce api->workers/workers->api -- ver el lock por caso
+# del hallazgo E, ahora usado tanto por el despacho síncrono como por el ciclo de
+# reintentos del worker (hallazgo del flujo de despacho/reintentos, 2026-08-26).
+DESPACHO_LOCK_PREFIX = "{sfc:despacho}"
+
 EXTEND_LEASE_LUA_SCRIPT = """
 local claim_key = KEYS[1]
 local worker_id = ARGV[1]
@@ -483,6 +489,20 @@ return cjson.encode({success = true, smart_code = smart_code, version = data["ve
 # que el bug ya corregido en la rama de sobrescritura de ENQUEUE_LUA_SCRIPT.
 # Se mueve a un script Lua para que GET+mutar+SET sea una única operación
 # atómica en Redis, sin ventana donde otro cliente pueda intercalarse.
+#
+# 🔴 FIX (hallazgo del flujo de despacho/reintentos, 2026-08-26): la atomicidad de
+# arriba evita la ventana GET/SET, pero no evitaba que este script pisara un item
+# que YA es una versión más nueva en el momento en que el script corre -- a
+# diferencia de marcar_exitoso/marcar_sfc_completado/registrar_fallo (que exigen
+# expected_version), diferir no validaba ninguna versión. Si un evento nuevo del
+# mismo smart_code sobrescribía el item entre el LISTADO del lote (en Python, antes
+# de decidir diferir) y la EJECUCIÓN de este script, el reintento programado y el
+# último error del contenido NUEVO quedaban pisados con los de una decisión de
+# infraestructura que en realidad era sobre el contenido VIEJO. Ahora se exige
+# expected_version igual que los demás scripts de transición: si no coincide, no se
+# toca nada -- el contenido vigente ya tiene su propio proximo_reintento_at fresco
+# (puesto por el ENQUEUE que lo sobrescribió) y no debe retrasarse por una decisión
+# que no era sobre él.
 DIFERIR_ITEM_LUA_SCRIPT = """
 local item_key = KEYS[1]
 local claim_key = KEYS[2]
@@ -493,13 +513,19 @@ local proximo_reintento_iso = ARGV[2]
 local now_iso = ARGV[3]
 local ultimo_error = ARGV[4]
 local proximo_reintento_ts = tonumber(ARGV[5])
+local expected_version = tonumber(ARGV[6])
 
 local raw_item = redis.call("GET", item_key)
 if not raw_item then
-    return 0
+    return cjson.encode({success = false, reason = "item_not_found"})
 end
 
 local data = cjson.decode(raw_item)
+
+if tonumber(data["version"] or 1) ~= expected_version then
+    return cjson.encode({success = false, reason = "version_mismatch"})
+end
+
 data["proximo_reintento_at"] = proximo_reintento_iso
 data["updated_at"] = now_iso
 data["ultimo_error"] = ultimo_error
@@ -508,7 +534,7 @@ redis.call("SET", item_key, cjson.encode(data))
 redis.call("ZADD", pending_zset_key, proximo_reintento_ts, registro_id)
 redis.call("DEL", claim_key)
 
-return 1
+return cjson.encode({success = true})
 """
 
 # 🟢 FIX (hallazgo de code review, 2026-08-25): un despacho SÍNCRONO exitoso
@@ -1461,8 +1487,17 @@ class QueueService:
             logger.error(f"Error realizando purga en Redis: {e}")
             return 0
 
-    async def diferir_pendientes_por_caida_sfc(self, registro_ids: List[int], minutos_delay: Optional[int] = None) -> int:
-        if not self.redis or not registro_ids:
+    async def diferir_pendientes_por_caida_sfc(
+        self, registros: List["ColaItemRedis"], minutos_delay: Optional[int] = None
+    ) -> int:
+        """
+        Recibe los items completos (no sólo sus ids) para poder exigir
+        `expected_version` -- ver el comentario sobre DIFERIR_ITEM_LUA_SCRIPT: sin
+        esto, un evento nuevo del mismo smart_code que sobrescribiera el item entre
+        el listado del lote y esta llamada quedaba con su reintento pisado por una
+        decisión que en realidad era sobre el contenido viejo.
+        """
+        if not self.redis or not registros:
             return 0
 
         delay_min = minutos_delay or settings.QUEUE_RETRY_INTERVAL_MINUTES
@@ -1471,21 +1506,28 @@ class QueueService:
         proximo_ts = proximo_at.timestamp()
 
         modificados = 0
-        for registro_id in registro_ids:
-            item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
-            claim_key = f"{QUEUE_PREFIX}:claim:{registro_id}"
+        for registro in registros:
+            item_key = f"{QUEUE_PREFIX}:item:{registro.id}"
+            claim_key = f"{QUEUE_PREFIX}:claim:{registro.id}"
             pending_zset_key = f"{QUEUE_PREFIX}:pending_zset"
             try:
-                resultado = await self.redis.eval(
+                raw_res = await self.redis.eval(
                     DIFERIR_ITEM_LUA_SCRIPT, 3, item_key, claim_key, pending_zset_key,
-                    str(registro_id), proximo_at.isoformat(), now_bogota.isoformat(),
+                    str(registro.id), proximo_at.isoformat(), now_bogota.isoformat(),
                     "Reintento pospuesto automáticamente por caída de plataforma SFC.",
-                    str(proximo_ts)
+                    str(proximo_ts), str(registro.version)
                 )
-                if int(resultado) == 1:
+                res = json.loads(raw_res)
+                if res.get("success"):
                     modificados += 1
+                elif res.get("reason") == "version_mismatch":
+                    logger.info(
+                        f"ℹ️ [Cola Redis] Registro {registro.id} fue sobrescrito por un evento más "
+                        f"nuevo del mismo caso -- no se difiere, el contenido vigente ya tiene su "
+                        f"propio reintento programado."
+                    )
             except Exception as e:
-                logger.error(f"Error difiriendo registro {registro_id} por caída SFC: {e}")
+                logger.error(f"Error difiriendo registro {registro.id} por caída SFC: {e}")
 
         logger.warning(f"🛑 [Cola Redis] Se diferió la ejecución de {modificados} casos por {delay_min} min sin consumir intentos.")
         return modificados

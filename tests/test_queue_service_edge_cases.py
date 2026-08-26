@@ -229,7 +229,8 @@ class TestDiferirPendientesErrorPorItem(unittest.IsolatedAsyncioTestCase):
         mock_redis.eval = AsyncMock(side_effect=ConnectionError("redis caido"))
         queue_service = QueueService(redis_client=mock_redis)
 
-        modificados = await queue_service.diferir_pendientes_por_caida_sfc(registro_ids=[1, 2])
+        registros = [MagicMock(id=1, version=1), MagicMock(id=2, version=1)]
+        modificados = await queue_service.diferir_pendientes_por_caida_sfc(registros=registros)
 
         self.assertEqual(modificados, 0)
 

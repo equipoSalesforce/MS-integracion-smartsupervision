@@ -26,6 +26,7 @@
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
 - [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
+- [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -559,6 +560,48 @@ al CRM como un error real, en vez de absorberse como no-op igual que los otros
 dos pasos. Ahora los tres pasos comparten el mismo helper
 (`_ejecutar_paso_o_exito_si_ya_cerrado` en `despacho_queja_orchestrator.py`).
 
+**El lock también faltaba en el camino del worker (encontrado en la revisión de
+concurrencia del 2026-08-26):** lo de arriba sólo protegía el despacho SÍNCRONO.
+El ciclo de reintentos del worker (`scheduler.py::reintentar_despachos_pendientes_job`)
+llamaba a `orquestador.procesar_despacho_raw_json` directamente para cada item
+reclamado de la cola, sin adquirir ningún lock por caso -- un request síncrono
+nuevo del mismo `Smart_Code__c` podía correr en paralelo con un reintento en
+background del mismo caso, exactamente la carrera que este hallazgo se suponía
+que cerraba, por una puerta que no cubría originalmente. Se corrigió agregando
+`scheduler.py::_reclamar_y_procesar_si_lock_disponible`, que adquiere el mismo
+`RedisLock` (misma llave, `DESPACHO_LOCK_PREFIX` -- movido a `queue_service.py`
+para que tanto `routes_quejas.py` como `scheduler.py` lo importen sin crear un
+cruce de capas) **antes** de reclamar el item. Si está ocupado, el item se deja
+**sin reclamar** para el siguiente ciclo -- no hace falta "diferirlo"
+explícitamente, ya que no reclamarlo lo deja pendiente con su
+`proximo_reintento_at` intacto.
+
+## Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)
+
+**1. Webhook duplicado si Redis falla justo después de notificar al CRM.** En
+`scheduler.py::_ejecutar_paso_notificacion_crm`, si el webhook al CRM **ya tuvo
+éxito** pero `marcar_exitoso` (el registro final en Redis) fallaba, no se
+alertaba ni se consumía presupuesto de reintentos -- a diferencia del escenario
+hermano (`marcar_sfc_completado` fallando en `_ejecutar_paso_sfc`), que sí
+dispara `EmailAlertService.notificar_falla_infraestructura(categoria=
+"riesgo_duplicado_post_sfc")`. El item quedaba `sfc_completado=True` y
+pendiente para siempre: el próximo ciclo saltaba la SFC (ya hecha) y reintentaba
+el webhook -- ya exitoso -- reenviando una notificación duplicada al CRM en cada
+ciclo, indefinidamente, sin ninguna señal visible salvo un log crítico.
+Corregido para alertar con la misma categoría que el escenario hermano.
+
+**2. `diferir_pendientes_por_caida_sfc` no validaba versión.** A diferencia de
+`marcar_exitoso`/`marcar_sfc_completado`/`registrar_fallo`, este script no
+exigía `expected_version`. Si un evento nuevo del mismo `smart_code`
+sobrescribía el item entre el listado del lote (en Python, cuando se decide
+diferir) y la ejecución de este script, el reintento programado y el
+`ultimo_error` del contenido **nuevo** quedaban pisados con los de la decisión
+de infraestructura que en realidad era sobre el contenido **viejo** -- sin
+pérdida de datos, pero con un retraso injustificado y un mensaje de error
+engañoso. Corregido exigiendo `expected_version` igual que los demás scripts de
+transición; ahora recibe los items completos (`registros`, no sólo sus ids)
+para poder validarla.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                               |
@@ -585,4 +628,7 @@ dos pasos. Ahora los tres pasos comparten el mismo helper
 | Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                       |
 | Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                        |
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado` |
+| Lock por caso también en el worker de reintentos                                                        | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX` |
+| Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                       | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm` |
+| Version esperada en el diferimiento por caída de SFC                                                    | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT` |
 | Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |
