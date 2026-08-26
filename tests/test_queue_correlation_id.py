@@ -38,6 +38,30 @@ class TestQueueCorrelationId(unittest.TestCase):
         self.assertIn("correlation_id", summary_data)
         self.assertEqual(summary_data["correlation_id"], "CID-ORIGINAL-TEST-999")
 
+    def test_cola_item_redis_preserva_payload_hash_en_to_dict(self):
+        """
+        🔴 FIX (hallazgo N8, revisión externa v5, 2026-08-25): to_dict() no
+        incluía payload_hash pese a que __init__ sí lo lee -- un round-trip
+        (SET item_key, json.dumps(item.to_dict())) lo borraría en silencio.
+        """
+        data = {
+            "id": 43,
+            "smart_code": "1286SC-TEST-100",
+            "payload_json": {"Case_id": "SC-TEST-100"},
+            "payload_hash": "hash-de-prueba-abc123"
+        }
+
+        item = ColaItemRedis(data)
+
+        self.assertEqual(item.payload_hash, "hash-de-prueba-abc123")
+        dict_data = item.to_dict()
+        self.assertIn("payload_hash", dict_data)
+        self.assertEqual(dict_data["payload_hash"], "hash-de-prueba-abc123")
+
+        # El round-trip completo no debe perder el hash.
+        item_reconstruido = ColaItemRedis(dict_data)
+        self.assertEqual(item_reconstruido.payload_hash, "hash-de-prueba-abc123")
+
 
 if __name__ == "__main__":
     unittest.main()

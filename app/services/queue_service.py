@@ -577,7 +577,12 @@ class ColaItemRedis:
             "updated_at": self.updated_at,
             "correlation_id": self.correlation_id,  # 🟢 FIX HALLAZGO 47
             "es_duplicado": self.es_duplicado,
-            "version": self.version  # 🟢 FIX P0-04
+            "version": self.version,  # 🟢 FIX P0-04
+            # 🔴 FIX (hallazgo N8, revisión externa v5, 2026-08-25): to_dict() no
+            # incluía payload_hash -- __init__ sí lo lee, así que un futuro
+            # SET item_key, json.dumps(item.to_dict()) lo borraría en silencio y
+            # reintroduciría el desajuste de hash entre cola e idempotencia (§4).
+            "payload_hash": self.payload_hash
         }
 
     def to_summary_dict(self) -> dict:

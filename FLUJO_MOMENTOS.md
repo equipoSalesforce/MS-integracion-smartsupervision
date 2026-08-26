@@ -23,6 +23,7 @@
 - [¿Por qué la cola de fallidos (DLQ) no tiene endpoint de replay?](#por-qué-la-cola-de-fallidos-dlq-no-tiene-endpoint-de-replay)
 - [¿Por qué la cascada de timeouts no llega hasta nginx/ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-nginxalb)
 - [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
+- [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -381,6 +382,79 @@ mejoras pendientes, no parte de esta justificación.
 
 ---
 
+## ¿Por qué la validación de ownership de adjuntos en S3 usa `Case_id` y es estrictamente posicional?
+
+**Código:** `S3StorageService._validar_ownership_key` y `_validar_prefijo_pertenece_al_caso` en
+`app/services/s3_service.py`.
+
+Cuando el CRM despacha una queja con adjuntos (`archivos_s3` o `directorio_s3`), este microservicio
+valida que la `s3_key` (o el prefijo del directorio) referenciada realmente pertenezca al caso que
+se está procesando, comparándola contra `Case_id` — exigiendo que sea exactamente el penúltimo
+segmento de la ruta para un archivo individual (`caso/{Case_id}/archivo.pdf`), o el último segmento
+para un prefijo de directorio (`caso/{Case_id}/`). Esto tiene dos particularidades que conviene
+explicar juntas, porque comparten la misma raíz.
+
+### Por qué se compara contra `Case_id` y no contra `Smart_Code__c`
+
+`Smart_Code__c` es el identificador que este microservicio usa como clave primaria en casi todo lo
+demás (idempotencia, índice de cola, métricas) — pero **no es intercambiable con `Case_id` en
+todos los flujos**. En particular, los casos recuperados por Momento 1 (SFC → CRM) pueden tener un
+código interno de la SFC que **no coincide** con el `Smart_Code__c` que termina usando este
+microservicio (el schema puede derivar/generar uno nuevo cuando sólo llega `Case_id`). Es decir,
+`Smart_Code__c` no es necesariamente estable frente al identificador que el CRM conoce como "este
+caso".
+
+Sin embargo, **para el tráfico en la dirección CRM → microservicio — que es exactamente el que trae
+adjuntos y dispara esta validación — el CRM siempre usa `Case_id`** como identificador del caso, sin
+ambigüedad. Por eso la validación de ownership se ancla a `Case_id`: es, en esta dirección
+específica, el identificador estable y no derivado — al revés de lo que podría parecer si se mirara
+sólo el resto del sistema, donde `Smart_Code__c` es el protagonista.
+
+### Por qué no hay (ni puede haber) una verificación más fuerte que comparar campos del mismo payload
+
+Esta validación compara dos campos que llegan en la **misma petición**, del **mismo emisor** (el
+CRM, único consumidor de esta API vía una sola `CRM_API_KEY` compartida): `Case_id` contra la
+`s3_key`. No existe ninguna llamada al CRM ni acceso a una base de datos compartida desde la que
+este microservicio pueda confirmar independientemente "¿este archivo realmente pertenece a este
+caso?" — no hay ese oráculo externo. Por diseño, entonces, esta validación **no puede ser una
+prueba criptográfica de propiedad**; es, como máximo, un chequeo de formato/consistencia que agarra
+una inconsistencia accidental entre `Case_id` y la `s3_key` dentro de la misma petición (un bug del
+lado del CRM al construir el payload), no un mecanismo que pueda detener a alguien que ya tiene la
+`CRM_API_KEY` y construye el payload a propósito para que ambos campos "calcen" entre sí.
+
+El formato mismo de la `s3_key` (`caso/{Case_id}/archivo.pdf`, `quejas/{Case_id}/archivo.pdf`, o
+`{Case_id}/archivo.pdf` sin prefijo) **no lo define ni lo controla este microservicio** — es una
+convención acordada con y gestionada por el equipo de CRM, que es quien sube los archivos a S3 y
+quien construye `archivos_s3`/`directorio_s3` en el payload. Este microservicio sólo puede validar
+que la petición sea *internamente consistente* con esa convención acordada; la responsabilidad de
+que esos valores realmente correspondan al caso que se está despachando es, en última instancia,
+del CRM.
+
+### Por qué la regla es estrictamente posicional (y no acepta subcarpetas)
+
+`_validar_ownership_key` exige que `Case_id` sea exactamente el penúltimo segmento de la ruta —
+ningún archivo dentro de una subcarpeta de la carpeta del caso (ej.
+`caso/{Case_id}/anexos/archivo.pdf`) pasa la validación hoy. Esto se evaluó explícitamente como una
+posible mejora (aceptar `Case_id` en cualquier posición previa al nombre de archivo) y se descartó:
+esa regla más laxa reabre exactamente el problema que esta validación existe para cerrar — si las
+keys reales comparten un prefijo literal fijo (`caso/`, `quejas/`), un `Case_id` igual a ese literal
+compartido (`"caso"`) volvería a matchear como si fuera un caso legítimo, para archivos de
+**cualquier** caso. Sin un ancla verificable externamente (ver el punto anterior), no hay forma de
+distinguir "esto es realmente la carpeta del caso" de "esto coincide con un segmento compartido por
+casualidad" salvo fijando la posición exacta.
+
+**Esto no es un bug pendiente de corregir, es una restricción aceptada:** se confirmó que ninguna de
+las dos rutas de escritura de este microservicio a S3 genera subcarpetas
+(`momento_3_sync.py::s3_key = f"caso/{case_id}/{final_pdf_name}"`,
+`s3_service.py::s3_key = f"quejas/{codigo_queja}/{filename}"`, ambas planas), no hay ninguna
+restricción de formato en el schema que sugiera que el CRM las use, y no hay cobertura de test para
+ese caso. Si en el futuro el CRM necesita subcarpetas, la forma correcta de resolverlo es acordar con
+el equipo de CRM una convención más estricta (ej. que `Case_id` sea siempre el primer segmento, sin
+prefijos compartidos ambiguos) — no relajar unilateralmente esta regla desde el lado del
+microservicio.
+
+---
+
 ## Referencias en el código
 
 | Concepto | Archivo |
@@ -402,3 +476,4 @@ mejoras pendientes, no parte de esta justificación.
 | DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
 | Cascada de timeouts | `infrastructure/Dockerfile`, `infrastructure/nginx.conf`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
+| Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
