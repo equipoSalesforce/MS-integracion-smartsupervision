@@ -419,8 +419,12 @@ class TestDespachoExitosoCancelaItemDeColaObsoleto(_RoutesQuejasHttpTestCase):
         # aplicado por el model_validator del schema (ver crm_payloads.py) -- el
         # mismo valor prefijado que ya usa encolar_despacho/registrar_exito.
         smart_code_prefijado = f"{settings.SFC_TIPO_ENTIDAD}{settings.SFC_ENTIDAD_COD}{self.payload['Smart_Code__c']}"
+        # 🔴 FIX N1 (revisión externa v5, 2026-08-25): ahora también se pasa la
+        # operación inferida de este despacho, para que la cancelación sólo borre
+        # un item pendiente de la MISMA categoría (nunca una obligación distinta).
+        # Este payload (Status="New", sin fraude/cierre) infiere M2_CREATION.
         mock_queue_cls.return_value.cancelar_pendiente_por_smart_code.assert_awaited_once_with(
-            smart_code_prefijado
+            smart_code_prefijado, operacion_actual="M2_CREATION"
         )
 
     def test_fallo_al_cancelar_pendiente_no_afecta_la_respuesta_200(self):

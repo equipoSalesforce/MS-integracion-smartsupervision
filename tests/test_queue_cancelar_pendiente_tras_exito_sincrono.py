@@ -79,7 +79,9 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             payload_json={"Description": "contenido OBSOLETO"}, error_inicial="timeout inicial"
         )
 
-        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-1")
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-SYNC-1", operacion_actual="M3_UPDATE"
+        )
 
         self.assertTrue(cancelado)
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}"))
@@ -107,7 +109,9 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNotNone(reclamado)
 
-        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-2")
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-SYNC-2", operacion_actual="M3_UPDATE"
+        )
 
         self.assertTrue(cancelado)
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}"))
@@ -140,7 +144,7 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             registro_id=item.id, worker_id="worker_1", lease_segundos=60
         )
 
-        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-5")
+        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-5", operacion_actual="M3_UPDATE")
 
         resultado = await self.queue_service.registrar_fallo(
             item=reclamado, error_msg="SFC rechazó el dato equivocado otra vez", worker_id="worker_1"
@@ -163,7 +167,7 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             registro_id=item.id, worker_id="worker_1", lease_segundos=60
         )
 
-        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-6")
+        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-6", operacion_actual="M3_UPDATE")
 
         resultado = await self.queue_service.marcar_sfc_completado(
             reclamado.id, worker_id="worker_1", expected_version=reclamado.version,
@@ -174,7 +178,9 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}"))
 
     async def test_sin_item_pendiente_no_hace_nada_y_retorna_false(self):
-        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-INEXISTENTE")
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-SYNC-INEXISTENTE", operacion_actual="M3_UPDATE"
+        )
         self.assertFalse(cancelado)
 
     async def test_item_ya_completado_no_se_toca_dos_veces(self):
@@ -191,7 +197,9 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             item.id, worker_id="worker_1", expected_version=reclamado.version
         )
 
-        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-3")
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-SYNC-3", operacion_actual="M3_UPDATE"
+        )
 
         self.assertFalse(cancelado)
 
@@ -200,7 +208,7 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             smart_code="SC-SYNC-4", tipo_operacion="AUTO",
             payload_json={"Description": "contenido OBSOLETO"}, error_inicial="timeout inicial"
         )
-        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-4")
+        await self.queue_service.cancelar_pendiente_por_smart_code("SC-SYNC-4", operacion_actual="M3_UPDATE")
 
         item_nuevo = await self.queue_service.encolar_despacho(
             smart_code="SC-SYNC-4", tipo_operacion="AUTO",
@@ -214,10 +222,92 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
 
     async def test_sin_redis_retorna_false(self):
         queue_service = QueueService(redis_client=None)
-        self.assertFalse(await queue_service.cancelar_pendiente_por_smart_code("SC-X"))
+        self.assertFalse(await queue_service.cancelar_pendiente_por_smart_code("SC-X", operacion_actual="M3_UPDATE"))
 
     async def test_smart_code_vacio_retorna_false_sin_tocar_redis(self):
-        self.assertFalse(await self.queue_service.cancelar_pendiente_por_smart_code(""))
+        self.assertFalse(
+            await self.queue_service.cancelar_pendiente_por_smart_code("", operacion_actual="M3_UPDATE")
+        )
+
+
+@unittest.skipUnless(
+    _REDIS_OK,
+    f"Redis no disponible en {TEST_REDIS_URL} — omitiendo la regresión de N1. "
+    "Levante un Redis local (ej. `docker run --rm -p 6379:6379 redis:7-alpine`) para ejecutarla."
+)
+class TestCancelarPendienteRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo N1, revisión externa v5, 2026-08-25): reproduce el escenario
+    exacto del hallazgo -- un reporte de FRAUDE queda encolado por una caída de la
+    SFC, y después un TRÁMITE del mismo caso se despacha con éxito por la vía
+    síncrona. La versión anterior cancelaba el fraude pendiente sin mirar su
+    contenido -- perdiéndolo para siempre, porque nunca llegó a transmitirse a la
+    SFC (a diferencia del caso "obsoleto" que este mecanismo sí debe cubrir).
+    """
+
+    async def asyncSetUp(self):
+        self.redis = redis_asyncio.from_url(TEST_REDIS_URL, decode_responses=True)
+        await self.redis.flushdb()
+        self.queue_service = QueueService(redis_client=self.redis)
+
+    async def asyncTearDown(self):
+        await self.redis.flushdb()
+        await self.redis.aclose()
+
+    async def test_tramite_exitoso_no_cancela_un_fraude_pendiente_de_operacion_distinta(self):
+        item_fraude = await self.queue_service.encolar_despacho(
+            smart_code="SC-N1-1", tipo_operacion="AUTO",
+            payload_json={
+                "Smart_Code__c": "SC-N1-1",
+                "tipo_fraude__c": "Suplantación",
+                "modalidad_fraude__c": "Phishing"
+            },
+            error_inicial="SFC caída"
+        )
+
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-N1-1", operacion_actual="M3_UPDATE"
+        )
+
+        self.assertFalse(cancelado, "Un trámite exitoso no debe poder cancelar un fraude pendiente distinto.")
+        self.assertIsNotNone(
+            await self.redis.get(f"{QUEUE_PREFIX}:item:{item_fraude.id}"),
+            "El reporte de fraude debe seguir en Redis, pendiente de transmitirse a la SFC."
+        )
+        self.assertEqual(await self.queue_service.contar_pendientes(), 1)
+
+    async def test_mismo_tipo_de_operacion_si_se_cancela(self):
+        """Contraprueba: dos trámites (misma categoría) -- el segundo, exitoso por
+        la vía síncrona, sí debe poder cancelar el primero, que quedó obsoleto."""
+        item_viejo = await self.queue_service.encolar_despacho(
+            smart_code="SC-N1-2", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-N1-2", "Description": "trámite con dato desactualizado"},
+            error_inicial="SFC caída"
+        )
+
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-N1-2", operacion_actual="M3_UPDATE"
+        )
+
+        self.assertTrue(cancelado)
+        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item_viejo.id}"))
+
+    async def test_cierre_exitoso_no_cancela_fraude_pendiente(self):
+        """Mismo principio con otra combinación real: Fraude + Cierre comparten
+        smart_code pero son categorías distintas -- M3_FRAUD_AND_CLOSE (el
+        cierre trae también datos de fraude) vs M3_FRAUD puro pendiente."""
+        item_fraude = await self.queue_service.encolar_despacho(
+            smart_code="SC-N1-3", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-N1-3", "tipo_fraude__c": "Suplantación"},
+            error_inicial="SFC caída"
+        )
+
+        cancelado = await self.queue_service.cancelar_pendiente_por_smart_code(
+            "SC-N1-3", operacion_actual="M3_CLOSE"
+        )
+
+        self.assertFalse(cancelado)
+        self.assertIsNotNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item_fraude.id}"))
 
 
 if __name__ == "__main__":

@@ -410,8 +410,16 @@ async def despachar_queja_crm(
         # por diseño; se envuelve igual (mismo criterio que registrar_exito arriba) como
         # defensa en profundidad, para que ningún fallo inesperado en este paso de
         # limpieza posterior pueda convertir un despacho ya exitoso en un error 500.
+        #
+        # 🔴 FIX (hallazgo N1, revisión externa v5, 2026-08-25): se pasa la operación
+        # inferida de ESTE despacho (ya calculada arriba para la métrica EMF) para que
+        # cancelar_pendiente_por_smart_code sólo borre el item pendiente si es la MISMA
+        # categoría de operación -- nunca una obligación regulatoria distinta (ej. un
+        # trámite exitoso ya no puede borrar un fraude que seguía genuinamente pendiente).
         try:
-            await QueueService(redis_client).cancelar_pendiente_por_smart_code(payload.Smart_Code__c)
+            await QueueService(redis_client).cancelar_pendiente_por_smart_code(
+                payload.Smart_Code__c, operacion_actual=operacion_inferida
+            )
         except Exception as cleanup_err:
             logger.warning(
                 f"⚠️ [Cola Redis] No se pudo verificar/cancelar un item de cola obsoleto para "

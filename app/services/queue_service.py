@@ -445,19 +445,62 @@ return 1
 # despacho síncrono más reciente confirma éxito, usando el mismo index_key que
 # ya mantiene ENQUEUE_LUA_SCRIPT.
 #
+# 🔴 FIX (hallazgo N1, revisión externa v5, 2026-08-25): la versión original
+# cancelaba INCONDICIONALMENTE cualquier item pendiente del mismo smart_code,
+# sin mirar qué contenía. El endpoint de despacho es unificado -- fraude,
+# trámite y cierre comparten el mismo smart_code y el mismo index_key -- así
+# que un trámite síncrono exitoso podía borrar un reporte de FRAUDE que seguía
+# genuinamente pendiente de transmitir (nunca llegó a la SFC, no era contenido
+# obsoleto), perdiéndolo para siempre sin que el CRM se enterara. Reproducido
+# contra Redis real. Ahora la cancelación se hace en dos pasos: (1)
+# LEER_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT lee el item pendiente sin tocarlo,
+# (2) Python clasifica su tipo de operación (IdempotencyService.
+# infer_operation_type) y sólo si coincide con la del despacho que acaba de
+# tener éxito -- es decir, sólo si genuinamente es la MISMA obligación
+# regulatoria, no una distinta -- se invoca la cancelación, que además
+# re-verifica que el contenido no haya cambiado entre el paso 1 y el 2 (mismo
+# patrón de "expected_*" que ya usan MARK_SUCCESS/MARK_SFC_DONE con
+# expected_version, aplicado aquí sobre item_id + payload_hash).
+#
 # No se toca claim_key deliberadamente: si un worker ya tiene el item reclamado
 # en este preciso instante (ventana mínima), sus escrituras posteriores
 # (MARK_SUCCESS/MARK_SFC_DONE/REGISTRAR_FALLO) ya manejan de forma segura un
 # item_key inexistente -- devuelven "item_not_found", liberan el claim y no
 # corrompen nada; el claim huérfano expira solo por su propio PX.
+LEER_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT = """
+local index_key = KEYS[1]
+local pending_set_key = KEYS[2]
+
+local item_id = redis.call("GET", index_key)
+if not item_id then
+    return false
+end
+
+local is_pending = redis.call("SISMEMBER", pending_set_key, item_id)
+if is_pending == 0 then
+    return false
+end
+
+local item_key = "{sfc:queue}:item:" .. item_id
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    return false
+end
+
+return raw_item
+"""
+
 CANCELAR_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT = """
 local index_key = KEYS[1]
 local pending_set_key = KEYS[2]
 local pending_zset_key = KEYS[3]
 local created_zset_key = KEYS[4]
 
+local expected_item_id = ARGV[1]
+local expected_payload_hash = ARGV[2]
+
 local item_id = redis.call("GET", index_key)
-if not item_id then
+if not item_id or item_id ~= expected_item_id then
     return 0
 end
 
@@ -467,6 +510,20 @@ if is_pending == 0 then
 end
 
 local item_key = "{sfc:queue}:item:" .. item_id
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    return 0
+end
+
+-- Re-verifica que el contenido no haya cambiado entre la clasificación (paso 1,
+-- en Python) y este intento de cancelar -- si otro evento sobrescribió el item
+-- mientras tanto, ya no es el contenido que se clasificó como obsoleto.
+if expected_payload_hash ~= "" then
+    local data = cjson.decode(raw_item)
+    if data["payload_hash"] ~= expected_payload_hash then
+        return 0
+    end
+end
 
 redis.call("DEL", item_key)
 redis.call("SREM", pending_set_key, item_id)
@@ -1253,7 +1310,7 @@ class QueueService:
         logger.warning(f"🛑 [Cola Redis] Se diferió la ejecución de {modificados} casos por {delay_min} min sin consumir intentos.")
         return modificados
 
-    async def cancelar_pendiente_por_smart_code(self, smart_code: str) -> bool:
+    async def cancelar_pendiente_por_smart_code(self, smart_code: str, operacion_actual: str) -> bool:
         """
         🟢 FIX (hallazgo de code review, 2026-08-25): se llama tras un despacho
         SÍNCRONO exitoso (ver despachar_queja_crm) para eliminar cualquier item de
@@ -1264,30 +1321,70 @@ class QueueService:
         pudiendo pisar en silencio los campos que el despacho más reciente ya
         corrigió.
 
+        🔴 FIX (hallazgo N1, revisión externa v5, 2026-08-25): la versión anterior
+        cancelaba CUALQUIER item pendiente del mismo smart_code sin mirar su
+        contenido. El endpoint de despacho es unificado -- fraude, trámite y
+        cierre comparten smart_code -- así que un trámite síncrono exitoso podía
+        borrar un reporte de FRAUDE que seguía genuinamente pendiente de
+        transmitir (nunca llegó a la SFC), perdiéndolo para siempre. Ahora sólo
+        cancela si el item pendiente es la MISMA categoría de operación
+        (`operacion_actual`, calculada por el caller vía
+        IdempotencyService.infer_operation_type sobre el payload que acaba de
+        tener éxito) que el item pendiente -- es decir, sólo cuando genuinamente
+        es contenido superado de la MISMA obligación regulatoria, nunca una
+        obligación distinta.
+
         Best-effort y nunca lanza: si falla, el peor caso es que reaparece el
         comportamiento que este método corrige (no debe convertir un despacho ya
         exitoso hacia el CRM en un error 500).
 
-        Retorna True si había un item pendiente y se canceló; False si no había
-        nada que cancelar o si Redis falló.
+        Retorna True si había un item pendiente de la misma operación y se
+        canceló; False si no había nada que cancelar, si era una operación
+        distinta, o si Redis falló.
         """
         if not self.redis or not smart_code:
             return False
 
-        keys = [
-            f"{QUEUE_PREFIX}:index:{smart_code}",
-            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
-            f"{QUEUE_PREFIX}:pending_zset",
-            f"{QUEUE_PREFIX}:created_zset"
-        ]
+        index_key = f"{QUEUE_PREFIX}:index:{smart_code}"
+        pending_set_key = f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}"
 
         try:
-            resultado = await self.redis.eval(CANCELAR_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT, len(keys), *keys)
+            raw_item = await self.redis.eval(LEER_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT, 2, index_key, pending_set_key)
+            if not raw_item:
+                return False
+
+            data = json.loads(raw_item, strict=False)
+            item_id = data.get("id")
+            payload_pendiente = data.get("payload_json") or {}
+            hash_pendiente = data.get("payload_hash")
+
+            from app.services.idempotency_service import IdempotencyService
+            operacion_pendiente = IdempotencyService.infer_operation_type(payload_pendiente)
+
+            if operacion_pendiente != operacion_actual:
+                logger.info(
+                    f"ℹ️ [Cola Redis] Item pendiente para {smart_code} NO se cancela: es una operación "
+                    f"distinta ({operacion_pendiente} vs {operacion_actual} que acaba de tener éxito) -- "
+                    f"sigue siendo una obligación regulatoria separada, no contenido obsoleto."
+                )
+                return False
+
+            keys = [
+                index_key,
+                pending_set_key,
+                f"{QUEUE_PREFIX}:pending_zset",
+                f"{QUEUE_PREFIX}:created_zset"
+            ]
+            resultado = await self.redis.eval(
+                CANCELAR_PENDIENTE_POR_SMART_CODE_LUA_SCRIPT, len(keys), *keys,
+                str(item_id), hash_pendiente or ""
+            )
             cancelado = int(resultado) == 1
             if cancelado:
                 logger.warning(
-                    f"🗑️ [Cola Redis] Item en cola cancelado para {smart_code}: un despacho síncrono "
-                    f"con contenido más reciente ya tuvo éxito, evitando el reenvío de contenido obsoleto."
+                    f"🗑️ [Cola Redis] Item en cola cancelado para {smart_code} (misma operación "
+                    f"{operacion_actual}): un despacho síncrono con contenido más reciente ya tuvo "
+                    f"éxito, evitando el reenvío de contenido obsoleto."
                 )
             return cancelado
         except Exception as e:
