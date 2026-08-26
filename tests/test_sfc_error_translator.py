@@ -148,6 +148,48 @@ class TestProcesarYLanzar(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
             mock_alert.assert_called_once()
 
+    async def test_not_found_tiene_prioridad_sobre_coincidencia_por_nombre_de_campo(self):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): reproduce el caso real -- una
+        regla genérica basada en el NOMBRE del campo ('codigo_queja'->ALREADY_EXISTS)
+        aparece ANTES en la matriz que la regla NOT_FOUND_ERROR ('does not exist'),
+        igual que en errores_sfc.json real. 'codigo_queja' es el nombre del campo en
+        CUALQUIER error de la SFC sobre una queja -- incluida la respuesta real de
+        "Add File" cuando el caso NO existe todavía
+        ({"codigo_queja": ["Object with codigo_queja=X does not exist."]}). Sin
+        prioridad explícita, la coincidencia por nombre de campo gana por orden y
+        deja el self-healing M2->M3 permanentemente inalcanzable para esta forma de
+        error real de la SFC.
+        """
+        reglas = [
+            {"subcadena": "codigo_queja", "tipo": "ALREADY_EXISTS", "accion": "El código ya existe."},
+            {"subcadena": "does not exist", "tipo": "NOT_FOUND_ERROR", "accion": "Autorrecuperar (self-healing)."},
+        ]
+        with self._mockear_matriz(reglas), \
+             patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"codigo_queja": ["Object with codigo_queja=111635888992248094 does not exist."]}'
+                )
+            self.assertEqual(ctx.exception.error_type, "NOT_FOUND_ERROR")
+
+    async def test_already_exists_genuino_sigue_funcionando_con_not_found_en_la_matriz(self):
+        """Contraprueba: un mensaje de 'ya existe' genuino (sin ninguna de las frases
+        NOT_FOUND) debe seguir clasificando ALREADY_EXISTS aunque la matriz también
+        tenga reglas NOT_FOUND_ERROR -- la prioridad no debe generar falsos negativos
+        para el caso verdadero."""
+        reglas = [
+            {"subcadena": "does not exist", "tipo": "NOT_FOUND_ERROR", "accion": "Autorrecuperar."},
+            {"subcadena": "codigo_queja", "tipo": "ALREADY_EXISTS", "accion": "El código ya existe."},
+        ]
+        with self._mockear_matriz(reglas), \
+             patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"codigo_queja": ["queja with this codigo queja already exists."]}'
+                )
+            self.assertEqual(ctx.exception.error_type, "ALREADY_EXISTS")
+
     async def test_regla_con_tipo_unknown_sfc_error_explicito_tambien_notifica(self):
         """
         🟢 Caso límite (exceptions.py:320): incluso si una regla SÍ matchea pero su
@@ -162,6 +204,42 @@ class TestProcesarYLanzar(unittest.IsolatedAsyncioTestCase):
                 await SfcErrorTranslator.procesar_y_lanzar(400, '{"message": "algo raro pasó"}')
             await asyncio.sleep(0)
             mock_alert.assert_called_once()
+
+
+class TestProcesarYLanzarContraMatrizLocalReal(unittest.IsolatedAsyncioTestCase):
+    """
+    A diferencia de TestProcesarYLanzar (matriz mockeada a medida), esta clase
+    carga la matriz REAL de errores_sfc.json -- el respaldo local que usa
+    producción cuando Google Sheets no está disponible/configurado, y que
+    comparte el mismo orden de reglas que la fuente primaria (Google Sheets).
+    Ancla el comportamiento contra los 46 registros reales, no una matriz de
+    prueba simplificada que podría no reproducir la colisión real.
+    """
+
+    def setUp(self):
+        self._matriz_original = SfcErrorTranslator.MATRIZ_ERRORES_TEXTO
+        SfcErrorTranslator.cargar_matriz_local()
+
+    def tearDown(self):
+        SfcErrorTranslator.MATRIZ_ERRORES_TEXTO = self._matriz_original
+
+    async def test_respuesta_real_add_file_queja_no_existe_clasifica_not_found(self):
+        """Body textual exacto de la colección Postman oficial de la SFC: 400 Add
+        File cuando el codigo_queja referenciado no existe todavía."""
+        with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"codigo_queja": ["Object with codigo_queja=111635888992248094 does not exist."]}'
+                )
+        self.assertEqual(ctx.exception.error_type, "NOT_FOUND_ERROR")
+
+    async def test_respuesta_real_ya_existe_queja_sigue_clasificando_already_exists(self):
+        with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"message": "Ya existe queja con este codigo queja"}'
+                )
+        self.assertEqual(ctx.exception.error_type, "ALREADY_EXISTS")
 
 
 if __name__ == "__main__":

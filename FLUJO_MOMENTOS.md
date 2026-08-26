@@ -30,6 +30,7 @@
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
 - [Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)](#momento-1-no-deduplicaba-quejas-repetidas-entre-páginas-corregido)
 - [El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)](#el-parser-de-hilos-de-correo-podía-atribuirle-al-soporte-una-respuesta-del-cliente-corregido)
+- [`SfcErrorTranslator` clasificaba "la queja no existe" como si ya existiera (corregido)](#sfcerrortranslator-clasificaba-la-queja-no-existe-como-si-ya-existiera-corregido)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -260,6 +261,14 @@ aviso (documentado ya como limitación aceptada — ver el comentario en `errore
 `notificar_error_no_mapeado`), o que en el futuro agregue un endpoint/campo que sí eche contenido
 del request. Si eso ocurre, esta sección deja de aplicar y la clasificación debe migrar a códigos de
 error estructurados de la SFC en vez de coincidencia de texto.
+
+**Matiz importante (hallazgo real, ver sección "clasificaba 'la queja no existe' como si ya
+existiera" más abajo):** lo anterior descarta el riesgo de **texto libre inyectado** (`Description`,
+`SuppliedName`, etc.) — pero no cubre un riesgo distinto y real: la SFC **sí** puede ecoar el
+**nombre de un campo** (`codigo_queja`) dentro de un mensaje de error, vía el patrón estándar de
+Django REST Framework (`SlugRelatedField`: `"Object with {campo}={valor} does not exist."`). Una
+regla de la matriz basada en ese nombre de campo, sin más contexto, puede coincidir con cualquier
+error sobre ese recurso — no sólo con el que la regla pretendía capturar. Ver el fix más abajo.
 
 ---
 
@@ -679,6 +688,60 @@ Restringir simplemente a las primeras 4 líneas de cabecera (el mismo criterio q
 usan los Casos A/B) no bastaba: un mensaje corto de cliente cabe completo dentro de
 esa ventana. Ver `tests/test_email_parser.py::test_parser_cliente_mas_reciente_menciona_marca_no_se_confunde_con_soporte`.
 
+## `SfcErrorTranslator` clasificaba "la queja no existe" como si ya existiera (corregido)
+
+**Código:** `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`,
+`_buscar_primera_coincidencia`.
+
+`procesar_y_lanzar` recorre `errores_sfc.json` (o su equivalente en Google
+Sheets, la fuente primaria en producción) en orden y se queda con la **primera**
+regla que coincide, comparando la subcadena tanto contra el mensaje como contra
+`sfc_field` (el nombre del campo, reconstruido por `_extraer_informacion_error`
+a partir de las llaves del JSON de error). La matriz real tiene una regla
+`"codigo_queja"` → `ALREADY_EXISTS` en la posición ~29 de 46, varias posiciones
+antes que `"not found"`/`"no existe"`/`"does not exist"` → `NOT_FOUND_ERROR`
+(~35-37). El problema: `"codigo_queja"` es el **nombre del campo**, no un
+mensaje — aparece en prácticamente cualquier error de la SFC sobre una queja,
+incluida la respuesta real (colección Postman oficial) de `POST /api/storage/`
+cuando el `codigo_queja` referenciado **todavía no existe**:
+
+```json
+{ "codigo_queja": ["Object with codigo_queja=111635888992248094 does not exist."] }
+```
+
+Reproducido: este body clasificaba como `ALREADY_EXISTS`, no `NOT_FOUND_ERROR`.
+Dos consecuencias, ambas confirmadas:
+
+1. `Momento2SincronizacionService._es_error_queja_ya_existe_m2` trata
+   `error_type == "ALREADY_EXISTS"` como éxito idempotente incondicional — "la
+   queja no existe" se reportaba como "ya estaba creada".
+2. `despacho_queja_orchestrator._es_caso_no_encontrado` sólo reconoce
+   `status_code == 404` o `error_type == "NOT_FOUND_ERROR"` — con
+   `error_type="ALREADY_EXISTS"` y `status_code=400`, el **self-healing
+   M2→M3** (la razón documentada arriba de por qué "casi nunca hace falta
+   Momento 2 puro") nunca se disparaba para esta forma de error real de la
+   SFC. El caso fallaba con un `crm_action` que además afirmaba lo contrario
+   de lo que había pasado.
+
+**Por qué reordenar sólo `errores_sfc.json` no alcanzaba:** ese archivo es
+únicamente el respaldo local (`cargar_matriz_local`, usado cuando Google
+Sheets no está configurado o falla) — la fuente primaria en producción es la
+hoja de Google Sheets, que comparte el mismo riesgo de orden y no se puede
+corregir desde este repositorio.
+
+**Corregido (hallazgo de revisión, 2026-08-26):** `procesar_y_lanzar` ahora
+evalúa las reglas `NOT_FOUND_ERROR` de la matriz **con prioridad**, sin
+importar su posición real (local o Google Sheets) — "el caso no existe" es la
+señal más crítica de toda la matriz porque dispara la auto-recuperación, y sus
+frases (`"not found"`, `"no existe"`, `"does not exist"`) son textos completos
+con espacios, con mucho menor riesgo de colisión que un nombre de campo suelto.
+Un mensaje de "ya existe" genuino (sin ninguna de esas frases) sigue
+clasificando `ALREADY_EXISTS` normalmente. Ver
+`tests/test_sfc_error_translator.py::test_not_found_tiene_prioridad_sobre_coincidencia_por_nombre_de_campo`
+y `TestProcesarYLanzarContraMatrizLocalReal` (reproduce el body real de la
+colección Postman contra la matriz local real, no una matriz de prueba
+simplificada).
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
@@ -694,7 +757,7 @@ esa ventana. Ver `tests/test_email_parser.py::test_parser_cliente_mas_reciente_m
 | Idempotencia (hash + store)                                                                               | `app/services/idempotency_service.py`                                                                                                                                                                           |
 | Test: no-completar contenido sobrescrito                                                                  | `tests/test_queue_race_protection.py`                                                                                                                                                                           |
 | Test: fraude + cierre simultáneo                                                                         | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo`                                                                                                                        |
-| Clasificación de errores SFC por texto                                                                   | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json`                                                                                                                            |
+| Clasificación de errores SFC por texto (NOT_FOUND_ERROR con prioridad, corregido)                        | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `_buscar_primera_coincidencia`, `errores_sfc.json`                                                                                            |
 | Colección Postman oficial de la SFC (referencia de mensajes de error)                                    | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`                                                                                                                            |
 | Webhook al CRM (`status: "CREATED"` fijo)                                                               | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia`                                                                                                                                        |
 | DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                                                       |
@@ -702,7 +765,7 @@ esa ventana. Ver `tests/test_email_parser.py::test_parser_cliente_mas_reciente_m
 | Cancelación de pendiente tras éxito síncrono (respeta la operación)                                   | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py`                                                                              |
 | Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                                                |
 | Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                                              |
-| Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)         | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                    |
+| Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)        | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                  |
 | Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                                                   |
 | Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                                                    |
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |

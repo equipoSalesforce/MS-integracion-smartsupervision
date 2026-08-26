@@ -315,35 +315,57 @@ class SfcErrorTranslator:
         except Exception as mail_err:
             logger.warning(f"⚠️ [SfcErrorTranslator] Error al intentar notificar por correo: {mail_err}")
 
-    @classmethod
-    async def procesar_y_lanzar(cls, status_code: int, response_text: str) -> None:
-        matriz = await cls.obtener_matriz_errores()
-        sfc_field, raw_message = cls._extraer_informacion_error(response_text)
-
-        error_type = "UNKNOWN_SFC_ERROR"
-        crm_action = "Error no mapeado por la SFC. Por favor revisar los logs del payload."
-
-        response_text_lower = response_text.lower()
-        raw_message_lower = raw_message.lower()
-        sfc_field_lower = (sfc_field or "").lower()
-
-        encontrado = False
-        for regla in matriz:
+    @staticmethod
+    def _buscar_primera_coincidencia(reglas: List[Dict[str, str]], textos_lower: Tuple[str, ...]) -> Optional[Dict[str, str]]:
+        for regla in reglas:
             subcadena = regla.get("subcadena", "").lower()
             if not subcadena:
                 continue
+            if any(subcadena in texto for texto in textos_lower):
+                return regla
+        return None
 
-            if (
-                subcadena in raw_message_lower
-                or subcadena in sfc_field_lower
-                or subcadena in response_text_lower
-            ):
-                error_type = regla.get("tipo", "UNKNOWN_SFC_ERROR")
-                crm_action = regla.get("accion", crm_action)
-                encontrado = True
-                break
+    @classmethod
+    async def procesar_y_lanzar(cls, status_code: int, response_text: str) -> None:
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): NOT_FOUND_ERROR se evalúa con
+        PRIORIDAD sobre el resto de la matriz, sin importar el orden real de las
+        reglas (local o desde Google Sheets, ambas fuentes comparten el mismo
+        riesgo). La regla 'codigo_queja'→ALREADY_EXISTS es una coincidencia por
+        NOMBRE de campo, no por contenido del mensaje -- 'codigo_queja' aparece en
+        prácticamente cualquier error de la SFC sobre una queja, incluido el 400 de
+        "Add File" cuando el caso NO existe todavía
+        (`{"codigo_queja": ["Object with codigo_queja=X does not exist."]}`).
+        Reproducido: con el orden anterior de la matriz, ese caso se clasificaba
+        como ALREADY_EXISTS -- lo que
+        Momento2SincronizacionService._es_error_queja_ya_existe_m2 tolera como
+        éxito idempotente, y que despacho_queja_orchestrator._es_error_caso_no_
+        encontrado nunca reconoce como 404 -- dejando el self-healing M2->M3
+        permanentemente inalcanzable para esa forma de error, con un
+        crm_action que además afirma lo contrario de lo que realmente pasó.
+        "El caso no existe" es la señal más crítica de toda la matriz (dispara la
+        auto-recuperación); perderla detrás de una coincidencia de nombre de campo
+        la deja rota en silencio. Las reglas NOT_FOUND_ERROR son frases completas
+        con espacios ("not found", "no existe", "does not exist"), con mucho menos
+        riesgo de colisión que un nombre de campo suelto.
+        """
+        matriz = await cls.obtener_matriz_errores()
+        sfc_field, raw_message = cls._extraer_informacion_error(response_text)
 
-        if not encontrado or error_type == "UNKNOWN_SFC_ERROR":
+        textos_lower = (raw_message.lower(), (sfc_field or "").lower(), response_text.lower())
+
+        reglas_not_found = [r for r in matriz if r.get("tipo") == "NOT_FOUND_ERROR"]
+        regla = cls._buscar_primera_coincidencia(reglas_not_found, textos_lower) or \
+            cls._buscar_primera_coincidencia(matriz, textos_lower)
+
+        if regla:
+            error_type = regla.get("tipo", "UNKNOWN_SFC_ERROR")
+            crm_action = regla.get("accion", "Error no mapeado por la SFC. Por favor revisar los logs del payload.")
+        else:
+            error_type = "UNKNOWN_SFC_ERROR"
+            crm_action = "Error no mapeado por la SFC. Por favor revisar los logs del payload."
+
+        if not regla or error_type == "UNKNOWN_SFC_ERROR":
             cls._notificar_desconocido_async(status_code, raw_message, sfc_field)
 
         raise SfcIntegrationException(
