@@ -9,6 +9,7 @@ directa.
 Mismo criterio que el resto de tests de cola: contra Redis real, no un mock
 del script/estructura de claves.
 """
+import asyncio
 import json
 import os
 import unittest
@@ -256,6 +257,86 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
     async def test_extender_lease_sin_redis_retorna_false(self):
         queue_service = QueueService(redis_client=None)
         self.assertFalse(await queue_service.extender_lease_item(registro_id=1, worker_id="w"))
+
+
+@unittest.skipUnless(
+    _REDIS_OK,
+    f"Redis no disponible en {TEST_REDIS_URL} — omitiendo pruebas de concurrencia real "
+    "del watchdog de lease."
+)
+class TestQueueLockWatchdogConcurrenciaReal(unittest.IsolatedAsyncioTestCase):
+    """
+    Auditoría de concurrencia (2026-08-26): QueueLockWatchdog (scheduler.py) es lo
+    que mantiene vivo el claim de un worker mientras dura un procesamiento largo --
+    test_queue_lock_watchdog.py lo prueba con Redis mockeado (nunca ejercita un TTL
+    real de Redis), y test_queue_race_protection.py simula la pérdida de lease
+    borrando el claim a mano en vez de dejarlo expirar de verdad. Este test combina
+    ambas piezas contra Redis real y con concurrencia genuina: mientras el watchdog
+    de un worker renueva activamente, un segundo worker que intenta robar el mismo
+    item debe fallar sistemáticamente -- y sólo debe poder tomarlo una vez que el
+    primero deja de renovar y el lease expira de verdad.
+    """
+
+    async def asyncSetUp(self):
+        self.redis = redis_asyncio.from_url(TEST_REDIS_URL, decode_responses=True)
+        await self.redis.flushdb()
+        self.queue_service = QueueService(redis_client=self.redis)
+
+    async def asyncTearDown(self):
+        await self.redis.flushdb()
+        await self.redis.aclose()
+
+    async def test_watchdog_activo_impide_que_otro_worker_robe_el_item(self):
+        from app.workers.scheduler import QueueLockWatchdog
+
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-WATCHDOG-1", tipo_operacion="AUTO",
+            payload_json={"a": 1}, error_inicial="timeout"
+        )
+        claim = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_dueno", lease_segundos=1
+        )
+        self.assertIsNotNone(claim)
+
+        intentos_de_robo = []
+
+        async def intentar_robar_periodicamente():
+            for _ in range(6):
+                await asyncio.sleep(0.15)
+                robado = await self.queue_service.reclamar_item_para_procesamiento(
+                    registro_id=item.id, worker_id="worker_ladron", lease_segundos=1
+                )
+                intentos_de_robo.append(robado)
+
+        async with QueueLockWatchdog(
+            queue_service=self.queue_service, registro_id=item.id,
+            worker_id="worker_dueno", lease_segundos=1, intervalo_segundos=0.3
+        ):
+            await intentar_robar_periodicamente()
+
+        self.assertTrue(
+            all(intento is None for intento in intentos_de_robo),
+            "Mientras el watchdog renovaba activamente, NINGÚN intento de robo debió tener éxito"
+        )
+
+        claim_final = await self.redis.get(f"{QUEUE_PREFIX}:claim:{item.id}")
+        self.assertEqual(claim_final, "worker_dueno")
+
+    async def test_tras_dejar_de_renovar_el_lease_expira_y_otro_worker_puede_tomarlo(self):
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-WATCHDOG-2", tipo_operacion="AUTO",
+            payload_json={"a": 1}, error_inicial="timeout"
+        )
+        await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_dueno", lease_segundos=1
+        )
+        # Sin watchdog: nadie renueva. Tras esperar más que el lease, debe expirar solo.
+        await asyncio.sleep(1.3)
+
+        claim_nuevo = await self.queue_service.reclamar_item_para_procesamiento(
+            registro_id=item.id, worker_id="worker_nuevo", lease_segundos=60
+        )
+        self.assertIsNotNone(claim_nuevo, "El lease debió expirar solo y permitir un nuevo claim")
 
 
 if __name__ == "__main__":

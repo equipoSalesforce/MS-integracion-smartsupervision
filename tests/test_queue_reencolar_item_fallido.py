@@ -7,6 +7,7 @@ Redis real, no un mock del script Lua, porque la lógica que importa (mover
 entre sets de estado, restaurar el índice smart_code->item, negarse si ya
 existe un item más reciente) vive en el script mismo.
 """
+import asyncio
 import os
 import unittest
 from unittest.mock import patch, AsyncMock
@@ -182,6 +183,27 @@ class TestReencolarItemFallido(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(primero["success"])
         self.assertFalse(segundo["success"])
         self.assertEqual(segundo["reason"], "not_failed_final")
+
+    async def test_doble_click_del_admin_genuinamente_concurrente_solo_uno_gana(self):
+        """
+        Auditoría de concurrencia (2026-08-26): versión con asyncio.gather del test
+        anterior -- un administrador que hace doble clic sobre "reencolar" dispara dos
+        requests genuinamente simultáneos, no uno después del otro. El propio chequeo
+        de estado dentro del script Lua (atómico en Redis) debe seguir garantizando
+        que sólo uno de los dos tenga éxito, incluso bajo esta condición de carrera real.
+        """
+        registro_id = await self._encolar_reclamar_y_fallar_definitivo("SC-7")
+
+        resultado_1, resultado_2 = await asyncio.gather(
+            self.queue_service.reencolar_item_fallido(registro_id),
+            self.queue_service.reencolar_item_fallido(registro_id),
+        )
+
+        exitos = [r for r in (resultado_1, resultado_2) if r["success"]]
+        fallos = [r for r in (resultado_1, resultado_2) if not r["success"]]
+        self.assertEqual(len(exitos), 1, "Exactamente uno de los dos clics debe ganar")
+        self.assertEqual(len(fallos), 1)
+        self.assertEqual(fallos[0]["reason"], "not_failed_final")
 
 
 class TestReencolarItemFallidoSinRedis(unittest.IsolatedAsyncioTestCase):

@@ -23,6 +23,7 @@ redis://localhost:6379/15 — DB 15 para no chocar con un Redis de desarrollo
 local en DB 0). Si Redis no está disponible, la clase completa se omite en
 vez de fallar la suite.
 """
+import asyncio
 import os
 import unittest
 
@@ -530,6 +531,65 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(item_b.version, 2)
         self.assertEqual(item_b.estado, SmartStatus.PENDING.value)
+
+    # ==========================================================================
+    # 🟢 Auditoría de concurrencia (2026-08-26): a diferencia de los tests de arriba
+    # (que simulan una carrera de forma secuencial y determinista -- reclamar A,
+    # LUEGO encolar B, LUEGO intentar completar A), estos disparan corrutinas
+    # GENUINAMENTE concurrentes con asyncio.gather sobre el MISMO item, para probar
+    # que CLAIM_ITEM_LUA_SCRIPT serializa accesos simultáneos de verdad y no sólo en
+    # el orden en que un test los invoca.
+    # ==========================================================================
+
+    async def test_n_workers_reclamando_el_mismo_item_simultaneamente_solo_uno_gana(self):
+        item = await self.queue_service.encolar_despacho(
+            smart_code="SC-950", tipo_operacion="AUTO",
+            payload_json={"evento": "K"}, error_inicial="timeout K"
+        )
+
+        N = 10
+        resultados = await asyncio.gather(*[
+            self.queue_service.reclamar_item_para_procesamiento(
+                registro_id=item.id, worker_id=f"worker_{i}", lease_segundos=60
+            )
+            for i in range(N)
+        ])
+
+        ganadores = [r for r in resultados if r is not None]
+        self.assertEqual(len(ganadores), 1, "Exactamente un worker debe ganar el claim")
+
+        claim_actual = await self.redis.get(f"{{sfc:queue}}:claim:{item.id}")
+        self.assertIn(claim_actual, [f"worker_{i}" for i in range(N)])
+
+    async def test_dos_encolados_genuinamente_concurrentes_del_mismo_smart_code_no_pierden_datos(self):
+        """
+        ENQUEUE_LUA_SCRIPT bajo contención real (no secuencial): dos eventos del
+        mismo smart_code disparados con asyncio.gather. Como ambos colisionan sobre
+        el mismo índice smart_code->item_id, deben terminar apuntando al MISMO
+        item_id, con la versión final en 2 (nunca dos items separados, nunca
+        version=1 pisada silenciosamente por la otra escritura).
+        """
+        resultados = await asyncio.gather(
+            self.queue_service.encolar_despacho(
+                smart_code="SC-960", tipo_operacion="AUTO",
+                payload_json={"evento": "X"}, error_inicial="timeout X"
+            ),
+            self.queue_service.encolar_despacho(
+                smart_code="SC-960", tipo_operacion="AUTO",
+                payload_json={"evento": "Y"}, error_inicial="timeout Y"
+            ),
+        )
+
+        item_x, item_y = resultados
+        self.assertEqual(item_x.id, item_y.id, "Ambos deben colisionar sobre el mismo item_id")
+        self.assertEqual(await self.queue_service.contar_pendientes(), 1)
+
+        raw_item = await self.redis.get(f"{{sfc:queue}}:item:{item_x.id}")
+        import json as _json
+        data_final = _json.loads(raw_item)
+        self.assertEqual(data_final["version"], 2, "La segunda escritura debe subir la versión, no pisarla en 1")
+        # El contenido final es el de uno de los dos eventos -- nunca una mezcla corrupta.
+        self.assertIn(data_final["payload_json"], ('{"evento": "X"}', '{"evento": "Y"}'))
 
 
 if __name__ == "__main__":
