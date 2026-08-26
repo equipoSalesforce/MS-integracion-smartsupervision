@@ -46,9 +46,21 @@ class RedisLock:
         self.owner_token = str(uuid.uuid4())
         self._heartbeat_task: Optional[asyncio.Task] = None
         self.acquired = False
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): acquire() devolvía `False` tanto
+        # cuando el lock estaba genuinamente OCUPADO (SET NX no pudo, otro dueño lo
+        # tiene) como cuando REDIS FALLÓ al intentar preguntar (excepción de
+        # conexión/timeout) -- el caller no podía distinguir "hay otra operación en
+        # curso" de "no pude ni preguntar". Con Redis degradado, los mensajes de los
+        # dos call sites (routes_quejas.py, scheduler.py) afirmaban "ocupado" cuando
+        # en realidad Redis era el que fallaba -- señal engañosa justo durante un
+        # incidente de infraestructura. `redis_error` se resetea al inicio de cada
+        # `acquire()` y sólo queda en True si la propia llamada a Redis lanzó.
+        self.redis_error = False
 
     async def acquire(self) -> bool:
+        self.redis_error = False
         if not self.redis:
+            self.redis_error = True
             return False
         try:
             res = await self.redis.set(
@@ -64,6 +76,7 @@ class RedisLock:
             return self.acquired
         except Exception as e:
             logger.error(f"❌ Error al adquirir lock distribuido '{self.lock_key}': {e}")
+            self.redis_error = True
             return False
 
     async def _heartbeat_loop(self):

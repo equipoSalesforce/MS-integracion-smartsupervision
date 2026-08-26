@@ -562,10 +562,21 @@ async def _reclamar_y_procesar_si_lock_disponible(
     )
 
     if not await despacho_lock.acquire():
-        logger.info(
-            f"ℹ️ [Scheduler Job] Caso {item.smart_code} tiene un despacho síncrono en curso "
-            f"-- se deja el reintento para el próximo ciclo en vez de competir por la SFC."
-        )
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): acquire()==False significaba tanto
+        # "lock ocupado" como "Redis falló al preguntar" -- distinguirlos vía
+        # `redis_error` para no afirmar "despacho síncrono en curso" cuando en
+        # realidad Redis es el que está degradado.
+        if despacho_lock.redis_error:
+            logger.warning(
+                f"⚠️ [Scheduler Job] No se pudo verificar el lock de despacho para el caso "
+                f"{item.smart_code} (Redis no disponible al preguntar) -- se deja el item sin "
+                f"reclamar para el próximo ciclo."
+            )
+        else:
+            logger.info(
+                f"ℹ️ [Scheduler Job] Caso {item.smart_code} tiene un despacho síncrono en curso "
+                f"-- se deja el reintento para el próximo ciclo en vez de competir por la SFC."
+            )
         return None
 
     try:

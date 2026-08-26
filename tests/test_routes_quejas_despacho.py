@@ -222,6 +222,13 @@ class _RoutesQuejasHttpTestCase(unittest.TestCase):
         self.redis_lock_mock = MagicMock()
         self.redis_lock_mock.acquire = AsyncMock(return_value=True)
         self.redis_lock_mock.release = AsyncMock()
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): sin esto, cualquier acceso a
+        # `.redis_error` sobre este MagicMock devuelve un auto-atributo truthy por
+        # defecto -- el código real ahora distingue "lock ocupado" de "Redis falló"
+        # consultando ese flag, así que hay que fijarlo explícitamente. Por defecto
+        # False (ni ocupado-por-fallo-de-redis, el caso común); TestDespachoLockPorCaso
+        # lo sobreescribe cuando prueba específicamente el camino de error de Redis.
+        self.redis_lock_mock.redis_error = False
         self.redis_lock_patcher = patch(
             "app.api.routes_quejas.RedisLock", return_value=self.redis_lock_mock
         )
@@ -424,6 +431,32 @@ class TestDespachoLockPorCaso(_RoutesQuejasHttpTestCase):
         kwargs = mock_emit.call_args.kwargs
         self.assertEqual(kwargs["dimensions"]["resultado"], "queued")
         self.assertEqual(kwargs["dimensions"]["categoria_error"], "CONCURRENT_DISPATCH_LOCKED")
+
+    def test_lock_no_adquirido_por_fallo_de_redis_usa_categoria_distinta(self):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): acquire()==False significaba tanto
+        "lock ocupado" como "Redis falló al preguntar" -- distinguirlos vía
+        `redis_error` para no afirmar "otra operación en curso" cuando en realidad
+        Redis es el que está degradado.
+        """
+        self.redis_lock_mock.acquire = AsyncMock(return_value=False)
+        self.redis_lock_mock.redis_error = True
+
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls, \
+             patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(
+                return_value=MagicMock(id=1, es_duplicado=False)
+            )
+            self.idempotency_service_mock.registrar_encolado = AsyncMock()
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 202)
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "DESPACHO_LOCK_REDIS_ERROR")
+        # No debe afirmar "otra operación en curso" cuando el problema real es Redis.
+        llamada_encolar = mock_queue_cls.return_value.encolar_despacho.call_args
+        self.assertNotIn("otra operación en curso", llamada_encolar.kwargs["error_inicial"])
 
     def test_lock_se_libera_tras_despacho_exitoso(self):
         with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls:

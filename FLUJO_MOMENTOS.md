@@ -683,6 +683,20 @@ consecuencia, `release()` ya no intenta el CAD contra Redis si el heartbeat ya
 detectó que el lock se perdió. Ver `app/core/distributed_lock.py::_heartbeat_loop`,
 `tests/test_distributed_lock_edge_cases.py`.
 
+**`RedisLock.acquire()` colapsaba "ocupado" y "Redis falló" en el mismo `False` (hallazgo de
+revisión, 2026-08-26):** cuando `acquire()` devolvía `False`, los dos call sites
+(`routes_quejas.py::despachar_queja_crm`, `scheduler.py::_reclamar_y_procesar_si_lock_disponible`)
+asumían incondicionalmente "otra operación en curso" -- pero `acquire()` también devuelve `False`
+cuando Redis lanza una excepción al intentar el `SET NX` (timeout, conexión caída) o cuando el
+cliente ni siquiera está inicializado. Con Redis genuinamente degradado, ambos mensajes/categorías
+de métrica afirmaban una causa falsa justo durante el incidente de infraestructura que más necesita
+un diagnóstico certero. **Corregido:** `RedisLock` expone `redis_error: bool` (se resetea al inicio
+de cada `acquire()`, sólo queda en `True` si la llamada a Redis lanzó o el cliente es `None`); ambos
+call sites lo consultan para elegir el mensaje/categoría correctos
+(`DESPACHO_LOCK_REDIS_ERROR` vs. `CONCURRENT_DISPATCH_LOCKED`). Ver
+`app/core/distributed_lock.py::acquire`, `app/api/routes_quejas.py::_motivo_lock_no_adquirido`,
+`tests/test_distributed_lock_edge_cases.py::TestRedisLockDistingueOcupadoDeRedisFallo`.
+
 ## Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)
 
 **1. Webhook duplicado si Redis falla justo después de notificar al CRM.** En
@@ -934,6 +948,7 @@ especulativo sin evidencia que lo justifique.
 | Refresco periódico de catálogos/mapeos (por proceso, sin lock cross-proceso, corregido)                 | `app/core/mapping.py::SfcSalesforceMapper.iniciar_refresco_periodico`, `tests/test_mapping_refresco_periodico.py`                                                                                             |
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |
 | Lock por caso también en el worker de reintentos                                                         | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX`                                                                                    |
+| `RedisLock` distingue "ocupado" de "Redis falló" (corregido)                                             | `app/core/distributed_lock.py::RedisLock.acquire`, `app/api/routes_quejas.py::_motivo_lock_no_adquirido`                                                                                                     |
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                         | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm`                                                                                                                                                     |
 | Version esperada en el diferimiento por caída de SFC                                                     | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT`                                                                                                                  |
 | Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |

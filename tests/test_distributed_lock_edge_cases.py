@@ -118,5 +118,70 @@ class TestRedisLockContextManager(unittest.IsolatedAsyncioTestCase):
         redis_mock.eval.assert_awaited()  # el CAD de liberación se ejecutó al salir del bloque.
 
 
+class TestRedisLockDistingueOcupadoDeRedisFallo(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo de revisión, 2026-08-26): acquire() devolvía False tanto
+    cuando el lock estaba genuinamente ocupado (SET NX no pudo) como cuando
+    Redis falló al preguntar (excepción de conexión/timeout) -- el caller no
+    podía distinguir "hay otra operación en curso" de "no pude ni preguntar".
+    """
+
+    async def test_lock_ocupado_no_marca_redis_error(self):
+        redis_mock = AsyncMock()
+        redis_mock.set.return_value = False  # SET NX no pudo -- otro dueño ya lo tiene.
+        lock = RedisLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test")
+
+        acquired = await lock.acquire()
+
+        self.assertFalse(acquired)
+        self.assertFalse(lock.redis_error)
+
+    async def test_excepcion_de_redis_marca_redis_error(self):
+        redis_mock = AsyncMock()
+        redis_mock.set.side_effect = ConnectionError("redis caido")
+        lock = RedisLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test")
+
+        acquired = await lock.acquire()
+
+        self.assertFalse(acquired)
+        self.assertTrue(lock.redis_error)
+
+    async def test_cliente_redis_none_marca_redis_error(self):
+        lock = RedisLock(redis_client=None, lock_key="{sfc:scheduler}:lock:test")
+
+        acquired = await lock.acquire()
+
+        self.assertFalse(acquired)
+        self.assertTrue(lock.redis_error)
+
+    async def test_redis_error_se_resetea_en_cada_llamada(self):
+        """Un acquire() exitoso DESPUÉS de uno fallido por error de Redis debe
+        limpiar el flag -- no debe quedar 'pegado' en True."""
+        redis_mock = AsyncMock()
+        redis_mock.set.side_effect = [ConnectionError("redis caido"), True]
+        lock = RedisLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=10)
+
+        await lock.acquire()
+        self.assertTrue(lock.redis_error)
+
+        acquired = await lock.acquire()
+        self.assertTrue(acquired)
+        self.assertFalse(lock.redis_error)
+
+        await lock.release()
+
+    async def test_acquire_exitoso_no_marca_redis_error(self):
+        redis_mock = AsyncMock()
+        redis_mock.set.return_value = True
+        lock = RedisLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=10)
+
+        acquired = await lock.acquire()
+
+        self.assertTrue(acquired)
+        self.assertFalse(lock.redis_error)
+
+        await lock.release()
+
+
 if __name__ == "__main__":
     unittest.main()

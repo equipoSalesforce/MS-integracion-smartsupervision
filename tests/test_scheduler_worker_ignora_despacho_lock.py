@@ -198,5 +198,60 @@ class TestReclamarYProcesarSiLockDisponible(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class TestReclamarYProcesarDistingueOcupadoDeRedisFallo(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo de revisión, 2026-08-26): acquire()==False significaba tanto
+    "lock ocupado" como "Redis falló al preguntar" -- mismo hallazgo que en
+    routes_quejas.py. Se mockea RedisLock (no Redis real) porque lo que se
+    prueba es la rama de LOG/mensaje, no el mecanismo del lock en sí (ya
+    cubierto contra Redis real arriba).
+    """
+
+    async def test_redis_error_no_afirma_despacho_sincrono_en_curso(self):
+        from app.workers.scheduler import _reclamar_y_procesar_si_lock_disponible
+
+        lock_mock = MagicMock()
+        lock_mock.acquire = AsyncMock(return_value=False)
+        lock_mock.redis_error = True
+
+        item = MagicMock(smart_code="SC-REDIS-ERR", id=1)
+        queue_service_mock = MagicMock()
+        orquestador_mock = MagicMock()
+
+        with patch("app.workers.scheduler.RedisLock", return_value=lock_mock), \
+             patch("app.workers.scheduler.logger") as mock_logger:
+            resultado = await _reclamar_y_procesar_si_lock_disponible(
+                MagicMock(), queue_service_mock, orquestador_mock, item, "worker_1"
+            )
+
+        self.assertIsNone(resultado)
+        mensajes = " ".join(str(c) for c in mock_logger.warning.call_args_list)
+        self.assertIn("Redis no disponible", mensajes)
+        self.assertNotIn("despacho síncrono en curso", mensajes)
+
+    async def test_lock_ocupado_sin_error_de_redis_si_afirma_despacho_sincrono_en_curso(self):
+        """Contraprueba: con `redis_error=False` (lock genuinamente ocupado), el
+        mensaje original ('despacho síncrono en curso') sigue siendo el correcto."""
+        from app.workers.scheduler import _reclamar_y_procesar_si_lock_disponible
+
+        lock_mock = MagicMock()
+        lock_mock.acquire = AsyncMock(return_value=False)
+        lock_mock.redis_error = False
+
+        item = MagicMock(smart_code="SC-OCUPADO", id=1)
+        queue_service_mock = MagicMock()
+        orquestador_mock = MagicMock()
+
+        with patch("app.workers.scheduler.RedisLock", return_value=lock_mock), \
+             patch("app.workers.scheduler.logger") as mock_logger:
+            resultado = await _reclamar_y_procesar_si_lock_disponible(
+                MagicMock(), queue_service_mock, orquestador_mock, item, "worker_1"
+            )
+
+        self.assertIsNone(resultado)
+        mensajes = " ".join(str(c) for c in mock_logger.info.call_args_list)
+        self.assertIn("despacho síncrono en curso", mensajes)
+
+
 if __name__ == "__main__":
     unittest.main()

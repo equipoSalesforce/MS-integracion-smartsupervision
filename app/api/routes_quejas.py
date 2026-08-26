@@ -197,6 +197,29 @@ def _construir_respuesta_idempotente(respuesta_idempotente: dict) -> JSONRespons
     )
 
 
+def _motivo_lock_no_adquirido(despacho_lock: RedisLock, smart_code: str) -> Tuple[str, str, str]:
+    """
+    🔴 FIX (hallazgo de revisión, 2026-08-26): acquire()==False significaba tanto
+    "lock ocupado" como "Redis falló al preguntar" -- distinguirlos vía
+    `redis_error` para no afirmar "otra operación en curso" cuando en realidad
+    Redis es el que está degradado (mensaje/categoría de métrica engañosos justo
+    durante un incidente de infraestructura). Retorna
+    (error_origen_titulo, error_detalle, categoria_error).
+    """
+    if despacho_lock.redis_error:
+        return (
+            "Fallo al verificar el lock de despacho (Redis)",
+            f"No se pudo verificar el lock de despacho para el Smart_Code__c "
+            f"{smart_code}: Redis no disponible.",
+            "DESPACHO_LOCK_REDIS_ERROR"
+        )
+    return (
+        "Despacho concurrente para el mismo caso",
+        f"Ya hay otra operación en curso para el Smart_Code__c {smart_code}.",
+        "CONCURRENT_DISPATCH_LOCKED"
+    )
+
+
 async def _encolar_despacho_por_contingencia(
     payload: QuejaUnificadaCrmInput,
     raw_payload: dict,
@@ -405,12 +428,14 @@ async def despachar_queja_crm(
     )
 
     if not await despacho_lock.acquire():
+        error_origen_titulo, error_detalle, categoria_error = _motivo_lock_no_adquirido(despacho_lock, payload.Smart_Code__c)
+
         respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
             payload, raw_payload, idempotency_service,
-            error_origen_titulo="Despacho concurrente para el mismo caso",
-            error_detalle=f"Ya hay otra operación en curso para el Smart_Code__c {payload.Smart_Code__c}."
+            error_origen_titulo=error_origen_titulo,
+            error_detalle=error_detalle
         )
-        _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error="CONCURRENT_DISPATCH_LOCKED")
+        _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error=categoria_error)
         return respuesta
 
     try:
