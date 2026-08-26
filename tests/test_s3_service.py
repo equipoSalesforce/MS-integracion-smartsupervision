@@ -290,6 +290,59 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-W")
         self.assertEqual(completados, [])
 
+    async def test_mensaje_sobre_existencia_de_la_queja_no_se_confunde_con_archivo_duplicado(self):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): "ya existe" (genérico, sin ancla)
+        también coincidía con mensajes que no tienen nada que ver con un archivo
+        duplicado -- "Ya existe queja con este codigo queja" o "ya existe una Queja
+        radicada para la entidad con el mismo motivo" (ambas reglas reales de
+        errores_sfc.json, sobre la QUEJA, no sobre el archivo). Se absorbía igual que
+        un duplicado real, marcando el checkpoint como entregado para un archivo que
+        la SFC en realidad nunca recibió -- mismo patrón que el hallazgo de
+        ALREADY_EXISTS/NOT_FOUND_ERROR en SfcErrorTranslator.
+        """
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "ALGO_NO_DUPLICATE_FILE", "codigo_queja",
+                "Ya existe queja con este codigo queja",
+                "Verificar el caso"
+            )
+        )
+        archivo = [{"nombre_archivo": "informe.pdf", "s3_key": "caso/V/informe.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-V", adjuntos_crm=archivo
+            )
+
+        # El checkpoint NO debe quedar marcado -- el archivo nunca fue confirmado.
+        completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-V")
+        self.assertEqual(completados, [])
+
+    async def test_frases_reales_de_archivo_duplicado_de_errores_sfc_json_si_se_absorben(self):
+        """Control: las dos frases que errores_sfc.json realmente mapea a
+        DUPLICATE_FILE ('El anexo ya existe', 'El documento ya existe') deben seguir
+        absorbiéndose como éxito idempotente."""
+        casos = [
+            ("El anexo ya existe para esta queja", "caso-u1"),
+            ("El documento ya existe en el sistema", "caso-u2"),
+        ]
+        for frase, sufijo in casos:
+            with self.subTest(frase=frase):
+                self.stub_redis.hashes = {}
+                sfc_client = MagicMock()
+                sfc_client.post_adjunto_queja = AsyncMock(
+                    side_effect=SfcIntegrationException(400, "ALGO", None, frase, "...")
+                )
+                archivo = [{"nombre_archivo": "doc.pdf", "s3_key": f"caso/U/{sufijo}/doc.pdf", "bytes": b"x"}]
+
+                resultado = await self.service.transferir_lote_s3_a_sfc(
+                    sfc_client=sfc_client, sfc_codigo_queja="CASO-U", adjuntos_crm=archivo
+                )
+
+                self.assertEqual(resultado[0]["status"], "DUPLICATE_OMITTED")
+
 
 class TestS3ServiceMetricaEmf(unittest.IsolatedAsyncioTestCase):
     """Métrica EMF SSV/S3Service (propuesta de observabilidad CX) -- panel de

@@ -808,6 +808,42 @@ y `TestProcesarYLanzarContraMatrizLocalReal` (reproduce el body real de la
 colección Postman contra la matriz local real, no una matriz de prueba
 simplificada).
 
+**El mismo patrón apareció en un segundo lugar (barrido de verificación,
+2026-08-26):** `S3StorageService._manejar_duplicado_o_cerrado`
+(`app/services/s3_service.py`) usaba `"ya existe" in raw_msg` -- un substring
+genérico, sin ancla -- para decidir si un rechazo al subir un adjunto
+significaba "la SFC ya tiene este archivo" (duplicado genuino, se absorbe
+como éxito y se marca el checkpoint). El mismo problema: "ya existe" también
+aparece en reglas reales de `errores_sfc.json` que no tienen nada que ver con
+un archivo duplicado -- "Ya existe queja con este codigo queja", "ya existe
+una Queja radicada para la entidad con el mismo motivo" (ambas sobre la
+**queja**, no sobre el archivo). Reproducido: ese tipo de mensaje se absorbía
+igual que un duplicado real, marcando el checkpoint como entregado para un
+archivo que la SFC en realidad nunca recibió -- silenciosamente ausente del
+expediente regulatorio del caso, sin ningún reintento futuro que lo
+recuperara. Corregido acotando a las dos frases reales que `errores_sfc.json`
+mapea a `DUPLICATE_FILE` ("El anexo ya existe", "El documento ya existe"),
+igual de específicas que `"ya cuenta con un documento"` ya usada en la misma
+condición. Ver `tests/test_s3_service.py::
+test_mensaje_sobre_existencia_de_la_queja_no_se_confunde_con_archivo_duplicado`.
+
+**Barrido de patrones similares (2026-08-26):** tras estos dos hallazgos se
+revisó todo el repositorio buscando la misma forma -- un substring genérico
+comparado en una cadena de prioridad "primera coincidencia gana" (`grep` por
+`" in raw_msg"`/`" in msg"`/`" in error_msg"` en `app/`). El único otro
+candidato con una palabra clave igual de genérica es
+`Momento2SincronizacionService._es_error_queja_ya_existe_m2`
+(`app/services/momento_2_sync.py`), que también incluye `"ya existe"` en su
+lista de keywords -- pero a diferencia de los dos casos de arriba, sólo se
+evalúa sobre la respuesta de `POST /api/queja/` (el endpoint de **creación**
+de la queja), donde no hay otro recurso plausible al que "ya existe" pudiera
+referirse por error -- el riesgo de colisión entre-recursos que sí existía en
+los otros dos casos (un archivo vs. la queja que lo contiene) no aplica aquí
+de la misma forma. Se dejó sin modificar por falta de un caso reproducible
+concreto (a diferencia de los dos anteriores, ambos confirmados con el body
+real de la colección Postman/`errores_sfc.json`) -- evitar un cambio
+especulativo sin evidencia que lo justifique.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
@@ -824,6 +860,7 @@ simplificada).
 | Test: no-completar contenido sobrescrito                                                                  | `tests/test_queue_race_protection.py`                                                                                                                                                                           |
 | Test: fraude + cierre simultáneo                                                                         | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo`                                                                                                                        |
 | Clasificación de errores SFC por texto (NOT_FOUND_ERROR con prioridad, corregido)                        | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `_buscar_primera_coincidencia`, `errores_sfc.json`                                                                                            |
+| Duplicado de adjunto vs. mensaje sobre la queja (substring genérico acotado, corregido)                  | `app/services/s3_service.py::S3StorageService._manejar_duplicado_o_cerrado`                                                                                                                                    |
 | Colección Postman oficial de la SFC (referencia de mensajes de error)                                    | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`                                                                                                                            |
 | Webhook al CRM (`status: "CREATED"` fijo)                                                               | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia`                                                                                                                                        |
 | DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                                                       |

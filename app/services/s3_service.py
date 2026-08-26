@@ -817,9 +817,22 @@ class S3StorageService:
         # puro (sin cierre), no hay ninguna razón de negocio para intentar adjuntar
         # un archivo a un caso ya cerrado -- debe propagarse como error real y
         # visible para el CRM, no absorberse en silencio como si hubiera funcionado.
+        # 🔴 FIX (hallazgo de revisión, 2026-08-26): "ya existe" (genérico, sin ancla)
+        # también coincide con mensajes que no tienen NADA que ver con un archivo
+        # duplicado -- "Ya existe queja con este codigo queja" o "ya existe una Queja
+        # radicada para la entidad con el mismo motivo" (ambas reglas reales de
+        # errores_sfc.json, sobre la QUEJA, no sobre el archivo). Reproducido: ese
+        # tipo de mensaje se absorbía igual que un duplicado genuino, marcando el
+        # checkpoint como entregado para un archivo que la SFC en realidad nunca
+        # recibió -- mismo patrón que el hallazgo de ALREADY_EXISTS/NOT_FOUND_ERROR en
+        # SfcErrorTranslator (ver FLUJO_MOMENTOS.md). Se acota a las frases reales que
+        # errores_sfc.json mapea a DUPLICATE_FILE ("El anexo ya existe", "El documento
+        # ya existe"), igual de específicas que "ya cuenta con un documento" ya usada
+        # más abajo en esta misma condición.
         es_duplicado = (
             getattr(exc, "error_type", None) == "DUPLICATE_FILE"
-            or "ya existe" in raw_msg
+            or "el anexo ya existe" in raw_msg
+            or "el documento ya existe" in raw_msg
             or "556240" in raw_msg
             or "ya cuenta con un documento" in raw_msg
         )
