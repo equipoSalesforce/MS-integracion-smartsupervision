@@ -18,6 +18,7 @@ from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_clien
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.exceptions import SfcIntegrationException
 from app.core.mapping import SfcSalesforceMapper
+from app.core.distributed_lock import RedisLock
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
 from app.core.metrics import emit_emf_metric
@@ -58,110 +59,6 @@ async def _close_scheduler_http_client():
     _scheduler_http_client = None
 
 SCHEDULER_LOCK_PREFIX = "{sfc:scheduler}"
-
-RELEASE_LOCK_LUA_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-else
-    return 0
-end
-"""
-
-EXTEND_LOCK_LUA_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("pexpire", KEYS[1], tonumber(ARGV[2]))
-else
-    return 0
-end
-"""
-
-
-class SchedulerJobLock:
-    def __init__(
-        self, 
-        redis_client, 
-        lock_key: str, 
-        lease_segundos: int = 60, 
-        intervalo_heartbeat: int = 15
-    ):
-        self.redis = redis_client
-        self.lock_key = lock_key
-        self.lease_segundos = lease_segundos
-        self.intervalo_heartbeat = intervalo_heartbeat
-        self.owner_token = str(uuid.uuid4())
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self.acquired = False
-
-    async def acquire(self) -> bool:
-        if not self.redis:
-            return False
-        try:
-            res = await self.redis.set(
-                self.lock_key, 
-                self.owner_token, 
-                nx=True, 
-                ex=self.lease_segundos
-            )
-            self.acquired = bool(res)
-            if self.acquired:
-                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-                logger.debug(f"🔑 [Scheduler Lock] Candado '{self.lock_key}' adquirido por worker token: {self.owner_token}")
-            return self.acquired
-        except Exception as e:
-            logger.error(f"❌ Error al adquirir lock distribuido '{self.lock_key}': {e}")
-            return False
-
-    async def _heartbeat_loop(self):
-        lease_ms = str(self.lease_segundos * 1000)
-        while self.acquired:
-            await asyncio.sleep(self.intervalo_heartbeat)
-            try:
-                res = await self.redis.eval(
-                    EXTEND_LOCK_LUA_SCRIPT,
-                    1,
-                    self.lock_key,
-                    self.owner_token,
-                    lease_ms
-                )
-                if res != 1:
-                    logger.warning(
-                        f"⚠️ [Scheduler Lock] No se pudo extender el lock '{self.lock_key}'. "
-                        f"El candado expiró o pertenece a otro worker."
-                    )
-                    break
-                logger.debug(f"🔄 [Scheduler Lock] Heartbeat: Lock '{self.lock_key}' renovado exitosamente.")
-            except Exception as e:
-                logger.error(f"❌ Error renovando lock '{self.lock_key}': {e}")
-
-    async def release(self):
-        if not self.acquired:
-            return
-        self.acquired = False
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            try:
-                await self._heartbeat_task
-            except asyncio.CancelledError:
-                pass
-
-        if self.redis:
-            try:
-                await self.redis.eval(
-                    RELEASE_LOCK_LUA_SCRIPT,
-                    1,
-                    self.lock_key,
-                    self.owner_token
-                )
-                logger.debug(f"🔓 [Scheduler Lock] Lock '{self.lock_key}' liberado limpiamente (CAD).")
-            except Exception as e:
-                logger.error(f"❌ Error al liberar lock '{self.lock_key}': {e}")
-
-    async def __aenter__(self):
-        await self.acquire()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.release()
 
 
 class QueueLockWatchdog:
@@ -641,7 +538,7 @@ async def reintentar_despachos_pendientes_job():
         return
 
     lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:retry_job"
-    job_lock = SchedulerJobLock(
+    job_lock = RedisLock(
         redis_client=redis,
         lock_key=lock_key,
         lease_segundos=60,
@@ -725,7 +622,7 @@ async def purgar_cola_job():
         return
 
     lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:purge_job"
-    job_lock = SchedulerJobLock(
+    job_lock = RedisLock(
         redis_client=redis,
         lock_key=lock_key,
         lease_segundos=300,
@@ -761,7 +658,7 @@ async def refrescar_catalogos_job():
         return
 
     lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:refrescar_catalogos_job"
-    job_lock = SchedulerJobLock(
+    job_lock = RedisLock(
         redis_client=redis,
         lock_key=lock_key,
         lease_segundos=60,

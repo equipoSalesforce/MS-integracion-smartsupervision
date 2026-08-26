@@ -16,8 +16,8 @@ from app.workers.scheduler import (
     refrescar_catalogos_job,
     iniciar_scheduler,
     detener_scheduler,
-    SchedulerJobLock,
 )
+from app.core.distributed_lock import RedisLock
 from app.core.config import settings
 from app.core.mapping import SfcSalesforceMapper
 
@@ -58,21 +58,21 @@ class TestPurgarColaJob(unittest.IsolatedAsyncioTestCase):
 
     async def test_sin_redis_no_hace_nada(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=None), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock) as mock_acquire:
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock) as mock_acquire:
             await purgar_cola_job()
         mock_acquire.assert_not_called()
 
     async def test_lock_no_adquirido_no_ejecuta_la_purga(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=False), \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=False), \
              patch("app.services.queue_service.QueueService.purgar_registros_antiguos", new_callable=AsyncMock) as mock_purge:
             await purgar_cola_job()
         mock_purge.assert_not_called()
 
     async def test_ejecuta_la_purga_y_libera_el_lock(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
-             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(RedisLock, "release", new_callable=AsyncMock) as mock_release, \
              patch("app.services.queue_service.QueueService.purgar_registros_antiguos", new_callable=AsyncMock) as mock_purge:
             await purgar_cola_job()
         mock_purge.assert_awaited_once_with(
@@ -83,8 +83,8 @@ class TestPurgarColaJob(unittest.IsolatedAsyncioTestCase):
 
     async def test_libera_el_lock_incluso_si_la_purga_falla(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
-             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(RedisLock, "release", new_callable=AsyncMock) as mock_release, \
              patch(
                  "app.services.queue_service.QueueService.purgar_registros_antiguos",
                  new_callable=AsyncMock, side_effect=RuntimeError("redis caído a mitad de la purga")
@@ -104,21 +104,21 @@ class TestRefrescarCatalogosJob(unittest.IsolatedAsyncioTestCase):
 
     async def test_sin_redis_no_hace_nada(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=None), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock) as mock_acquire:
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock) as mock_acquire:
             await refrescar_catalogos_job()
         mock_acquire.assert_not_called()
 
     async def test_lock_no_adquirido_no_refresca(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=False), \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=False), \
              patch.object(SfcSalesforceMapper, "obtener_catalogos_y_mapeos", new_callable=AsyncMock) as mock_refresh:
             await refrescar_catalogos_job()
         mock_refresh.assert_not_called()
 
     async def test_refresca_y_libera_el_lock(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
-             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(RedisLock, "release", new_callable=AsyncMock) as mock_release, \
              patch.object(SfcSalesforceMapper, "obtener_catalogos_y_mapeos", new_callable=AsyncMock) as mock_refresh:
             await refrescar_catalogos_job()
         mock_refresh.assert_awaited_once_with()
@@ -126,8 +126,8 @@ class TestRefrescarCatalogosJob(unittest.IsolatedAsyncioTestCase):
 
     async def test_libera_el_lock_incluso_si_el_refresco_falla(self):
         with patch("app.workers.scheduler.get_redis_client", return_value=MagicMock()), \
-             patch.object(SchedulerJobLock, "acquire", new_callable=AsyncMock, return_value=True), \
-             patch.object(SchedulerJobLock, "release", new_callable=AsyncMock) as mock_release, \
+             patch.object(RedisLock, "acquire", new_callable=AsyncMock, return_value=True), \
+             patch.object(RedisLock, "release", new_callable=AsyncMock) as mock_release, \
              patch.object(
                  SfcSalesforceMapper, "obtener_catalogos_y_mapeos",
                  new_callable=AsyncMock, side_effect=RuntimeError("google sheets caído")

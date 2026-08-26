@@ -39,6 +39,34 @@ def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     ]
     return any(frase in raw_msg for frase in frases_ya_cerrada)
 
+
+def _resultado_exito_por_cierre_confirmado(smart_code: str) -> Dict[str, Any]:
+    return {
+        "status": "success",
+        "message": f"Caso {smart_code} ya se encuentra cerrado en la SFC (Estado 4).",
+        "codigo_queja_sfc": smart_code
+    }
+
+
+async def _ejecutar_paso_o_exito_si_ya_cerrado(coro, smart_code: str) -> Dict[str, Any]:
+    """
+    Ejecuta un paso de Momento 3 que debe tratar "la SFC ya tiene el caso cerrado"
+    como éxito idempotente en vez de propagar el rechazo -- compartido por el paso
+    de cierre y el de trámite (hallazgo E, revisión externa v5): sin serialización
+    por caso, cualquiera de los dos puede llegarle a la SFC después de que otro
+    request para el mismo Smart_Code__c ya cerró el caso.
+    """
+    try:
+        return await coro
+    except SfcIntegrationException as exc:
+        if _es_error_caso_ya_cerrado(exc):
+            logger.info(
+                f"✅ [Orquestador] El caso {smart_code} ya figuraba como cerrado en SFC. "
+                f"Marcando la operación como exitosa."
+            )
+            return _resultado_exito_por_cierre_confirmado(smart_code)
+        raise
+
 async def limpiar_checkpoint_si_cierre_exitoso(
     resultado: Dict[str, Any], smart_code: str, es_cierre: bool, limpiar_checkpoint_en_exito: bool = True
 ) -> Dict[str, Any]:
@@ -262,24 +290,14 @@ class DespachoQuejaOrquestador:
 
         if es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo CIERRE DEFINITIVO para {payload.Smart_Code__c}...")
-            try:
-                resultado = await self.m3_service.ejecutar_cierre_definitivo(payload=payload)
-            except SfcIntegrationException as exc:
-                # 🛡️ SI LA PROPIA LLAMADA DE CIERRE RECHAZA PORQUE YA FIGURA COMO CERRADO (ESTADO 4)
-                if _es_error_caso_ya_cerrado(exc):
-                    logger.info(
-                        f"✅ [Orquestador] El caso {payload.Smart_Code__c} ya figuraba como cerrado con respuesta final en SFC. "
-                        f"Marcando la operación como exitosa."
-                    )
-                    return {
-                        "status": "success",
-                        "message": f"Caso {payload.Smart_Code__c} ya se encuentra cerrado en la SFC (Estado 4).",
-                        "codigo_queja_sfc": payload.Smart_Code__c
-                    }
-                raise
+            resultado = await _ejecutar_paso_o_exito_si_ya_cerrado(
+                self.m3_service.ejecutar_cierre_definitivo(payload=payload), payload.Smart_Code__c
+            )
 
         if not es_fraude and not es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo ACTUALIZACIÓN DE TRÁMITE para {payload.Smart_Code__c}...")
-            resultado = await self.m3_service.ejecutar_actualizacion_tramite(payload=payload)
+            resultado = await _ejecutar_paso_o_exito_si_ya_cerrado(
+                self.m3_service.ejecutar_actualizacion_tramite(payload=payload), payload.Smart_Code__c
+            )
 
         return resultado

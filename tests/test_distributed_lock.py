@@ -1,11 +1,18 @@
-# tests/test_scheduler_lock.py
+# tests/test_distributed_lock.py
+"""
+Migrado de test_scheduler_lock.py (hallazgo E, revisión externa v5, 2026-08-25):
+RedisLock se extrajo de scheduler.py::SchedulerJobLock a app/core/distributed_lock.py
+para que routes_quejas.py también lo use como lock por Smart_Code__c -- estos tests
+cubren el mecanismo genérico en sí (token de dueño, heartbeat, release CAD), no algo
+específico del scheduler.
+"""
 import asyncio
 import unittest
 from unittest.mock import AsyncMock
-from app.workers.scheduler import SchedulerJobLock, RELEASE_LOCK_LUA_SCRIPT, EXTEND_LOCK_LUA_SCRIPT
+from app.core.distributed_lock import RedisLock, RELEASE_LOCK_LUA_SCRIPT, EXTEND_LOCK_LUA_SCRIPT
 
 
-class TestSchedulerJobLock(unittest.IsolatedAsyncioTestCase):
+class TestRedisLock(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.redis_mock = AsyncMock()
@@ -14,7 +21,7 @@ class TestSchedulerJobLock(unittest.IsolatedAsyncioTestCase):
         """Verifica que al adquirir el lock se asigne un token único y se inicie la tarea de heartbeat."""
         self.redis_mock.set.return_value = True
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=self.redis_mock,
             lock_key="{sfc:scheduler}:lock:test_job",
             lease_segundos=10,
@@ -43,7 +50,7 @@ class TestSchedulerJobLock(unittest.IsolatedAsyncioTestCase):
         self.redis_mock.set.return_value = True
         self.redis_mock.eval.return_value = 1
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=self.redis_mock,
             lock_key="{sfc:scheduler}:lock:test_job",
             lease_segundos=10,
@@ -68,7 +75,7 @@ class TestSchedulerJobLock(unittest.IsolatedAsyncioTestCase):
         self.redis_mock.set.return_value = True
         self.redis_mock.eval.return_value = 1
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=self.redis_mock,
             lock_key="{sfc:scheduler}:lock:test_job",
             lease_segundos=2,

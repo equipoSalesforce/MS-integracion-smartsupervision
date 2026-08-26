@@ -25,6 +25,7 @@
 - [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
 - [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
+- [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -497,6 +498,40 @@ retrasa el próximo intento). El job corre en ambos procesos (API cuando
 `RUN_SCHEDULER` está activo, y worker) porque cada uno mantiene su propia
 copia de `CATALOGOS` en memoria de proceso.
 
+## Lock por caso en el despacho síncrono (hallazgo E)
+
+**Código:** `app/api/routes_quejas.py::despachar_queja_crm`, `app/core/distributed_lock.py::RedisLock`.
+
+La verificación de idempotencia (`IdempotencyService.verificar_o_iniciar_operacion`)
+deduplica por `smart_code:operacion:payload_hash` -- protege contra el mismo
+payload reenviado, pero **dos payloads distintos para el mismo `Smart_Code__c`**
+(ej. un trámite y un cierre que le llegan al endpoint casi al mismo tiempo)
+generan claves distintas y no se bloquean entre sí. Sin ninguna serialización de
+por medio, ambos podían llamar a la SFC en paralelo, sin ningún orden
+garantizado -- el mismo caso podía terminar en un estado distinto según cuál de
+los dos ganara la carrera de red.
+
+**Corregido (hallazgo E, revisión externa v5):** se agregó un lock distribuido
+por `Smart_Code__c` (`RedisLock`, el mismo mecanismo -- SETNX + heartbeat +
+release atómico vía Lua -- que ya protegía a los jobs periódicos del scheduler,
+extraído a `app/core/distributed_lock.py` para poder reutilizarlo aquí) alrededor
+de la llamada síncrona al orquestador. Si el lock ya está tomado por otra
+operación del mismo caso, el evento **se encola** en vez de competir --
+reutiliza la misma `_encolar_despacho_por_contingencia` que ya maneja el camino
+de contingencia (SFC caída/lenta), así que hereda toda su maquinaria ya
+endurecida: un slot por `smart_code`, sobrescritura por versión, y la
+cancelación consciente de categoría de operación del hallazgo N1.
+
+**De paso, se cerró una asimetría relacionada:** el paso de cierre y el de
+fraude ya trataban "la SFC dice que el caso ya está cerrado" como éxito
+idempotente (ver la sección de "caso ya cerrado" más arriba), pero el paso de
+**trámite simple** no tenía ese mismo tratamiento -- si un trámite perdía la
+carrera contra un cierre concurrente del mismo caso (o simplemente llegaba
+tarde sobre un caso ya cerrado), la SFC lo rechazaba y ese rechazo se propagaba
+al CRM como un error real, en vez de absorberse como no-op igual que los otros
+dos pasos. Ahora los tres pasos comparten el mismo helper
+(`_ejecutar_paso_o_exito_si_ya_cerrado` en `despacho_queja_orchestrator.py`).
+
 ## Referencias en el código
 
 | Concepto | Archivo |
@@ -521,3 +556,4 @@ copia de `CATALOGOS` en memoria de proceso.
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
 | Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
 | Refresco periódico de catálogos/mapeos | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job` |
+| Lock por caso en despacho síncrono + "ya cerrado" en trámite | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado` |

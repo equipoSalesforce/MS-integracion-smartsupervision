@@ -213,6 +213,20 @@ class _RoutesQuejasHttpTestCase(unittest.TestCase):
         # implementación real en vez de dejarlo como un MagicMock genérico.
         mock_idempotency_class.infer_operation_type = staticmethod(IdempotencyService.infer_operation_type)
 
+        # 🟢 Lock por caso (hallazgo E, revisión externa v5): igual que
+        # IdempotencyService arriba, se mockea para que estos tests -- que
+        # ejercitan otras rutas (métricas, códigos de error, limpieza post-éxito)
+        # -- no dependan de un Redis real sólo para adquirir el lock. Por defecto
+        # "adquirido"; TestDespachoLockPorCaso más abajo sobreescribe esto para
+        # probar específicamente el camino de lock ocupado.
+        self.redis_lock_mock = MagicMock()
+        self.redis_lock_mock.acquire = AsyncMock(return_value=True)
+        self.redis_lock_mock.release = AsyncMock()
+        self.redis_lock_patcher = patch(
+            "app.api.routes_quejas.RedisLock", return_value=self.redis_lock_mock
+        )
+        self.redis_lock_patcher.start()
+
         self.client = TestClient(app)
         self.client.headers.update({"X-API-Key": settings.CRM_API_KEY})
 
@@ -246,6 +260,7 @@ class _RoutesQuejasHttpTestCase(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
         self.idempotency_service_patcher.stop()
+        self.redis_lock_patcher.stop()
 
 
 class TestDespachoIdempotenteHit(_RoutesQuejasHttpTestCase):
@@ -365,6 +380,85 @@ class TestMetricaEmfDespacho(_RoutesQuejasHttpTestCase):
         self.assertEqual(response.status_code, 200)
         mock_emit.assert_called_once()
         self.assertEqual(mock_emit.call_args.kwargs["dimensions"]["resultado"], "success")
+
+
+class TestDespachoLockPorCaso(_RoutesQuejasHttpTestCase):
+    """
+    Hallazgo E (revisión externa v5): la idempotencia es por smart_code+operacion+
+    hash, así que dos payloads DISTINTOS para el mismo Smart_Code__c (ej. un
+    trámite y un cierre concurrentes) no se bloqueaban entre sí y llegaban a la
+    SFC en paralelo, sin orden garantizado. Se agrega un lock por caso alrededor
+    del despacho síncrono; si está ocupado, el evento se encola en vez de competir.
+    """
+
+    def test_lock_ocupado_encola_en_vez_de_despachar(self):
+        self.redis_lock_mock.acquire = AsyncMock(return_value=False)
+
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(
+                return_value=MagicMock(id=1, es_duplicado=False)
+            )
+            self.idempotency_service_mock.registrar_encolado = AsyncMock()
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 202)
+        mock_orq_cls.return_value.procesar_despacho.assert_not_called()
+        mock_queue_cls.return_value.encolar_despacho.assert_awaited_once()
+
+    def test_lock_ocupado_emite_metrica_queued_con_categoria_concurrent_dispatch_locked(self):
+        self.redis_lock_mock.acquire = AsyncMock(return_value=False)
+
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls, \
+             patch("app.api.routes_quejas.emit_emf_metric") as mock_emit:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(
+                return_value=MagicMock(id=1, es_duplicado=False)
+            )
+            self.idempotency_service_mock.registrar_encolado = AsyncMock()
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 202)
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["dimensions"]["resultado"], "queued")
+        self.assertEqual(kwargs["dimensions"]["categoria_error"], "CONCURRENT_DISPATCH_LOCKED")
+
+    def test_lock_se_libera_tras_despacho_exitoso(self):
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.redis_lock_mock.release.assert_awaited_once()
+
+    def test_lock_se_libera_incluso_si_el_despacho_falla(self):
+        from app.core.exceptions import SfcIntegrationException
+
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(
+                side_effect=SfcIntegrationException(
+                    400, "BUSINESS_RULE_ERROR", None, "Rechazo de negocio real", "Corrija el payload"
+                )
+            )
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.redis_lock_mock.release.assert_awaited_once()
+
+    def test_lock_no_ocupado_no_encola_y_procede_normal(self):
+        with patch("app.api.routes_quejas.DespachoQuejaOrquestador") as mock_orq_cls, \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_orq_cls.return_value.procesar_despacho = AsyncMock(return_value={"status": "success"})
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_queue_cls.return_value.encolar_despacho.assert_not_called()
+        self.redis_lock_mock.acquire.assert_awaited_once()
 
 
 class TestDespachoErrorDeOrquestacion(_RoutesQuejasHttpTestCase):

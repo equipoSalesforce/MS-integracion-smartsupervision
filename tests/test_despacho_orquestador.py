@@ -430,6 +430,56 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await self.orquestador.procesar_despacho(payload)
 
+    async def test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_exito(self):
+        """
+        Hallazgo E (revisión externa v5): sin serialización por caso, un trámite
+        simple puede llegarle a la SFC después de que otro request para el mismo
+        Smart_Code__c ya cerró el caso (una carrera entre dos requests, o
+        simplemente un trámite tardío). Antes esto propagaba el rechazo de la SFC
+        como error real al CRM -- a diferencia de cierre y fraude, que ya
+        absorbían este mismo escenario como éxito idempotente.
+        """
+        tramite_dict = self.base_payload_dict.copy()
+        tramite_dict.update({
+            "Status": "In Progress",
+            "sc_genero__c": "Masculino"
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
+
+        exc_ya_cerrada = SfcIntegrationException(
+            400, "BUSINESS_RULE_ERROR", None,
+            "La queja se encuentra con estado cerrado y no admite nuevas actualizaciones",
+            "No reenviar"
+        )
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite.side_effect = exc_ya_cerrada
+
+        resultado = await self.orquestador.procesar_despacho(payload)
+
+        self.assertEqual(resultado["status"], "success")
+        self.assertIn("ya se encuentra cerrado", resultado["message"])
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite.assert_called_once()
+
+    async def test_12c_tramite_con_mensaje_sfc_no_mapeado_no_se_absorbe(self):
+        """Misma contraprueba que test_12 pero para el paso de trámite: un rechazo
+        de "ya cerrado" con una redacción que no coincide con las frases curadas
+        se sigue propagando como error real."""
+        tramite_dict = self.base_payload_dict.copy()
+        tramite_dict.update({
+            "Status": "In Progress",
+            "sc_genero__c": "Masculino"
+        })
+        payload = QuejaUnificadaCrmInput.model_validate(tramite_dict)
+
+        exc_no_mapeada = SfcIntegrationException(
+            409, "CONFLICT", None,
+            "Esta operación no puede completarse porque el caso ya fue finalizado previamente",
+            "Revisar estado del caso"
+        )
+        self.orquestador.m3_service.ejecutar_actualizacion_tramite.side_effect = exc_no_mapeada
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.orquestador.procesar_despacho(payload)
+
     async def test_13_procesar_despacho_raw_json_rehidrata_y_despacha(self):
         """procesar_despacho_raw_json es el punto de entrada que usa el scheduler al
         reintentar un item de la cola Redis (dict crudo, no un QuejaUnificadaCrmInput)."""

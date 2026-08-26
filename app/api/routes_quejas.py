@@ -26,6 +26,7 @@ from app.schemas.crm_payloads import (
     ConfirmacionAckInput
 )
 from app.services.idempotency_service import IdempotencyService
+from app.core.distributed_lock import RedisLock
 
 from app.db.redis import get_redis_client, ping_redis
 from app.services.queue_service import QueueService
@@ -34,6 +35,8 @@ from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+DESPACHO_LOCK_PREFIX = "{sfc:despacho}"
 
 
 def _emitir_metrica_despacho(operacion_inferida: str, resultado: str, categoria_error: str = "N/A") -> None:
@@ -353,6 +356,31 @@ async def despachar_queja_crm(
     # 🟢 Bandera de control para evitar liberar idempotencia si la operación culmina o se encola correctamente
     operacion_exitosa_o_encolada = False
 
+    # 2. 🔒 LOCK POR CASO (hallazgo E, revisión externa v5): la verificación de
+    # idempotencia de arriba es por smart_code+operacion+hash -- dos payloads
+    # DISTINTOS para el mismo Smart_Code__c (ej. un trámite y un cierre concurrentes)
+    # no se bloquean entre sí y llegarían a la SFC en paralelo, sin ningún orden
+    # garantizado. Este lock serializa el despacho síncrono por caso; si ya hay una
+    # operación en vuelo para este smart_code, este evento se encola en vez de
+    # competir por la SFC -- reutiliza la misma cola de contingencia que ya maneja
+    # correctamente el orden (un slot por smart_code, sobrescritura por versión,
+    # cancelación consciente de la categoría de operación, ver hallazgo N1).
+    despacho_lock = RedisLock(
+        redis_client=redis_client,
+        lock_key=f"{DESPACHO_LOCK_PREFIX}:lock:{payload.Smart_Code__c}",
+        lease_segundos=180,
+        intervalo_heartbeat=45
+    )
+
+    if not await despacho_lock.acquire():
+        respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
+            payload, raw_payload, idempotency_service,
+            error_origen_titulo="Despacho concurrente para el mismo caso",
+            error_detalle=f"Ya hay otra operación en curso para el Smart_Code__c {payload.Smart_Code__c}."
+        )
+        _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error="CONCURRENT_DISPATCH_LOCKED")
+        return respuesta
+
     try:
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
         # 🟢 FIX P1-13: el candado PROCESSING de idempotencia tenía un TTL fijo de 3
@@ -458,6 +486,11 @@ async def despachar_queja_crm(
         return respuesta
 
     finally:
+        # 🔓 Libera el lock por caso adquirido arriba, sin importar cómo haya terminado
+        # el despacho -- de lo contrario un caso quedaría bloqueado hasta que expire el
+        # lease (180s) tras cualquier error no contemplado explícitamente más arriba.
+        await despacho_lock.release()
+
         # 🛡️ GARANTÍA DE LIBERACIÓN: Si la operación no se completó exitosamente ni fue encolada
         # (por un error 400 de validación de la SFC o cualquier excepción de Pydantic/Python),
         # libera la llave de idempotencia en Redis inmediatamente.

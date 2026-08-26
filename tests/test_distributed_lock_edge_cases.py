@@ -1,25 +1,29 @@
-# tests/test_scheduler_lock_edge_cases.py
+# tests/test_distributed_lock_edge_cases.py
 """
-Cobertura de ramas de SchedulerJobLock no cubiertas por test_scheduler_lock.py:
-el heartbeat detectando que perdió el lock, su manejo de errores de Redis,
-release() como no-op si nunca se adquirió, el error al liberar, y el uso
-como context manager async (__aenter__/__aexit__).
+Migrado de test_scheduler_lock_edge_cases.py (hallazgo E, revisión externa v5,
+2026-08-25): RedisLock se extrajo a app/core/distributed_lock.py -- ver
+test_distributed_lock.py para el contexto completo de la migración.
+
+Cobertura de ramas de RedisLock no cubiertas por test_distributed_lock.py: el
+heartbeat detectando que perdió el lock, su manejo de errores de Redis, release()
+como no-op si nunca se adquirió, el error al liberar, y el uso como context
+manager async (__aenter__/__aexit__).
 """
 import asyncio
 import unittest
 from unittest.mock import AsyncMock
 
-from app.workers.scheduler import SchedulerJobLock
+from app.core.distributed_lock import RedisLock
 
 
-class TestSchedulerJobLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
+class TestRedisLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
 
     async def test_heartbeat_detecta_perdida_del_lock_y_deja_de_estar_acquired(self):
         redis_mock = AsyncMock()
         redis_mock.set.return_value = True
         redis_mock.eval.return_value = 0  # El script CAD no encontró el owner_token esperado.
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=0.01
         )
         await lock.acquire()
@@ -34,7 +38,7 @@ class TestSchedulerJobLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
         redis_mock.set.return_value = True
         redis_mock.eval.side_effect = ConnectionError("redis caido")
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=0.01
         )
         await lock.acquire()
@@ -45,11 +49,11 @@ class TestSchedulerJobLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
         await lock.release()
 
 
-class TestSchedulerJobLockRelease(unittest.IsolatedAsyncioTestCase):
+class TestRedisLockRelease(unittest.IsolatedAsyncioTestCase):
 
     async def test_release_sin_haber_adquirido_es_no_op(self):
         redis_mock = AsyncMock()
-        lock = SchedulerJobLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test")
+        lock = RedisLock(redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test")
 
         await lock.release()  # No debe lanzar ni llamar a Redis.
 
@@ -60,7 +64,7 @@ class TestSchedulerJobLockRelease(unittest.IsolatedAsyncioTestCase):
         redis_mock.set.return_value = True
         redis_mock.eval.side_effect = ConnectionError("redis caido")
 
-        lock = SchedulerJobLock(
+        lock = RedisLock(
             redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=10
         )
         await lock.acquire()
@@ -70,14 +74,14 @@ class TestSchedulerJobLockRelease(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(lock.acquired)
 
 
-class TestSchedulerJobLockContextManager(unittest.IsolatedAsyncioTestCase):
+class TestRedisLockContextManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_async_with_adquiere_y_libera_automaticamente(self):
         redis_mock = AsyncMock()
         redis_mock.set.return_value = True
         redis_mock.eval.return_value = 1
 
-        async with SchedulerJobLock(
+        async with RedisLock(
             redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=10
         ) as lock:
             self.assertTrue(lock.acquired)
