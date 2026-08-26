@@ -106,6 +106,33 @@ class TestEncolarRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(exc.status_code, 409)
         self.assertEqual(exc.error_type, "QUEUE_OPERATION_CONFLICT")
 
+    async def test_conflicto_alerta_con_la_funcion_correcta_no_la_de_sfc_caida(self):
+        """
+        🔴 FIX (autoauditoría de la sesión, 2026-08-26): la primera versión de este
+        fix reutilizaba notificar_falla_infraestructura -- su asunto/cuerpo están
+        hardcodeados en torno a "SFC Caída" y "Acción Tomada: Caso encolado", ambos
+        falsos aquí (no es una falla de infraestructura, y el caso justamente NO se
+        encoló). Debe usarse notificar_conflicto_operacion_cola en su lugar.
+        """
+        from unittest.mock import patch, AsyncMock
+        from app.services.email_service import EmailAlertService
+
+        await self.queue_service.encolar_despacho(
+            smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
+            payload_json=self.payload_fraude, error_inicial="sfc caida"
+        )
+
+        with patch.object(EmailAlertService, "notificar_conflicto_operacion_cola", new_callable=AsyncMock) as mock_correcta, \
+             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_incorrecta:
+            with self.assertRaises(SfcIntegrationException):
+                await self.queue_service.encolar_despacho(
+                    smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
+                    payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
+                )
+
+        mock_correcta.assert_awaited_once()
+        mock_incorrecta.assert_not_awaited()
+
     async def test_operacion_distinta_preserva_el_contenido_de_fraude(self):
         item = await self.queue_service.encolar_despacho(
             smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",

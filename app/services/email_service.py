@@ -539,3 +539,61 @@ class EmailAlertService:
             cuerpo_html=cuerpo_html,
             clave_dedup=f"catalogo_stale:{nombre_componente}"
         )
+
+    # =========================================================================
+    # ⚠️ 8. NOTIFICACIÓN DE CONFLICTO DE OPERACIÓN EN COLA
+    # =========================================================================
+    @classmethod
+    async def notificar_conflicto_operacion_cola(
+        cls,
+        smart_code: str,
+        operacion_actual: str,
+        operacion_pendiente: str,
+        correlation_id: Optional[str] = None,
+        ambiente: str = settings.ENVIRONMENT
+    ):
+        """
+        🔴 FIX (autoauditoría de la sesión, 2026-08-26): QueueService.encolar_
+        despacho reutilizaba notificar_falla_infraestructura para este caso -- pero
+        su asunto/cuerpo están hardcodeados en torno a "SFC Caída" y "Acción
+        Tomada: Caso encolado automáticamente", ambos FALSOS aquí: un conflicto de
+        operación no tiene nada que ver con que la SFC o Redis estén caídos, y el
+        caso justamente NO se encoló (se rechazó). Mandar esa plantilla habría
+        confundido a operaciones investigando una alerta que dice "SFC caída"
+        cuando el problema real es que dos categorías de operación (ej. fraude y
+        trámite) compiten por el mismo slot de cola del caso.
+        """
+        if not settings.ALERT_EMAILS_ENABLED:
+            return
+
+        cid = correlation_id or get_correlation_id() or "N/A"
+        asunto = f"⚠️ [CONFLICTO DE COLA] Caso: {smart_code} | CID: {cid} [{ambiente.upper()}]"
+
+        cuerpo_html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <div style="background-color: #f0ad4e; color: white; padding: 15px; border-radius: 5px;">
+                    <h2 style="margin:0;">⚠️ Conflicto de Categoría de Operación en Cola</h2>
+                </div>
+                <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+                    <p>Ya existe una operación pendiente de <strong>otra categoría</strong> en la cola de contingencia para este mismo caso -- la operación entrante NO se encoló, para no sobrescribir/perder la que ya está pendiente.</p>
+                    <ul>
+                        <li><strong>Ambiente:</strong> {_esc(ambiente.upper())}</li>
+                        <li><strong>Correlation ID (CID):</strong> <strong style="color: #0275d8;"><code>{_esc(cid)}</code></strong></li>
+                        <li><strong>Smart Code Afectado:</strong> <code>{_esc(smart_code)}</code></li>
+                        <li><strong>Operación ya pendiente en cola:</strong> <code>{_esc(operacion_pendiente)}</code></li>
+                        <li><strong>Operación rechazada (no encolada):</strong> <code>{_esc(operacion_actual)}</code></li>
+                        <li><strong>Acción requerida:</strong> El CRM debe reintentar la operación rechazada una vez se procese la pendiente.</li>
+                    </ul>
+                    <p style="font-size: 12px; color: #777;">Mensaje automático de alerta. Use el Correlation ID para rastrear los logs en CloudWatch.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        cls._programar_envio_background(
+            destinatarios=cls._obtener_destinatarios(),
+            asunto=asunto,
+            cuerpo_html=cuerpo_html,
+            clave_dedup=f"conflicto_operacion_cola:{smart_code}"
+        )

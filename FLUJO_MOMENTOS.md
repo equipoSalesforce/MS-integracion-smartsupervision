@@ -366,6 +366,20 @@ sobrescritura, para no romper items ya en vuelo al desplegar el cambio -- mismo 
 `app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, y
 `tests/test_queue_encolar_respeta_categoria_de_operacion.py`.
 
+**Autocorrección el mismo día (auditoría de los propios fixes):** la primera versión de este fix
+reutilizaba `EmailAlertService.notificar_falla_infraestructura` para alertar el conflicto -- pero
+esa función tiene el asunto y el cuerpo **hardcodeados** en torno a "SFC Caída" y "Acción Tomada:
+Caso encolado automáticamente", ambos **falsos** aquí: un conflicto de operación no tiene relación
+alguna con que la SFC o Redis estén caídos, y el caso justamente **no** se encoló (se rechazó).
+Operaciones investigando esa alerta habría visto "SFC caída" para un problema que en realidad era
+dos categorías de operación compitiendo por el mismo slot de cola. Se agregó
+`EmailAlertService.notificar_conflicto_operacion_cola`, con asunto/cuerpo que describen lo que
+realmente ocurrió, deduplicada por `smart_code` (a diferencia de las alertas de infraestructura,
+que son globales por categoría -- un conflicto de cola sí es específico de un caso). Ver
+`tests/test_email_service.py::test_conflicto_operacion_cola` y
+`tests/test_queue_encolar_respeta_categoria_de_operacion.py::
+test_conflicto_alerta_con_la_funcion_correcta_no_la_de_sfc_caida`.
+
 ---
 
 ## ¿Por qué la cascada de timeouts no llega hasta el ALB?

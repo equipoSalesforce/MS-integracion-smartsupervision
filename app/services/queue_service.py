@@ -877,14 +877,10 @@ class QueueService:
                     f"operación '{operacion_pendiente}' pendiente en cola, distinta de la "
                     f"entrante ('{operacion_actual}'). No se sobrescribe."
                 )
-                await EmailAlertService.notificar_falla_infraestructura(
+                await EmailAlertService.notificar_conflicto_operacion_cola(
                     smart_code=smart_code,
-                    error_msg=(
-                        f"Operación '{operacion_actual}' no se pudo encolar: ya existe una "
-                        f"operación pendiente '{operacion_pendiente}' distinta para este caso. "
-                        f"Reintente esta operación una vez se procese la pendiente."
-                    ),
-                    categoria="conflicto_operacion_cola"
+                    operacion_actual=operacion_actual,
+                    operacion_pendiente=operacion_pendiente
                 )
                 raise SfcIntegrationException(
                     status_code=409,
