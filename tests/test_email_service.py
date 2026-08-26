@@ -230,6 +230,54 @@ class TestDedupClaveVentana(unittest.TestCase):
             self.assertTrue(EmailAlertService._deberia_enviar("clave-x"))
 
 
+class TestDedupCotaDeTamano(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo N7, revisión externa v5, 2026-08-25): _ULTIMO_ENVIO_POR_CLAVE
+    no tenía cota -- la clave de notificar_error_no_mapeado incorpora sfc_field
+    (cardinalidad no controlada por este servicio, viene del JSON de error de la
+    SFC), así que podía crecer sin límite durante la vida del proceso.
+    """
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+
+    def test_purgar_entradas_expiradas_elimina_solo_las_vencidas(self):
+        with patch("app.services.email_service.time.monotonic", return_value=0.0):
+            EmailAlertService._deberia_enviar("vieja")
+        with patch(
+            "app.services.email_service.time.monotonic",
+            return_value=EmailAlertService.VENTANA_DEDUP_SEGUNDOS + 1
+        ):
+            EmailAlertService._deberia_enviar("nueva")
+            EmailAlertService._purgar_entradas_expiradas()
+
+        self.assertNotIn("vieja", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+        self.assertIn("nueva", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+
+    def test_no_crece_indefinidamente_mas_alla_del_cap(self):
+        with patch.object(EmailAlertService, "MAX_ENTRADAS_DEDUP", 5):
+            for i in range(50):
+                EmailAlertService._deberia_enviar(f"clave-{i}")
+
+            self.assertLessEqual(len(EmailAlertService._ULTIMO_ENVIO_POR_CLAVE), 5)
+
+    def test_al_superar_el_cap_sin_expiradas_descarta_la_entrada_mas_vieja(self):
+        with patch.object(EmailAlertService, "MAX_ENTRADAS_DEDUP", 3):
+            for i, ts in enumerate([100.0, 200.0, 300.0]):
+                with patch("app.services.email_service.time.monotonic", return_value=ts):
+                    EmailAlertService._deberia_enviar(f"clave-{i}")
+
+            # Las tres siguen vigentes (dentro de la ventana) -- no hay nada que
+            # purgar por expiración, así que debe caer la más antigua (clave-0).
+            with patch("app.services.email_service.time.monotonic", return_value=310.0):
+                EmailAlertService._deberia_enviar("clave-nueva")
+
+            self.assertNotIn("clave-0", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+            self.assertIn("clave-1", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+            self.assertIn("clave-2", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+            self.assertIn("clave-nueva", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+
+
 class TestProgramarEnvioBackgroundDedup(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):

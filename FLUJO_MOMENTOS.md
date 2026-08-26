@@ -368,17 +368,19 @@ escenario más común que dispara estas alertas): atar el propio alerting a la d
 sería introducir el mismo antipatrón que ya se corrigió en otras partes del sistema (ver la
 sección de "caída de infraestructura no debe amplificar el incidente").
 
-**Qué NO está cubierto por esta justificación** (issues reales, no decisiones de diseño): el
-diccionario no tiene cota de tamaño — la clave de `error_no_mapeado` incorpora `sfc_field`, cuya
-cardinalidad depende de las claves que la SFC use en su JSON de error, así que puede crecer sin
-límite durante la vida del proceso. Y la clave global `"falla_infraestructura"` es compartida por
-más de nueve call sites distintos (`notificar_falla_infraestructura` se invoca desde
-`routes_quejas.py`, `idempotency_service.py`, `momento_1_sync.py`, `momento_4_sync.py`,
-`queue_service.py`, `scheduler.py` y `worker.py`, cubriendo desde el fail-closed de Redis hasta la
-caída de la SFC en distintos Momentos y el healthcheck del worker) — durante la misma ventana de 15
-minutos, el primero en dispararse silencia a todos los demás, incluido el mensaje de "riesgo de
-duplicado" tras una persistencia post-SFC fallida, que es el más accionable de todos. Ambos son
-mejoras pendientes, no parte de esta justificación.
+**Qué NO está cubierto por esta justificación** (issue real, no decisión de diseño): la clave global
+`"falla_infraestructura"` es compartida por más de nueve call sites distintos
+(`notificar_falla_infraestructura` se invoca desde `routes_quejas.py`, `idempotency_service.py`,
+`momento_1_sync.py`, `momento_4_sync.py`, `queue_service.py`, `scheduler.py` y `worker.py`,
+cubriendo desde el fail-closed de Redis hasta la caída de la SFC en distintos Momentos y el
+healthcheck del worker) — durante la misma ventana de 15 minutos, el primero en dispararse silencia
+a todos los demás, incluido el mensaje de "riesgo de duplicado" tras una persistencia post-SFC
+fallida, que es el más accionable de todos. Es una mejora pendiente, no parte de esta justificación.
+
+**Ya corregido:** el diccionario sí llegó a no tener cota de tamaño (`error_no_mapeado` incorpora
+`sfc_field`, cuya cardinalidad depende de las claves que la SFC use en su JSON de error) — se
+resolvió con una purga best-effort de entradas expiradas más un tope duro
+(`MAX_ENTRADAS_DEDUP = 500`) en `_deberia_enviar` (hallazgo N7, revisión externa v5, 2026-08-25).
 
 ---
 

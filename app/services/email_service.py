@@ -42,6 +42,25 @@ class EmailAlertService:
     _ULTIMO_ENVIO_POR_CLAVE: Dict[str, float] = {}
     VENTANA_DEDUP_SEGUNDOS = 900  # 15 minutos
 
+    # 🔴 FIX (hallazgo N7, revisión externa v5, 2026-08-25): _ULTIMO_ENVIO_POR_CLAVE
+    # no tenía cota de tamaño -- la clave de notificar_error_no_mapeado incorpora
+    # sfc_field, que _extraer_informacion_error arma a partir de las claves del JSON
+    # de error de la SFC (cardinalidad no controlada por este servicio), así que el
+    # diccionario podía crecer sin límite durante toda la vida del proceso. Se acota
+    # con una purga best-effort: nunca bloquea ni pierde una alerta real, en el peor
+    # caso una clave poco común se re-envía antes de los 15 minutos ideales.
+    MAX_ENTRADAS_DEDUP = 500
+
+    @classmethod
+    def _purgar_entradas_expiradas(cls) -> None:
+        ahora = time.monotonic()
+        expiradas = [
+            clave for clave, ts in cls._ULTIMO_ENVIO_POR_CLAVE.items()
+            if (ahora - ts) >= cls.VENTANA_DEDUP_SEGUNDOS
+        ]
+        for clave in expiradas:
+            del cls._ULTIMO_ENVIO_POR_CLAVE[clave]
+
     @classmethod
     def _deberia_enviar(cls, clave_dedup: Optional[str]) -> bool:
         if clave_dedup is None:
@@ -50,6 +69,15 @@ class EmailAlertService:
         ultimo_envio = cls._ULTIMO_ENVIO_POR_CLAVE.get(clave_dedup)
         if ultimo_envio is not None and (ahora - ultimo_envio) < cls.VENTANA_DEDUP_SEGUNDOS:
             return False
+
+        if len(cls._ULTIMO_ENVIO_POR_CLAVE) >= cls.MAX_ENTRADAS_DEDUP:
+            cls._purgar_entradas_expiradas()
+            if len(cls._ULTIMO_ENVIO_POR_CLAVE) >= cls.MAX_ENTRADAS_DEDUP:
+                # Todavía por encima del cap tras purgar expiradas -- se descarta la
+                # entrada más antigua en vez de crecer sin límite.
+                clave_mas_vieja = min(cls._ULTIMO_ENVIO_POR_CLAVE, key=cls._ULTIMO_ENVIO_POR_CLAVE.get)
+                del cls._ULTIMO_ENVIO_POR_CLAVE[clave_mas_vieja]
+
         cls._ULTIMO_ENVIO_POR_CLAVE[clave_dedup] = ahora
         return True
 
