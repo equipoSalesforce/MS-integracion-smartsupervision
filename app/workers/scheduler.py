@@ -347,6 +347,21 @@ async def _ejecutar_paso_sfc(
     resultado_sfc = await orquestador.procesar_despacho_raw_json(payload_actual, limpiar_checkpoint_en_exito=False)
 
     if resultado_sfc.get("status") == "error":
+        # 🟡 REVISADO (hallazgo N6, revisión externa v5, 2026-08-25): el informe señala
+        # que esta clasificación usa sólo texto libre, a diferencia de los otros dos
+        # call sites de _es_falla_infraestructura (que sí pasan exc=). Se investigó la
+        # cadena completa de llamadas (procesar_despacho_raw_json -> procesar_despacho
+        # -> _ejecutar_pasos_momento_3 -> ejecutar_gestion_fraude/ejecutar_cierre_
+        # definitivo/ejecutar_actualizacion_tramite -> sfc_client/s3_service) y NINGÚN
+        # paso de ese camino construye hoy un dict {"status": "error", ...} -- todos
+        # los fallos reales se propagan como SfcIntegrationException (u otra excepción),
+        # que este método NO captura (no hay try/except propio acá) y que sube tal cual
+        # al try/except de _procesar_item_reclamado, el cual SÍ pasa exc=exc
+        # correctamente. Esta rama es defensiva contra un contrato de retorno que hoy no
+        # se ejerce -- no hay ningún exc real disponible en este punto para pasar. Si en
+        # el futuro algún paso de Momento 3 empieza a retornar un dict de error en vez de
+        # lanzar, esta clasificación por texto volvería a ser un riesgo real y ahí sí
+        # habría que estructurar el dict con un campo de error tipado.
         error_msg = resultado_sfc.get("message") or "Error en el despacho a la SFC"
         # 🟢 FIX P0-02: se pasa el item completo (no sólo el id) + worker_id
         # para que registrar_fallo valide ownership/versión atómicamente.

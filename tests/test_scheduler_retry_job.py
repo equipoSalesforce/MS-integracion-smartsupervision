@@ -83,6 +83,45 @@ class TestSchedulerRetryJobDecisions(unittest.IsolatedAsyncioTestCase):
             instance_qs.marcar_exitoso.assert_not_called()
             mock_alerta.assert_called_once()
 
+    async def test_dict_de_error_de_sfc_clasifica_por_subcadena_como_respaldo_defensivo(self):
+        """
+        🟡 REVISADO N6 (revisión externa v5, 2026-08-25): esta rama (resultado_sfc con
+        status='error') es defensiva -- hoy ningún paso real de Momento 2/3 retorna
+        ese dict, siempre lanzan (ver comentario en scheduler.py). Se simula igual,
+        forzando el mock de procesar_despacho_raw_json a devolver el dict en vez de
+        lanzar, para caracterizar que la clasificación por subcadena de respaldo sigue
+        funcionando sin romperse -- sin esto, un cambio futuro que reintroduzca ese
+        contrato de retorno podría pasar inadvertido sin ningún test que lo cubra.
+        """
+        reg = self._item_base()
+        redis_mock = AsyncMock()
+
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.workers.scheduler.get_redis_client", return_value=redis_mock), \
+             patch("app.workers.scheduler.get_sfc_client"), \
+             patch("app.workers.scheduler.get_s3_client"), \
+             patch("app.workers.scheduler.QueueService") as MockQueueService, \
+             patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrquestador:
+
+            instance_qs = MockQueueService.return_value
+            instance_qs.obtener_casos_vencidos_sla = AsyncMock(return_value=[])
+            instance_qs.obtener_pendientes_para_reintento = AsyncMock(return_value=[reg])
+            instance_qs.contar_pendientes = AsyncMock(return_value=1)
+            instance_qs.obtener_edad_item_mas_antiguo_pendiente = AsyncMock(return_value=30.0)
+            instance_qs.registrar_fallo = AsyncMock(return_value="failed")
+            instance_qs.reclamar_item_para_procesamiento = AsyncMock(return_value=reg)
+
+            instance_orq = MockOrquestador.return_value
+            instance_orq.procesar_despacho_raw_json = AsyncMock(
+                return_value={"status": "error", "message": "SFC no disponible (503 Service Unavailable)"}
+            )
+
+            await reintentar_despachos_pendientes_job()
+
+            instance_qs.registrar_fallo.assert_called_once_with(
+                item=reg, error_msg="SFC no disponible (503 Service Unavailable)", worker_id=ANY
+            )
+
     async def test_sfc_completado_sin_sfc_response_no_lanza_attributeerror(self):
         """
         🔴 FIX N5 (revisión externa v5, 2026-08-25): MARK_SFC_DONE_LUA_SCRIPT sólo
