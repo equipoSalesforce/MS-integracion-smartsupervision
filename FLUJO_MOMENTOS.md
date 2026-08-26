@@ -27,6 +27,7 @@
 - [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
+- [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (revisado, no corregido)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-revisado-no-corregido)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -602,6 +603,38 @@ engañoso. Corregido exigiendo `expected_version` igual que los demás scripts d
 transición; ahora recibe los items completos (`registros`, no sólo sus ids)
 para poder validarla.
 
+## ¿Por qué la firma HMAC no es byte-exacta sobre el body real? (revisado, no corregido)
+
+**Código:** `app/core/security/signatures.py::PayloadSignatureStrategy`,
+`app/core/auth.py::_preparar_headers_y_firma`.
+
+`sfc_client.py` construye todas sus peticiones con `client.post(url, json=payload,
+...)`, y httpx serializa ese `json=` con separadores **compactos** (`,`/`:`, sin
+espacios). Pero la firma que va en `X-SFC-Signature` no se calcula sobre esos bytes
+compactos: `_preparar_headers_y_firma` decodifica `request.content` con `json.loads`
+y se lo pasa a `PayloadSignatureStrategy.sign()`, que vuelve a serializar con los
+separadores **por defecto** de Python (con espacios). El HMAC firma esa
+re-serialización, no el body que efectivamente sale por la red -- confirmado
+empíricamente (ver `tests/test_auth_flow_interceptor.py::
+test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado`).
+
+**Por qué no se "corrigió" para que coincida con los bytes reales:** el sistema
+funciona en producción hoy con este comportamiento, lo que sólo se explica si el
+lado de la SFC también normaliza/re-serializa el body antes de comparar la firma
+(en vez de comparar HMACs byte-exactos sobre lo que recibió crudo) -- una suposición
+razonable dado que el sistema funciona, pero no verificable desde este repositorio.
+Cambiar los separadores de `PayloadSignatureStrategy` para que coincidan con los de
+httpx parecería una corrección obvia sin este contexto, y podría romper en silencio
+la integración real si la verificación del lado de la SFC depende de la
+re-serialización actual.
+
+**Qué haría falta para cerrar esto de verdad:** confirmar con el equipo dueño de la
+integración de la SFC (o con su documentación de firma) cómo verifican exactamente
+el HMAC -- si normalizan el JSON antes de comparar (en cuyo caso este comportamiento
+es intencional y debería quedar explícito, no accidental) o si son byte-exactos (en
+cuyo caso este es un bug real que hoy "funciona" por una razón distinta que no se ha
+identificado, y ameritaría investigación adicional antes de cualquier cambio).
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                               |
@@ -631,4 +664,5 @@ para poder validarla.
 | Lock por caso también en el worker de reintentos                                                        | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX` |
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                       | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm` |
 | Version esperada en el diferimiento por caída de SFC                                                    | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT` |
+| Firma HMAC no byte-exacta sobre el body real (revisado, no corregido)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `app/core/auth.py::_preparar_headers_y_firma`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
 | Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |
