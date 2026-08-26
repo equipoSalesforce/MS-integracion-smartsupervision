@@ -75,9 +75,22 @@ async def _iniciar_recursos_globales(app: FastAPI) -> None:
         logger.critical(f"🔥 Fallo crítico al precargar catálogos/errores en RAM: {str(e)}")
         raise
 
+    # 🔴 FIX (hallazgo de revisión, 2026-08-26): a diferencia del scheduler (jobs de
+    # reintento/purga, que deliberadamente sólo corren en el worker vía RUN_SCHEDULER
+    # -- ver arriba), el refresco de catálogos NO debe condicionarse a eso: cada
+    # réplica de esta API mantiene su PROPIA copia de CATALOGOS en RAM, y sin esto
+    # quedaba congelada en lo que cargó al arrancar para siempre (hallazgo C1 nunca
+    # llegaba realmente a la API en producción -- ver FLUJO_MOMENTOS.md).
+    await SfcSalesforceMapper.iniciar_refresco_periodico(http_client=app.state.http_client)
+
 
 async def _detener_recursos_globales(app: FastAPI) -> None:
     logger.info("🛑 Deteniendo servicios para apagado seguro...")
+
+    try:
+        await SfcSalesforceMapper.detener_refresco_periodico()
+    except Exception as e:
+        logger.error(f"Error al detener el refresco periódico de catálogos: {e}")
 
     try:
         await detener_scheduler()

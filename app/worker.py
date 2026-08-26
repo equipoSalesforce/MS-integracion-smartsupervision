@@ -130,6 +130,12 @@ async def run_worker_process():
     settings.RUN_SCHEDULER = True
     iniciar_scheduler()
 
+    # 🔴 FIX (hallazgo de revisión, 2026-08-26): igual que en app/main.py -- el
+    # refresco periódico de catálogos ya no vive dentro del scheduler (RUN_SCHEDULER),
+    # se arranca aparte para que cada proceso (API y worker) mantenga su propia copia
+    # de CATALOGOS en RAM al día, sin depender de ganar un lock cross-proceso.
+    await SfcSalesforceMapper.iniciar_refresco_periodico()
+
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -167,6 +173,7 @@ async def run_worker_process():
         except asyncio.CancelledError:
             pass
 
+        await SfcSalesforceMapper.detener_refresco_periodico()
         await detener_scheduler()
         # 🟢 FIX P1-07: el worker no esperaba las alertas de correo en vuelo antes de
         # cerrar — a diferencia de app/main.py, que sí lo hace en su lifespan. Un

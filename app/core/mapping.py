@@ -299,6 +299,56 @@ class SfcSalesforceMapper:
             # éxito genuino.
             cls.ULTIMA_ACTUALIZACION = ahora
 
+    # 🔴 FIX (hallazgo de revisión, 2026-08-26): refrescar_catalogos_job (antes en
+    # scheduler.py) sólo corría en el proceso con RUN_SCHEDULER activo -- en
+    # producción, únicamente el worker (scripts/render_task_def.py fija
+    # RUN_SCHEDULER="False" incondicionalmente para el servicio API, sin importar
+    # ninguna variable de entorno). Los catálogos en RAM de cada réplica de la API
+    # quedaban congelados en lo que cargó al arrancar, sin refresco nunca más,
+    # mientras el worker sí refrescaba cada CACHE_TTL_SEGUNDOS -- exactamente la
+    # divergencia que el hallazgo C1 debía cerrar, pero nunca llegó a la API real.
+    #
+    # Este refresco es deliberadamente INDEPENDIENTE del scheduler/RUN_SCHEDULER y
+    # SIN lock distribuido cross-proceso: CATALOGOS es un atributo de clase que vive
+    # en la memoria de CADA proceso por separado (no hay un solo "CATALOGOS" global
+    # compartido) -- cada proceso (cada réplica de la API, y el worker) necesita
+    # refrescar el suyo propio. Un lock de single-flight cross-proceso (como el que
+    # sí tiene sentido para reintentar_despachos_pendientes_job, que muta estado
+    # REALMENTE compartido en Redis) dejaría a todos los procesos MENOS el que gana
+    # el lock sin refrescar nunca -- exactamente el bug que este fix corrige, no algo
+    # a repetir aquí. `obtener_catalogos_y_mapeos` ya tiene su propia protección
+    # process-local (TTL fast-path + asyncio.Lock single-flight) contra llamadas
+    # redundantes DENTRO de un mismo proceso; eso es suficiente.
+    _refresh_task: Optional[asyncio.Task] = None
+
+    @classmethod
+    async def iniciar_refresco_periodico(cls, http_client: Optional[httpx.AsyncClient] = None) -> None:
+        """Arranca el loop de refresco periódico en segundo plano. Llamar una vez por
+        proceso, en el arranque (main.py/worker.py), sin condicionarlo a RUN_SCHEDULER."""
+        if cls._refresh_task is not None and not cls._refresh_task.done():
+            return
+        cls._refresh_task = asyncio.create_task(cls._loop_refresco_periodico(http_client))
+
+    @classmethod
+    async def _loop_refresco_periodico(cls, http_client: Optional[httpx.AsyncClient] = None) -> None:
+        while True:
+            await asyncio.sleep(cls.CACHE_TTL_SEGUNDOS)
+            try:
+                await cls.obtener_catalogos_y_mapeos(http_client=http_client)
+            except Exception as e:
+                logger.warning(f"⚠️ [SfcSalesforceMapper] Error en el loop de refresco periódico de catálogos: {e}")
+
+    @classmethod
+    async def detener_refresco_periodico(cls) -> None:
+        if cls._refresh_task is None:
+            return
+        cls._refresh_task.cancel()
+        try:
+            await cls._refresh_task
+        except asyncio.CancelledError:
+            pass
+        cls._refresh_task = None
+
     @classmethod
     def _construir_indices_inversos(cls):
         """

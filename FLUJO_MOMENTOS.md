@@ -24,7 +24,7 @@
 - [¿Por qué la cascada de timeouts no llega hasta el ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-el-alb)
 - [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
-- [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
+- [Refresco periódico de catálogos/mapeos (hallazgo C1, corregido de nuevo)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1-corregido-de-nuevo)
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
@@ -538,7 +538,7 @@ microservicio.
 
 ---
 
-## Refresco periódico de catálogos/mapeos (hallazgo C1)
+## Refresco periódico de catálogos/mapeos (hallazgo C1, corregido de nuevo)
 
 `SfcSalesforceMapper.obtener_catalogos_y_mapeos()` sincroniza contra Google
 Sheets los catálogos/mapeos que usan tanto la validación de payloads
@@ -553,12 +553,39 @@ reflejaba hasta el siguiente despliegue/reinicio del contenedor.
 `refrescar_catalogos_job`, un job periódico de APScheduler (mismo intervalo
 que `CACHE_TTL_SEGUNDOS`, con el mismo patrón de lock de Redis que
 `purgar_cola_job`) que simplemente vuelve a invocar
-`obtener_catalogos_y_mapeos()`. No hace falta lógica nueva de refresco: el
-fast-path interno de ese método ya hace que una llamada con caché fresca sea
-barata, y una falla de red ahí no borra el catálogo ya cargado en RAM (sólo
-retrasa el próximo intento). El job corre en ambos procesos (API cuando
-`RUN_SCHEDULER` está activo, y worker) porque cada uno mantiene su propia
-copia de `CATALOGOS` en memoria de proceso.
+`obtener_catalogos_y_mapeos()`.
+
+**Esa primera corrección nunca llegó realmente a la API en producción
+(hallazgo de revisión, 2026-08-26):** el job vivía dentro de
+`iniciar_scheduler()`, que sólo se ejecuta cuando `RUN_SCHEDULER` está
+activo -- y `scripts/render_task_def.py` (el renderer real de la Task
+Definition de ECS) fija `run_scheduler = "False"` **incondicionalmente** para
+`service_type == "api"`, sin ninguna variable de entorno de por medio (ver
+línea ~116). En producción, el job **nunca corría en la API**, sólo en el
+worker (`worker.py` fuerza `settings.RUN_SCHEDULER = True` sin importar el
+env var). Peor aún: aunque se hubiera hecho correr el job en la API, su lock
+(`RedisLock` de un solo ganador global, igual que `purgar_cola_job`) habría
+dejado a todas las réplicas MENOS una sin refrescar -- `CATALOGOS` es un
+atributo de clase que vive en la memoria de **cada proceso por separado**, no
+un valor compartido; un lock de "un solo ganador en todo el fleet" es
+exactamente lo opuesto de lo que hace falta acá. El resultado real: los
+catálogos de cada réplica de la API quedaban congelados en lo que cargó al
+arrancar, indefinidamente, mientras el worker sí refrescaba cada 10 minutos
+-- la misma divergencia entre catálogos de API y worker que C1 debía cerrar,
+pero peor, porque ahora había un mecanismo que aparentaba estar resuelto.
+
+**Corregido de nuevo:** se retiró `refrescar_catalogos_job` del scheduler por
+completo -- el refresco periódico de catálogos ya no depende de
+`RUN_SCHEDULER` ni de ningún lock cross-proceso. Se agregó
+`SfcSalesforceMapper.iniciar_refresco_periodico()`/`detener_refresco_
+periodico()`, un loop de `asyncio.create_task` en segundo plano que cada
+proceso (cada réplica de la API vía `main.py`, y el worker vía `worker.py`)
+arranca **incondicionalmente** al iniciar y detiene ordenadamente al apagar
+-- sin ningún lock distribuido: la protección contra llamadas redundantes ya
+la da `obtener_catalogos_y_mapeos()` internamente (TTL fast-path +
+`asyncio.Lock` single-flight, pero **process-local**, que es exactamente el
+alcance correcto acá). Ver `app/core/mapping.py::iniciar_refresco_periodico`,
+`tests/test_mapping_refresco_periodico.py`.
 
 ## Lock por caso en el despacho síncrono (hallazgo E)
 
@@ -790,7 +817,7 @@ simplificada).
 | Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                                              |
 | Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)        | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                  |
 | Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                                                   |
-| Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                                                    |
+| Refresco periódico de catálogos/mapeos (por proceso, sin lock cross-proceso, corregido)                 | `app/core/mapping.py::SfcSalesforceMapper.iniciar_refresco_periodico`, `tests/test_mapping_refresco_periodico.py`                                                                                             |
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |
 | Lock por caso también en el worker de reintentos                                                         | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX`                                                                                    |
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                         | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm`                                                                                                                                                     |

@@ -17,7 +17,6 @@ from app.services.idempotency_service import IdempotencyService
 from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
 from app.core.exceptions import SfcIntegrationException
-from app.core.mapping import SfcSalesforceMapper
 from app.core.distributed_lock import RedisLock
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
@@ -714,37 +713,6 @@ async def purgar_cola_job():
         await job_lock.release()
 
 
-async def refrescar_catalogos_job():
-    """
-    🟢 FIX (hallazgo C1, revisión externa v5): obtener_catalogos_y_mapeos sólo se
-    llamaba una vez, al arrancar el proceso (main.py/worker.py) -- su propio TTL
-    (CACHE_TTL_SEGUNDOS) y single-flight lock nunca se volvían a ejercitar, así que
-    un cambio de catálogo en Google Sheets no se reflejaba hasta el próximo deploy.
-    Este job sólo dispara ese refresco periódicamente; el fast-path interno de
-    obtener_catalogos_y_mapeos hace que llamarlo con caché fresca sea un no-op
-    barato, y una falla de red ahí no borra el catálogo ya cargado en RAM.
-    """
-    redis = get_redis_client()
-    if not redis:
-        return
-
-    lock_key = f"{SCHEDULER_LOCK_PREFIX}:lock:refrescar_catalogos_job"
-    job_lock = RedisLock(
-        redis_client=redis,
-        lock_key=lock_key,
-        lease_segundos=60,
-        intervalo_heartbeat=15
-    )
-
-    if not await job_lock.acquire():
-        logger.debug("ℹ️ [Scheduler Job] Otro nodo worker ya está refrescando los catálogos.")
-        return
-
-    try:
-        await SfcSalesforceMapper.obtener_catalogos_y_mapeos()
-    finally:
-        await job_lock.release()
-
 
 def iniciar_scheduler():
     if settings.QUEUE_ENABLED and not scheduler.running:
@@ -777,21 +745,12 @@ def iniciar_scheduler():
             max_instances=1
         )
 
-        scheduler.add_job(
-            refrescar_catalogos_job,
-            trigger="interval",
-            seconds=SfcSalesforceMapper.CACHE_TTL_SEGUNDOS,
-            id="sfc_catalogos_refresh_job",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True
-        )
-
         scheduler.start()
         logger.info(
             f"🚀 APScheduler corriendo reintentos sobre Redis cada {settings.QUEUE_RETRY_INTERVAL_MINUTES}m, "
-            f"purga nocturna a las 00:00 hora Bogotá y refresco de catálogos cada "
-            f"{SfcSalesforceMapper.CACHE_TTL_SEGUNDOS}s."
+            f"purga nocturna a las 00:00 hora Bogotá. El refresco periódico de catálogos corre "
+            f"por separado (SfcSalesforceMapper.iniciar_refresco_periodico), independiente de "
+            f"RUN_SCHEDULER -- ver FLUJO_MOMENTOS.md."
         )
 
 
