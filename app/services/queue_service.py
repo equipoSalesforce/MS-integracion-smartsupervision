@@ -758,7 +758,8 @@ class QueueService:
                 logger.info(f"🚨 [QueueService Redis] Primer caso encolado ({smart_code}). Notificando caída de infraestructura.")
                 await EmailAlertService.notificar_falla_infraestructura(
                     smart_code=smart_code,
-                    error_msg=error_inicial
+                    error_msg=error_inicial,
+                    categoria="sfc_caida_contingencia"
                 )
 
             total_pendientes = pendientes_previos + 1

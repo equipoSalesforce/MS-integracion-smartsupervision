@@ -312,7 +312,8 @@ async def _ejecutar_paso_sfc(
         )
         await EmailAlertService.notificar_falla_infraestructura(
             smart_code=item.smart_code,
-            error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+            error_msg=f"Persistencia post-SFC fallida (riesgo de duplicado): {persist_err}",
+            categoria="riesgo_duplicado_post_sfc"
         )
         return False, resultado_sfc
 

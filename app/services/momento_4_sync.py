@@ -34,7 +34,8 @@ class UserSync:
                 f"Ciclo de paginación M4 cortado tras {pagina_actual - 1} página(s) "
                 f"({usuarios_acumulados} usuarios acumulados) por exceder el límite de "
                 f"páginas/tiempo configurado."
-            )
+            ),
+            categoria="paginacion_m4_cortada"
         )
         return True
 

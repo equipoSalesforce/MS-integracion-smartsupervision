@@ -124,15 +124,22 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
     async def test_deshabilitado_no_programa_envio(self):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", False), \
              patch.object(EmailAlertService, "_programar_envio_background") as mock_programar:
-            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-1", error_msg="timeout")
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-1", error_msg="timeout", categoria="sfc_caida_contingencia"
+            )
         mock_programar.assert_not_called()
 
     async def test_falla_infraestructura(self):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
              patch.object(EmailAlertService, "_programar_envio_background") as mock_programar:
-            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-1", error_msg="timeout SFC")
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-1", error_msg="timeout SFC", categoria="sfc_caida_contingencia"
+            )
         mock_programar.assert_called_once()
         self.assertIn("SC-1", mock_programar.call_args.kwargs["asunto"])
+        self.assertEqual(
+            mock_programar.call_args.kwargs["clave_dedup"], "falla_infraestructura:sfc_caida_contingencia"
+        )
 
     async def test_error_no_mapeado(self):
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
@@ -314,15 +321,37 @@ class TestFallaInfraestructuraYErrorNoMapeadoDedupIntegracion(unittest.IsolatedA
         EmailAlertService._background_tasks = set()
 
     async def test_segunda_falla_infraestructura_en_la_ventana_no_reenvia(self):
-        """Clave global: dos casos distintos durante la misma caída de Redis sólo
-        deben generar UN correo, no uno por smart_code."""
+        """Clave global por categoría: dos casos distintos durante la misma caída de
+        Redis (misma categoría) sólo deben generar UN correo, no uno por smart_code."""
         with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
              patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
              patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
             mock_create_task.return_value = MagicMock()
-            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-1", error_msg="timeout")
-            await EmailAlertService.notificar_falla_infraestructura(smart_code="SC-2", error_msg="timeout")
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-1", error_msg="timeout", categoria="redis_no_disponible"
+            )
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-2", error_msg="timeout", categoria="redis_no_disponible"
+            )
         self.assertEqual(mock_create_task.call_count, 1)
+
+    async def test_falla_infraestructura_con_distinta_categoria_si_reenvia(self):
+        """Hallazgo N7 residual (revisión externa v5): antes de este fix, una caída de
+        Redis y un riesgo de duplicado post-SFC compartían la misma clave de dedup fija
+        -- el primero en dispararse silenciaba al segundo durante 15 minutos, aunque
+        fueran incidentes completamente distintos. Ahora cada categoría tiene su propia
+        ventana."""
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-1", error_msg="redis caido", categoria="redis_no_disponible"
+            )
+            await EmailAlertService.notificar_falla_infraestructura(
+                smart_code="SC-1", error_msg="riesgo de duplicado", categoria="riesgo_duplicado_post_sfc"
+            )
+        self.assertEqual(mock_create_task.call_count, 2)
 
     async def test_error_no_mapeado_con_distinto_status_code_si_reenvia(self):
         """Distinta clave (status_code+campo) no debe deduplicarse entre sí."""

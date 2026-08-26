@@ -261,7 +261,8 @@ async def _encolar_despacho_por_contingencia(
         )
         await EmailAlertService.notificar_falla_infraestructura(
             smart_code=payload.Smart_Code__c,
-            error_msg=f"FALLA CRÍTICA DOBLE (SFC + REDIS): SFC Error: {error_detalle} | Redis Error: {str(redis_err)}"
+            error_msg=f"FALLA CRÍTICA DOBLE (SFC + REDIS): SFC Error: {error_detalle} | Redis Error: {str(redis_err)}",
+            categoria="fallo_doble_sfc_y_redis"
         )
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -426,7 +427,8 @@ async def despachar_queja_crm(
             )
             await EmailAlertService.notificar_falla_infraestructura(
                 smart_code=payload.Smart_Code__c,
-                error_msg=f"Persistencia de idempotencia post-SFC fallida (riesgo de duplicado): {persist_err}"
+                error_msg=f"Persistencia de idempotencia post-SFC fallida (riesgo de duplicado): {persist_err}",
+                categoria="riesgo_duplicado_post_sfc"
             )
 
         # 🟢 FIX (hallazgo de code review, 2026-08-25): si un intento ANTERIOR de este

@@ -43,7 +43,8 @@ class SincronizacionService:
                         f"Ciclo de paginación M1 cortado tras {pagina_actual - 1} página(s) "
                         f"({len(quejas_finales_crm)} quejas acumuladas) por exceder el límite de "
                         f"páginas/tiempo configurado."
-                    )
+                    ),
+                    categoria="paginacion_m1_cortada"
                 )
                 break
 

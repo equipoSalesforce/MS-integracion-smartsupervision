@@ -96,7 +96,8 @@ async def _heartbeat_loop(stop_event: asyncio.Event):
                         f"({fallos_consecutivos_redis * HEARTBEAT_INTERVAL_SECONDS}s aprox.) sin poder "
                         f"conectarse a Redis. El proceso sigue vivo; requiere revisión de la "
                         f"disponibilidad de Redis/ElastiCache."
-                    )
+                    ),
+                    categoria="worker_redis_healthcheck"
                 )
 
         try:

@@ -242,7 +242,8 @@ class IdempotencyService:
         )
         await EmailAlertService.notificar_falla_infraestructura(
             smart_code=smart_code,
-            error_msg="Fail-Closed: Servidor de Idempotencia (Redis) no disponible/incalcanzable."
+            error_msg="Fail-Closed: Servidor de Idempotencia (Redis) no disponible/incalcanzable.",
+            categoria="redis_no_disponible"
         )
         return True, {
             "status": "redis_unavailable",
@@ -264,7 +265,8 @@ class IdempotencyService:
 
         await EmailAlertService.notificar_falla_infraestructura(
             smart_code=smart_code,
-            error_msg=f"Fail-Closed: Error consultando almacén de idempotencia (Redis): {str(e)}"
+            error_msg=f"Fail-Closed: Error consultando almacén de idempotencia (Redis): {str(e)}",
+            categoria="redis_no_disponible"
         )
         return True, {
             "status": "redis_unavailable",

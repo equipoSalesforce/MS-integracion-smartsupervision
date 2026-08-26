@@ -159,17 +159,33 @@ class EmailAlertService:
 
     @classmethod
     async def notificar_falla_infraestructura(
-        cls, 
-        smart_code: str, 
-        error_msg: str, 
+        cls,
+        smart_code: str,
+        error_msg: str,
+        categoria: str,
         correlation_id: Optional[str] = None,
         ambiente: str = settings.ENVIRONMENT
     ):
+        """
+        `categoria` identifica el TIPO de falla de infraestructura (ej.
+        "redis_no_disponible", "riesgo_duplicado_post_sfc", "sfc_caida_contingencia").
+
+        🟢 FIX (N7 residual, revisión externa v5, 2026-08-25): antes todos los
+        call sites (9 en total, desde Redis caído hasta el healthcheck del worker)
+        compartían la misma clave de dedup fija ("falla_infraestructura") -- durante
+        la misma ventana de 15 minutos, el primero en dispararse silenciaba a
+        TODOS los demás, incluida "riesgo de duplicado" tras una persistencia
+        post-SFC fallida (el más accionable de todos). Cada categoría ahora tiene
+        su propia ventana de dedup independiente; sigue siendo global por
+        categoría (no por smart_code) -- una caída de infraestructura del mismo
+        tipo es un solo evento, no N eventos independientes por cada caso que la
+        sufre.
+        """
         if not settings.ALERT_EMAILS_ENABLED:
             return
 
         cid = correlation_id or get_correlation_id() or "N/A"
-        asunto = f"🚨 [ALERTA INFRA] SFC Caída / Caso: {smart_code} | CID: {cid} [{ambiente.upper()}]"
+        asunto = f"🚨 [ALERTA INFRA:{categoria}] SFC Caída / Caso: {smart_code} | CID: {cid} [{ambiente.upper()}]"
 
         cuerpo_html = f"""
         <html>
@@ -180,6 +196,7 @@ class EmailAlertService:
                 <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
                     <p>Se ha detectado una indisponibilidad o falla de red en la comunicación con la <strong>Superintendencia Financiera</strong>.</p>
                     <ul>
+                        <li><strong>Categoría:</strong> <code>{_esc(categoria)}</code></li>
                         <li><strong>Ambiente:</strong> {_esc(ambiente.upper())}</li>
                         <li><strong>Correlation ID (CID):</strong> <strong style="color: #0275d8;"><code>{_esc(cid)}</code></strong></li>
                         <li><strong>Smart Code Afectado:</strong> <code>{_esc(smart_code)}</code></li>
@@ -196,9 +213,7 @@ class EmailAlertService:
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
             cuerpo_html=cuerpo_html,
-            # Clave global (no por smart_code): una caída de infraestructura es un
-            # solo evento, no N eventos independientes por cada caso que la sufre.
-            clave_dedup="falla_infraestructura"
+            clave_dedup=f"falla_infraestructura:{categoria}"
         )
 
     @classmethod

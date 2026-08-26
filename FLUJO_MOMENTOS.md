@@ -21,7 +21,7 @@
 - [¿Por qué la clasificación de errores de negocio de la SFC usa coincidencia de texto?](#por-qué-la-clasificación-de-errores-de-negocio-de-la-sfc-usa-coincidencia-de-texto)
 - [¿Por qué el webhook al CRM siempre reporta `status: "CREATED"`?](#por-qué-el-webhook-al-crm-siempre-reporta-status-created)
 - [¿Por qué la cola de fallidos (DLQ) no tiene endpoint de replay?](#por-qué-la-cola-de-fallidos-dlq-no-tiene-endpoint-de-replay)
-- [¿Por qué la cascada de timeouts no llega hasta nginx/ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-nginxalb)
+- [¿Por qué la cascada de timeouts no llega hasta el ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-el-alb)
 - [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
 - [Refresco periódico de catálogos/mapeos (hallazgo C1)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1)
@@ -326,34 +326,49 @@ pendiente es la misma categoría de operación que el despacho que acaba de tene
 
 ---
 
-## ¿Por qué la cascada de timeouts no llega hasta nginx/ALB?
+## ¿Por qué la cascada de timeouts no llega hasta el ALB?
 
 **Código:** `infrastructure/Dockerfile` (`gunicorn --timeout 330 --graceful-timeout 60`),
-`infrastructure/nginx.conf` (`proxy_read_timeout 60s`), `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`.
+`SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`.
+
+**Aclaración (2026-08-26, para no repetir la confusión de una revisión anterior):**
+`infrastructure/nginx.conf` (`proxy_read_timeout 60s`) **no forma parte del despliegue real** — sólo
+se usa en `docker-compose.nginx.test.yml`, un compose dedicado a simular localmente el comportamiento
+de un reverse proxy delante de la API. El contenedor `final-api` real (el que arma
+`infrastructure/Dockerfile` y el que despliega `infrastructure/ecs-task-def.json.tpl`) corre gunicorn
+escuchando **directo** en el puerto 8000 (`EXPOSE 8000`, `CMD gunicorn ...`), sin nginx de por medio
+— `ecs-task-def.json.tpl` y `scripts/render_task_def.py` no mencionan nginx en ningún lado. En
+producción, el único componente delante de gunicorn es el **ALB compartido con CRM** (fuera de este
+repositorio, gestionado por el IaC central del equipo de infraestructura — ver el comentario de
+`.github/workflows/deploy-aws.yml` sobre el smoke post-deploy). Una versión anterior de este
+documento hablaba de "nginx/ALB" como si ambos fueran hops reales de producción; sólo el ALB lo es.
 
 El presupuesto de tiempo de Momento 1 (`SFC_SYNC_MAX_SEGUNDOS`, 300s) necesita que gunicorn no mate
-al worker a mitad de un despacho — por eso se subió `--timeout` de 120s a 330s. Pero nginx sigue
-cortando la conexión con el cliente a los 60s, y el listener del ALB (fuera de este repositorio) no
-se tocó: un request que de verdad tarde más de 60s sigue devolviendo un timeout al CRM aunque el
-worker de gunicorn continúe procesándolo de fondo hasta los 330s.
+al worker a mitad de un despacho — por eso se subió `--timeout` de 120s a 330s. Pero el idle timeout
+del listener del ALB (fuera de este repositorio) no se tocó: un request que de verdad tarde más de lo
+que el ALB tolera sigue devolviendo un timeout al CRM aunque gunicorn continúe procesándolo de fondo
+hasta los 330s.
 
 **Por qué se dejó así, deliberadamente, en esta ronda:** la corrección completa de este hallazgo
-tiene dos caminos — (a) subir también `proxy_read_timeout` y el idle timeout del ALB en la misma
-proporción, o (b) sacar Momento 1 del camino síncrono por completo (convertirlo en un job de
-background con su propio mecanismo de polling/ACK, en vez de una llamada HTTP que se mantiene
-abierta mientras dura toda la paginación contra la SFC). La opción (b) es la solución de fondo, pero
-es un cambio de arquitectura no trivial (persistir quejas obtenidas-pero-no-confirmadas + cursor de
-paginación resumible en Redis, preservando el contrato síncrono actual con el CRM) que se evaluó y
-se decidió explícitamente **posponer** — no es necesario para el problema inmediato, que era evitar
-que gunicorn matara el worker a mitad de un despacho de Momento 3 normal (el caso de uso dominante,
-sin relación con la paginación larga de Momento 1). Subir sólo `--timeout` de gunicorn resuelve ese
-caso dominante sin tocar arquitectura.
+tiene dos caminos — (a) coordinar con el equipo de infraestructura para subir el idle timeout del ALB
+en la misma proporción (un cambio que este repositorio no puede hacer unilateralmente, al vivir en el
+IaC central compartido con CRM), o (b) sacar Momento 1 del camino síncrono por completo (convertirlo
+en un job de background con su propio mecanismo de polling/ACK, en vez de una llamada HTTP que se
+mantiene abierta mientras dura toda la paginación contra la SFC). La opción (b) es la solución de
+fondo, pero es un cambio de arquitectura no trivial (persistir quejas obtenidas-pero-no-confirmadas +
+cursor de paginación resumible en Redis, preservando el contrato síncrono actual con el CRM) que se
+evaluó y se decidió explícitamente **posponer** — no es necesario para el problema inmediato, que era
+evitar que gunicorn matara el worker a mitad de un despacho de Momento 3 normal (el caso de uso
+dominante, sin relación con la paginación larga de Momento 1). Subir sólo `--timeout` de gunicorn
+resuelve ese caso dominante sin tocar arquitectura.
 
-**Qué sigue pendiente, sin resolver:** para que Momento 1 realmente aproveche los 330s de
-presupuesto sin que el cliente (CRM) se desconecte antes por su cuenta a los 60s, hace falta (a) o
-(b). Mientras tanto, el riesgo señalado por la auditoría es real pero acotado: un request colgado
-retiene uno de los dos workers de gunicorn durante más tiempo que antes (5.5 min en vez de 2), lo
-cual es un costo aceptado a cambio de que Momento 3 no se corte a mitad de un despacho normal.
+**Qué sigue pendiente, sin resolver, y por qué no es un cambio unilateral de este repositorio:** para
+que Momento 1 realmente aproveche los 330s de presupuesto sin que el cliente (CRM) se desconecte
+antes por su cuenta, hace falta (a) o (b) — y (a) depende del equipo dueño del ALB compartido, no de
+este microservicio. Mientras tanto, el riesgo señalado por la auditoría es real pero acotado: un
+request colgado retiene uno de los dos workers de gunicorn durante más tiempo que antes (5.5 min en
+vez de 2), lo cual es un costo aceptado a cambio de que Momento 3 no se corte a mitad de un despacho
+normal.
 
 ---
 
@@ -378,19 +393,24 @@ escenario más común que dispara estas alertas): atar el propio alerting a la d
 sería introducir el mismo antipatrón que ya se corrigió en otras partes del sistema (ver la
 sección de "caída de infraestructura no debe amplificar el incidente").
 
-**Qué NO está cubierto por esta justificación** (issue real, no decisión de diseño): la clave global
-`"falla_infraestructura"` es compartida por más de nueve call sites distintos
-(`notificar_falla_infraestructura` se invoca desde `routes_quejas.py`, `idempotency_service.py`,
-`momento_1_sync.py`, `momento_4_sync.py`, `queue_service.py`, `scheduler.py` y `worker.py`,
-cubriendo desde el fail-closed de Redis hasta la caída de la SFC en distintos Momentos y el
-healthcheck del worker) — durante la misma ventana de 15 minutos, el primero en dispararse silencia
-a todos los demás, incluido el mensaje de "riesgo de duplicado" tras una persistencia post-SFC
-fallida, que es el más accionable de todos. Es una mejora pendiente, no parte de esta justificación.
-
-**Ya corregido:** el diccionario sí llegó a no tener cota de tamaño (`error_no_mapeado` incorpora
-`sfc_field`, cuya cardinalidad depende de las claves que la SFC use en su JSON de error) — se
-resolvió con una purga best-effort de entradas expiradas más un tope duro
+**Ya corregido (cota de tamaño):** el diccionario sí llegó a no tener cota de tamaño
+(`error_no_mapeado` incorpora `sfc_field`, cuya cardinalidad depende de las claves que la SFC use en
+su JSON de error) — se resolvió con una purga best-effort de entradas expiradas más un tope duro
 (`MAX_ENTRADAS_DEDUP = 500`) en `_deberia_enviar` (hallazgo N7, revisión externa v5, 2026-08-25).
+
+**Ya corregido (clave global demasiado ancha):** la clave `"falla_infraestructura"` era compartida
+por los nueve call sites de `notificar_falla_infraestructura` (`routes_quejas.py`,
+`idempotency_service.py`, `momento_1_sync.py`, `momento_4_sync.py`, `queue_service.py`,
+`scheduler.py`, `worker.py`), cubriendo desde el fail-closed de Redis hasta la caída de la SFC en
+distintos Momentos y el healthcheck del worker — durante la misma ventana de 15 minutos, el primero
+en dispararse silenciaba a todos los demás, incluido el mensaje de "riesgo de duplicado" tras una
+persistencia post-SFC fallida, el más accionable de todos. Se agregó un parámetro `categoria`
+obligatorio (`redis_no_disponible`, `sfc_caida_contingencia`, `riesgo_duplicado_post_sfc`,
+`fallo_doble_sfc_y_redis`, `paginacion_m1_cortada`, `paginacion_m4_cortada`,
+`worker_redis_healthcheck`), y la clave de dedup pasó a ser `f"falla_infraestructura:{categoria}"` —
+cada tipo de incidente tiene ahora su propia ventana de 15 minutos, independiente de los demás. Sigue
+siendo global por categoría (no por `smart_code`): una caída de infraestructura del mismo tipo sigue
+siendo un solo evento, no N eventos independientes por cada caso que la sufre.
 
 ---
 
@@ -552,7 +572,7 @@ dos pasos. Ahora los tres pasos comparten el mismo helper
 | Webhook al CRM (`status: "CREATED"` fijo) | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia` |
 | DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
 | Cancelación de pendiente tras éxito síncrono (respeta la operación) | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py` |
-| Cascada de timeouts | `infrastructure/Dockerfile`, `infrastructure/nginx.conf`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
+| Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
 | Ownership de adjuntos S3 (Case_id, posicional) | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso` |
 | Refresco periódico de catálogos/mapeos | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job` |

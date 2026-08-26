@@ -75,7 +75,8 @@ class TestEmailTriggers(unittest.IsolatedAsyncioTestCase):
 
             mock_falla.assert_called_once_with(
                 smart_code=smart_code,
-                error_msg=error_msg
+                error_msg=error_msg,
+                categoria="sfc_caida_contingencia"
             )
             mock_umbral.assert_not_called()
 
