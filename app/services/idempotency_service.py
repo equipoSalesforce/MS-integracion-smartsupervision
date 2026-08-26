@@ -8,6 +8,7 @@ from typing import Any, Tuple, Optional, Set
 from zoneinfo import ZoneInfo
 
 from app.core.constants import SmartStatus
+from app.core.clasificacion_operacion import es_estado_cierre
 from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
@@ -185,10 +186,11 @@ class IdempotencyService:
         """Infiere la fase/operación normativa basada en la estructura del DTO."""
         status_clean = (payload_dict.get("Status") or "").strip().lower()
         
-        es_cierre = (
-            status_clean in ("closed", "cerrado") or 
-            payload_dict.get("ClosedDate") is not None or 
-            payload_dict.get("Favorabilidad__c") is not None
+        es_cierre = es_estado_cierre(
+            payload_dict.get("Status"),
+            payload_dict.get("ClosedDate"),
+            payload_dict.get("Favorabilidad__c"),
+            payload_dict.get("Aceptacion__c")
         )
         es_fraude = (
             payload_dict.get("tipo_fraude__c") is not None or 

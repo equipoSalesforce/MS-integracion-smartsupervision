@@ -14,6 +14,7 @@ from pydantic import (
 
 from app.core.mapping import SfcSalesforceMapper
 from app.core.config import settings
+from app.core.clasificacion_operacion import es_estado_cierre as _es_estado_cierre
 
 
 class ArchivoS3Schema(BaseModel):
@@ -563,17 +564,10 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
         num_archivos = len(self.archivos_s3)
         tiene_directorio = bool(self.directorio_s3 and self.directorio_s3.strip())
 
-        status_clean = (self.Status or "").strip().lower()
-
-        es_estado_cierre = (
-            status_clean in ("closed", "cerrado") or
-            self.ClosedDate is not None or
-            self.Favorabilidad__c is not None or
-            self.Aceptacion__c is not None
-        )
+        es_cierre = _es_estado_cierre(self.Status, self.ClosedDate, self.Favorabilidad__c, self.Aceptacion__c)
         es_evento_fraude = self.tipo_fraude__c is not None or self.modalidad_fraude__c is not None
 
-        if es_estado_cierre:
+        if es_cierre:
             self._validar_reglas_cierre()
 
         if es_evento_fraude:

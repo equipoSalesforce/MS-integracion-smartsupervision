@@ -10,6 +10,7 @@ from app.services.momento_3_sync import Momento3SincronizacionService
 from app.services.idempotency_service import IdempotencyService
 from app.db.redis import get_redis_client
 from app.core.exceptions import SfcIntegrationException
+from app.core.clasificacion_operacion import es_estado_cierre
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +144,7 @@ class DespachoQuejaOrquestador:
             else:
                 logger.warning(f"⚠️ [Orquestador] No se encontraron archivos en el directorio S3 '{payload.directorio_s3}'")    
         
-        es_cierre = (
-            status_raw in ("closed", "cerrado") or 
-            payload.ClosedDate is not None or 
-            payload.Favorabilidad__c is not None
-        )
+        es_cierre = es_estado_cierre(payload.Status, payload.ClosedDate, payload.Favorabilidad__c, payload.Aceptacion__c)
         es_fraude = (
             payload.tipo_fraude__c is not None or 
             payload.modalidad_fraude__c is not None
