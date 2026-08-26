@@ -190,16 +190,23 @@ class TestEncoladoConDirectorioS3MantieneIdempotenciaQueued(unittest.IsolatedAsy
         self.assertTrue(es_hit)
         self.assertEqual(respuesta["status"], "success")
 
-    async def test_regresion_sin_payload_hash_marcar_sfc_completado_no_se_reconoce_como_exito(self):
+    async def test_sin_payload_hash_marcar_sfc_completado_igual_se_reconoce_como_exito(self):
         """
-        Prueba negativa que documenta el mismo bug en un tercer lugar: si
-        marcar_sfc_completado() no recibiera payload_hash (como antes del fix), la
-        clave/registro COMPLETED se calcularía sobre `reclamado.payload_json` -- el
-        payload_json YA ALMACENADO en la cola, que para este caso tiene
+        🔴 FIX N4 (revisión externa v5, 2026-08-25): esta prueba era negativa --
+        documentaba que, si marcar_sfc_completado() no recibía payload_hash, el
+        registro COMPLETED se calculaba sobre `reclamado.payload_json` -- el
+        payload_json YA ALMACENADO en la cola, que para este caso tenía
         `archivos_s3: []` corrompido a `{}` por el round-trip de cjson en
-        ENQUEUE_LUA_SCRIPT. Ese hash nunca coincide con el de `self.raw_payload`
+        ENQUEUE_LUA_SCRIPT. Ese hash nunca coincidía con el de `self.raw_payload`
         (con archivos_s3 como lista real), así que un reintento del CRM tras la
-        confirmación NO se habría reconocido como ya exitoso.
+        confirmación NO se reconocía como ya exitoso.
+
+        Con el fix (payload_json se guarda como string JSON opaco, inmune al
+        round-trip de cjson), `reclamado.payload_json` ya no está corrompido --
+        el fallback sin payload_hash explícito ahora SÍ reconoce el reintento
+        como exitoso, igual que si se hubiera pasado el hash explícitamente.
+        payload_hash sigue siendo la vía preferida (evita recalcular), pero
+        dejó de ser la única forma de que esto funcione correctamente.
         """
         await self.idempotency_service.verificar_o_iniciar_operacion(
             smart_code="SC-DIR-1", payload_dict=self.raw_payload
@@ -209,8 +216,8 @@ class TestEncoladoConDirectorioS3MantieneIdempotenciaQueued(unittest.IsolatedAsy
             registro_id=item.id, worker_id="worker_1", lease_segundos=60
         )
 
-        # Comportamiento ANTERIOR al fix: no se pasa payload_hash -- cae al recálculo
-        # desde reclamado.payload_json (potencialmente corrompido).
+        # Deliberadamente sin payload_hash -- cae al recálculo desde
+        # reclamado.payload_json, que ya no está corrompido tras el fix de N4.
         resultado = await self.queue_service.marcar_sfc_completado(
             reclamado.id, worker_id="worker_1", expected_version=reclamado.version,
             smart_code="SC-DIR-1", payload_dict=reclamado.payload_json,
@@ -218,13 +225,15 @@ class TestEncoladoConDirectorioS3MantieneIdempotenciaQueued(unittest.IsolatedAsy
         )
         self.assertEqual(resultado, "completed")
 
-        es_hit, _ = await self.idempotency_service.verificar_o_iniciar_operacion(
+        es_hit, respuesta = await self.idempotency_service.verificar_o_iniciar_operacion(
             smart_code="SC-DIR-1", payload_dict=self.raw_payload
         )
-        self.assertFalse(
+        self.assertTrue(
             es_hit,
-            "Con el bug real (sin payload_hash), el reintento NO se reconoce como ya exitoso"
+            "Sin el bug de N4, el reintento SÍ debe reconocerse como ya exitoso "
+            "aunque marcar_sfc_completado no reciba payload_hash explícito"
         )
+        self.assertEqual(respuesta["status"], "success")
 
     async def test_evento_nuevo_con_contenido_distinto_sigue_sobrescribiendo_normalmente(self):
         """El fix no debe afectar el camino ya cubierto (sobrescritura por contenido

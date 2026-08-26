@@ -59,18 +59,20 @@ if existing_id then
         local raw_item = redis.call("GET", item_key)
         if raw_item then
             local data = cjson.decode(raw_item)
-            data["payload_json"] = cjson.decode(payload_json_raw)
+            -- 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): payload_json_raw se
+            -- guarda TAL CUAL (string JSON opaco), sin pasar por cjson.decode -- el propio
+            -- Lua cjson no distingue lista vacía de objeto vacío al re-serializar (una tabla
+            -- vacía "{}" siempre se codifica como objeto JSON, nunca como "[]"), así que
+            -- decodificarlo a tabla acá corrompía cualquier campo tipo lista vacía (ej.
+            -- archivos_s3: [], la inmensa mayoría de las quejas sin adjuntos) a {} en el
+            -- payload_json GUARDADO -- no sólo en un hash recalculado después. Python ya
+            -- serializa este string correctamente (json.dumps distingue [] de {}); Lua nunca
+            -- necesita leer su contenido, sólo reemplazarlo, así que queda inmune al
+            -- round-trip. Mismo patrón que ya usa idempotency_record_json más abajo.
+            data["payload_json"] = payload_json_raw
             -- 🔴 FIX (hallazgo de revisión externa, 2026-08-25): 'payload_hash' se calcula
-            -- en Python ANTES de que este script toque el payload -- el propio Lua cjson no
-            -- distingue lista vacía de objeto vacío al re-serializar (una tabla vacía "{}"
-            -- siempre se codifica como objeto JSON, nunca como "[]"), así que cualquier
-            -- campo tipo lista vacía (ej. archivos_s3: []) quedaba corrompido a {} en
-            -- payload_json tras pasar por este script. Eso rompía la comparación de hash de
-            -- IdempotencyService._item_de_cola_sigue_vigente para CUALQUIER item con un
-            -- campo de lista vacía -- la inmensa mayoría de las quejas sin adjuntos -- no
-            -- sólo los casos con directorio_s3 que originó este fix. Se guarda el hash como
-            -- string plano (inmune a esa ambigüedad) en vez de recalcularlo desde el
-            -- payload_json ya potencialmente corrompido por el round-trip de Lua.
+            -- en Python ANTES de que este script toque el payload -- se guarda como string
+            -- plano junto al item en vez de recalcularlo desde payload_json en cada lectura.
             data["payload_hash"] = payload_hash
             data["ultimo_error"] = error_inicial
             data["updated_at"] = now_iso
@@ -126,7 +128,9 @@ local item_data = {
     id = tonumber(item_id),
     smart_code = smart_code,
     tipo_operacion = tipo_operacion,
-    payload_json = cjson.decode(payload_json_raw),
+    -- 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): string opaco, ver comentario
+    -- arriba en la rama de sobrescritura -- mismo motivo.
+    payload_json = payload_json_raw,
     payload_hash = payload_hash,
     estado = estado_pendiente,
     sfc_completado = false,
@@ -298,7 +302,11 @@ end
 data["sfc_completado"] = true
 data["estado"] = estado_sfc_done
 if has_sfc_response == "1" then
-    data["sfc_response"] = cjson.decode(sfc_response_json)
+    -- 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): mismo motivo que
+    -- payload_json en ENQUEUE_LUA_SCRIPT -- se guarda el string JSON tal cual, sin
+    -- decodificarlo a tabla, para no corromper campos tipo lista vacía que la SFC
+    -- pueda devolver.
+    data["sfc_response"] = sfc_response_json
 end
 data["updated_at"] = now_iso
 
@@ -535,15 +543,30 @@ return 1
 """
 
 
+def _decodificar_campo_json_opaco(valor):
+    """
+    🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): payload_json y sfc_response
+    ahora se guardan en Redis como string JSON opaco (ver ENQUEUE_LUA_SCRIPT/
+    MARK_SFC_DONE_LUA_SCRIPT), no como tabla anidada -- Lua nunca vuelve a decodificar
+    su contenido, así que queda inmune a la ambigüedad de cjson entre lista vacía y
+    objeto vacío. Acepta también un dict ya decodificado (items encolados antes de
+    este fix, aún en Redis durante un despliegue en curso, o construcciones directas
+    en Python/tests que no pasan por Lua) para no romper la compatibilidad hacia atrás.
+    """
+    if isinstance(valor, str):
+        return json.loads(valor) if valor else {}
+    return valor
+
+
 class ColaItemRedis:
     def __init__(self, data: dict):
         self.id = int(data.get("id")) if data.get("id") else None
         self.smart_code = str(data.get("smart_code", ""))
         self.tipo_operacion = str(data.get("tipo_operacion", "AUTO"))
-        self.payload_json = data.get("payload_json", {})
+        self.payload_json = _decodificar_campo_json_opaco(data.get("payload_json")) or {}
         self.estado = str(data.get("estado", SmartStatus.PENDING.value))
         self.sfc_completado = bool(data.get("sfc_completado", False))
-        self.sfc_response = data.get("sfc_response")
+        self.sfc_response = _decodificar_campo_json_opaco(data.get("sfc_response"))
         self.intentos = int(data.get("intentos", 0))
         self.max_intentos = int(data.get("max_intentos", settings.QUEUE_MAX_RETRIES))
         self.ultimo_error = data.get("ultimo_error")
@@ -1360,7 +1383,7 @@ class QueueService:
 
             data = json.loads(raw_item, strict=False)
             item_id = data.get("id")
-            payload_pendiente = data.get("payload_json") or {}
+            payload_pendiente = _decodificar_campo_json_opaco(data.get("payload_json")) or {}
             hash_pendiente = data.get("payload_hash")
 
             from app.services.idempotency_service import IdempotencyService

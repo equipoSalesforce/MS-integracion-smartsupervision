@@ -204,7 +204,10 @@ class TestQueueSlaReintentosLease(unittest.IsolatedAsyncioTestCase):
         raw_item = await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}")
         data = json.loads(raw_item)
         self.assertTrue(data["sfc_completado"])
-        self.assertEqual(data["sfc_response"], {"status": "success"})
+        # 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): sfc_response ahora se
+        # guarda como string JSON opaco dentro del item (ver MARK_SFC_DONE_LUA_SCRIPT),
+        # no como objeto anidado -- se decodifica una vez más para comparar el valor.
+        self.assertEqual(json.loads(data["sfc_response"]), {"status": "success"})
         self.assertIn("pospuesto automáticamente", data["ultimo_error"])
 
     async def test_diferir_ignora_ids_inexistentes_sin_lanzar(self):

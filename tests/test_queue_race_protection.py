@@ -306,7 +306,10 @@ class TestQueueRaceProtection(unittest.IsolatedAsyncioTestCase):
         import json as _json
         data = _json.loads(raw_item)
         self.assertTrue(data["sfc_completado"])
-        self.assertEqual(data["sfc_response"], {"event_processed": "nuevo"})
+        # 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): sfc_response se guarda
+        # como string JSON opaco dentro del item de cola (no en el registro de
+        # idempotencia de abajo, que siempre fue Python-serializado y no se ve afectado).
+        self.assertEqual(_json.loads(data["sfc_response"]), {"event_processed": "nuevo"})
 
         idem_raw = await self.redis.get(idem_key)
         self.assertIsNotNone(idem_raw, "El registro de idempotencia debe quedar escrito junto con SFC_DONE")
