@@ -28,6 +28,7 @@
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
+- [El healthcheck del contenedor no depende de Redis (confirmado, no es un bug)](#el-healthcheck-del-contenedor-no-depende-de-redis-confirmado-no-es-un-bug)
 - [Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)](#momento-1-no-deduplicaba-quejas-repetidas-entre-páginas-corregido)
 - [El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)](#el-parser-de-hilos-de-correo-podía-atribuirle-al-soporte-una-respuesta-del-cliente-corregido)
 - [`SfcErrorTranslator` clasificaba "la queja no existe" como si ya existiera (corregido)](#sfcerrortranslator-clasificaba-la-queja-no-existe-como-si-ya-existiera-corregido)
@@ -745,6 +746,30 @@ los bytes compactos de httpx generó el mismo error de firma inválida del lado 
 ambiente QA real de la SFC -- prueba directa de que su verificación depende de esta
 re-serialización específica, no del body crudo que reciben. No cambiar estos
 separadores.
+
+## El healthcheck del contenedor no depende de Redis (confirmado, no es un bug)
+
+**Código:** `app/api/routes_health.py`, `scripts/render_task_def.py`.
+
+Un hallazgo de revisión externa (2026-08-26) planteaba que el healthcheck del
+contenedor estaría acoplado a Redis -- si Redis cae, ECS mataría en masa las
+tareas sanas (el servicio no puede alcanzar la SFC sin Redis para el lock/cola,
+pero eso no significa que el proceso Python esté muerto). Verificado contra el
+repo actual: existen dos endpoints separados, `/health/live` (`liveness`, sin
+ninguna dependencia externa, siempre `{"status": "alive"}`) y `/health/ready`
+(`readiness`, sí revisa Redis vía `ping_redis`, devuelve 503 si no responde).
+`scripts/render_task_def.py` (línea ~132) confirma que el `healthCheck` del
+contenedor ECS usa explícitamente `/health/live` para `service_type == "api"`
+-- ya desacoplado de Redis. `/health/ready` no está referenciado por ningún
+healthcheck de contenedor en este repo (queda disponible para un smoke test
+post-deploy externo, `api/v1/quejas/_health/ready`, que sí puede tolerar
+fallar sin matar tareas).
+
+**Conclusión:** el hallazgo no aplica al estado actual del repo -- no se
+requirió ningún cambio de código. Salvedad: la configuración del target
+group del ALB (si existiera un healthcheck de balanceador apuntando a
+`/health/ready`) vive fuera de este repositorio, gestionada centralmente, y
+no se pudo verificar desde acá.
 
 ## Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)
 
