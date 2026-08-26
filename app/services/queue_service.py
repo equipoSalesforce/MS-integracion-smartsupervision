@@ -401,6 +401,67 @@ end
 return cjson.encode({success = true})
 """
 
+# 🟢 FIX (hallazgo C2, revisión externa v5, 2026-08-25): no existía forma de recuperar
+# un caso caído a FALLIDO_DEFINITIVO/DLQ sin tocar Redis a mano -- este script reencola
+# manualmente un item (disparado por un endpoint admin, ver routes_quejas.py). Se niega
+# si el índice smart_code->item ya apunta a OTRO item: significa que un evento más nuevo
+# del mismo caso llegó después de la falla definitiva y ya está pendiente -- reactivar el
+# item viejo ahí rompería la invariante de "un smart_code = un slot en cola" de la que
+# dependen la sobrescritura por versión y la cancelación consciente de operación de N1.
+REPLAY_ITEM_LUA_SCRIPT = """
+local item_key = KEYS[1]
+local pending_set_key = KEYS[2]
+local failed_set_key = KEYS[3]
+local pending_zset_key = KEYS[4]
+
+local item_id = ARGV[1]
+local now_iso = ARGV[2]
+local now_ts = ARGV[3]
+local estado_pendiente = ARGV[4]
+local estado_failed_final = ARGV[5]
+
+local raw_item = redis.call("GET", item_key)
+if not raw_item then
+    return cjson.encode({success = false, reason = "item_not_found"})
+end
+
+local data = cjson.decode(raw_item)
+
+if data["estado"] ~= estado_failed_final then
+    return cjson.encode({success = false, reason = "not_failed_final", estado_actual = data["estado"]})
+end
+
+local smart_code = data["smart_code"]
+local index_key = nil
+if smart_code and smart_code ~= "" then
+    index_key = "{sfc:queue}:index:" .. smart_code
+    local index_actual = redis.call("GET", index_key)
+    if index_actual and index_actual ~= item_id then
+        return cjson.encode({
+            success = false,
+            reason = "smart_code_tiene_item_mas_reciente",
+            item_activo = index_actual
+        })
+    end
+end
+
+data["estado"] = estado_pendiente
+data["intentos"] = 0
+data["proximo_reintento_at"] = now_iso
+data["updated_at"] = now_iso
+data["version"] = (tonumber(data["version"]) or 1) + 1
+
+redis.call("SET", item_key, cjson.encode(data))
+redis.call("SREM", failed_set_key, item_id)
+redis.call("SADD", pending_set_key, item_id)
+redis.call("ZADD", pending_zset_key, now_ts, item_id)
+if index_key then
+    redis.call("SET", index_key, item_id)
+end
+
+return cjson.encode({success = true, smart_code = smart_code, version = data["version"]})
+"""
+
 # 🟢 FIX (hallazgo de code review, 2026-08-24): diferir_pendientes_por_caida_sfc
 # hacía GET + mutar en Python + SET como pasos separados (no atómico). Si un
 # evento nuevo del mismo smart_code sobrescribía el item (ENQUEUE_LUA_SCRIPT)
@@ -1187,6 +1248,84 @@ class QueueService:
         except Exception as e:
             logger.error(f"Error registrando fallo para registro {registro_id} en Redis: {e}")
             return "not_found"
+
+    async def reencolar_item_fallido(self, registro_id: int) -> Dict[str, Any]:
+        """
+        🟢 FIX (hallazgo C2, revisión externa v5, 2026-08-25): hasta ahora, la única
+        señal de un caso caído a FALLIDO_DEFINITIVO/DLQ era un correo a operaciones
+        (`notificar_caso_fallido_definitivo`) -- no existía ninguna forma de recuperarlo
+        sin manipular Redis a mano. Este método reencola manualmente un item específico,
+        disparado por un endpoint administrativo (ver `routes_quejas.py`). No requiere
+        ningún cambio del lado del CRM: es tooling interno para operaciones, distinto de
+        un endpoint de replay que el CRM pudiera invocar (eso sigue bloqueado por falta
+        de contrato -- ver FLUJO_MOMENTOS.md).
+
+        Se niega (reason="smart_code_tiene_item_mas_reciente") si el índice
+        smart_code->item ya no apunta a este item -- ver el comentario sobre
+        REPLAY_ITEM_LUA_SCRIPT para el razonamiento completo.
+
+        Retorna {"success": bool, "reason"?: str, "smart_code"?: str, "version"?: int}.
+        Nunca lanza.
+        """
+        if not self.redis:
+            return {"success": False, "reason": "redis_no_disponible"}
+
+        item_key = f"{QUEUE_PREFIX}:item:{registro_id}"
+        now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+
+        keys = [
+            item_key,
+            f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
+            f"{QUEUE_PREFIX}:status:{SmartStatus.FAILED_FINAL.value}",
+            f"{QUEUE_PREFIX}:pending_zset"
+        ]
+        args = [
+            str(registro_id),
+            now_bogota.isoformat(),
+            str(now_bogota.timestamp()),
+            SmartStatus.PENDING.value,
+            SmartStatus.FAILED_FINAL.value
+        ]
+
+        try:
+            raw_res = await self.redis.eval(REPLAY_ITEM_LUA_SCRIPT, len(keys), *keys, *args)
+            res = json.loads(raw_res)
+        except Exception as e:
+            logger.error(f"Error reencolando manualmente el registro {registro_id}: {e}")
+            return {"success": False, "reason": "error_redis"}
+
+        if not res.get("success"):
+            logger.warning(
+                f"⚠️ [Cola Redis] No se pudo reencolar manualmente el registro {registro_id}: "
+                f"{res.get('reason')}"
+            )
+            return res
+
+        smart_code = res.get("smart_code")
+        logger.warning(
+            f"🔁 [Cola Redis] Registro {registro_id} (caso {smart_code}) reencolado "
+            f"manualmente por un administrador."
+        )
+
+        if smart_code:
+            try:
+                raw_item = await self.redis.get(item_key)
+                if raw_item:
+                    item_actualizado = ColaItemRedis(json.loads(raw_item))
+                    from app.services.idempotency_service import IdempotencyService
+                    idempotency_service = IdempotencyService(self.redis)
+                    await idempotency_service.registrar_encolado(
+                        smart_code=smart_code,
+                        payload_dict=item_actualizado.payload_json,
+                        error_msg="Reencolado manualmente por un administrador tras fallo definitivo.",
+                        registro_id=registro_id
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ No se pudo re-registrar idempotencia QUEUED tras reencolar {registro_id}: {e}"
+                )
+
+        return res
 
     async def _obtener_ids_de_set_estado(self, set_key: str) -> List[str]:
         if hasattr(self.redis, "sscan_iter"):

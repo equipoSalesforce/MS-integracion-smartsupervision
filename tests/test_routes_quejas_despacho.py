@@ -560,5 +560,70 @@ class TestConsultarColaLocal(unittest.TestCase):
         self.assertEqual(response.json(), [{"id": 1, "smart_code": "SC-1", "estado": "PENDING"}])
 
 
+class TestReencolarRegistroFallido(unittest.TestCase):
+    """
+    Hallazgo C2 (revisión externa v5): endpoint administrativo para reencolar
+    manualmente un caso en FALLIDO_DEFINITIVO -- la lógica real de la transición
+    Lua se cubre con Redis real en test_queue_reencolar_item_fallido.py; aquí sólo
+    se prueba el mapeo de la respuesta del servicio a código HTTP.
+    """
+
+    def setUp(self):
+        self.client = TestClient(app)
+        self.client.headers.update({"X-API-Key": settings.ADMIN_API_KEY})
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    def test_exito_retorna_200_con_smart_code_y_version(self):
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.reencolar_item_fallido = AsyncMock(
+                return_value={"success": True, "smart_code": "SC-1", "version": 3}
+            )
+            response = self.client.post("/api/v1/quejas/queue/42/reencolar")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True, "smart_code": "SC-1", "version": 3})
+        mock_queue_cls.return_value.reencolar_item_fallido.assert_awaited_once_with(42)
+
+    def test_item_inexistente_retorna_404(self):
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.reencolar_item_fallido = AsyncMock(
+                return_value={"success": False, "reason": "item_not_found"}
+            )
+            response = self.client.post("/api/v1/quejas/queue/999/reencolar")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_item_no_esta_en_fallido_definitivo_retorna_409(self):
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.reencolar_item_fallido = AsyncMock(
+                return_value={"success": False, "reason": "not_failed_final", "estado_actual": "PENDIENTE"}
+            )
+            response = self.client.post("/api/v1/quejas/queue/42/reencolar")
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_smart_code_con_item_mas_reciente_retorna_409(self):
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.reencolar_item_fallido = AsyncMock(
+                return_value={
+                    "success": False,
+                    "reason": "smart_code_tiene_item_mas_reciente",
+                    "item_activo": "77"
+                }
+            )
+            response = self.client.post("/api/v1/quejas/queue/42/reencolar")
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_sin_api_key_admin_no_llega_a_ejecutar_el_reencolado(self):
+        client_sin_key = TestClient(app)
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            response = client_sin_key.post("/api/v1/quejas/queue/42/reencolar")
+            mock_queue_cls.return_value.reencolar_item_fallido.assert_not_called()
+        self.assertNotEqual(response.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

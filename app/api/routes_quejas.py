@@ -518,6 +518,30 @@ async def consultar_cola_local(
     return [r.to_summary_dict() for r in registros]
 
 
+@router.post(
+    "/queue/{registro_id}/reencolar",
+    status_code=status.HTTP_200_OK,
+    summary="Reencolar manualmente un caso en FALLIDO_DEFINITIVO (DLQ) para reintento",
+    description=(
+        "Hallazgo C2 (revisión externa v5): tooling administrativo interno -- no requiere "
+        "ningún cambio del lado del CRM. Se niega con 409 si el item no está en "
+        "FALLIDO_DEFINITIVO, o si ya existe un item más nuevo pendiente para el mismo "
+        "Smart_Code__c (reencolar el viejo en ese caso rompería la invariante de "
+        "'un smart_code = un slot en cola')."
+    ),
+    dependencies=[Depends(verificar_api_key_admin)]
+)
+async def reencolar_registro_fallido(registro_id: int):
+    queue_service = QueueService(get_redis_client())
+    resultado = await queue_service.reencolar_item_fallido(registro_id)
+
+    if not resultado.get("success"):
+        codigo = status.HTTP_404_NOT_FOUND if resultado.get("reason") == "item_not_found" else status.HTTP_409_CONFLICT
+        return JSONResponse(status_code=codigo, content=resultado)
+
+    return resultado
+
+
 @router.get(
     "/_health/ready",
     status_code=status.HTTP_200_OK,

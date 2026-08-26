@@ -298,20 +298,29 @@ libera su registro de idempotencia y se envía un correo a operaciones. No exist
 administrativo que permita reprocesar ese caso, ni una notificación de vuelta al CRM avisando que el
 caso quedó sin transmitir — el CRM sólo tiene el `202 Accepted` original de cuando el caso se encoló.
 
-**Por qué es así:** al igual que el webhook de resolución, un endpoint de replay o una notificación
-de fallo definitivo requieren que el CRM tenga **algo que hacer** con esa señal — un flujo que
-reabra el caso, lo marque para revisión manual, o dispare un reintento desde su lado. Hoy ese
-contrato no existe: el CRM no tiene un endpoint que reciba "este caso falló definitivamente", ni un
-estado en Salesforce pensado para representarlo. Construir un endpoint de replay sin que el CRM
-pueda invocarlo (o sin que sepa qué hacer con la notificación) no resuelve el problema real, que es
-de coordinación entre equipos, no de código faltante en este microservicio.
+**Por qué NO poder notificar al CRM sigue siendo así:** una notificación de fallo definitivo *hacia
+el CRM* (que reabra el caso, lo marque para revisión manual, o dispare un reintento desde su lado)
+requiere que el CRM tenga **algo que hacer** con esa señal. Hoy ese contrato no existe: el CRM no
+tiene un endpoint que reciba "este caso falló definitivamente", ni un estado en Salesforce pensado
+para representarlo. Notificar con un valor que el CRM no sabe interpretar no resuelve el problema
+real, que es de coordinación entre equipos, no de código faltante en este microservicio.
 
-**El costo real de esta limitación** (y por qué no es "aceptalo y ya"): hoy la única señal de un
-caso perdido es un correo a operaciones (`notificar_caso_fallido_definitivo` — éste sí se envía uno
-por caso, sin deduplicar, a diferencia de las alertas de infraestructura descritas más abajo) — así
-que si nadie lo lee, un caso regulatorio puede perderse sin que nadie se entere hasta una auditoría
-de la SFC. Ese riesgo residual es real y queda anotado — la falta de endpoint de replay es la parte
-que no se puede cerrar sin el contrato del CRM.
+**Corregido (hallazgo C2, revisión externa v5):** lo anterior es distinto de tener una forma de
+*recuperar* el caso -- eso sí era una brecha real de este microservicio, sin ninguna dependencia del
+CRM. Antes de esta ronda, la única señal de un caso perdido era el correo a operaciones
+(`notificar_caso_fallido_definitivo`), y no existía ninguna forma de recuperarlo salvo manipular
+Redis a mano. Se agregó `POST /api/v1/quejas/queue/{registro_id}/reencolar` (tooling administrativo
+interno, protegido con `verificar_api_key_admin`, mismo patrón que `GET /queue`): reencola
+manualmente el item -- reinicia `intentos` a 0, lo mueve de vuelta a `PENDIENTE`, y reconstruye su
+registro `QUEUED` en el idempotency store para que el scheduler lo recoja en el próximo ciclo. Se
+niega con 409 si el item no está en `FALLIDO_DEFINITIVO`, o si ya existe un item **más nuevo**
+pendiente para el mismo `Smart_Code__c` -- reencolar el viejo en ese caso rompería la invariante de
+"un `smart_code` = un slot en cola" de la que depende la sobrescritura por versión y la cancelación
+consciente de operación de N1. Ver `app/services/queue_service.py::reencolar_item_fallido`.
+
+**Lo que sigue sin poder cerrarse (y sí depende del CRM):** el CRM sigue sin saber que el caso falló
+y fue reencolado -- sólo lo sabe operaciones, a través del mismo correo de siempre. Cerrar eso de
+verdad requiere el mismo contrato ausente descrito arriba.
 
 **Corregido (hallazgo N1, revisión externa v5, 2026-08-25):** hasta esta ronda, `QueueService.
 cancelar_pendiente_por_smart_code` (invocado tras un despacho síncrono exitoso, ver más arriba)
@@ -571,6 +580,7 @@ dos pasos. Ahora los tres pasos comparten el mismo helper
 | Colección Postman oficial de la SFC (referencia de mensajes de error) | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json` |
 | Webhook al CRM (`status: "CREATED"` fijo) | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia` |
 | DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
+| Replay administrativo de DLQ | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`) |
 | Cancelación de pendiente tras éxito síncrono (respeta la operación) | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py` |
 | Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
 | Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
