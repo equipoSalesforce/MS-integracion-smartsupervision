@@ -851,6 +851,23 @@ el resto de la matriz conserva su orden real. Ver
 `TestProcesarYLanzarContraMatrizLocalReal` (ambos escenarios reproducidos
 contra la matriz local real, no una matriz de prueba simplificada).
 
+**Vulnerabilidad relacionada, más amplia, encontrada por una revisión externa
+posterior:** el fix de arriba cierra la colisión `codigo_queja`↔`NOT_FOUND_ERROR`,
+pero deja abierta una clase más amplia de la que esa colisión es sólo un caso: **cualquier
+regla de la matriz que sea un solo token sin espacios** (`'556240'`→`DUPLICATE_FILE`, además de
+los nombres de campo) matchea como falso positivo si aparece **incrustada** dentro de un
+identificador más largo que el cliente controla. Reproducido: un `Smart_Code__c` que contiene
+`556240` en medio de su parte numérica (`^[a-zA-Z0-9_-]{1,30}$` lo permite, por azar o a propósito)
+hacía que **cualquier** error de la SFC sobre ese caso -- sin relación alguna con un archivo --
+se clasificara `DUPLICATE_FILE`. Consecuencia: `_manejar_duplicado_o_cerrado` lo habría absorbido
+como éxito, marcando el checkpoint como entregado para un archivo que nunca se transmitió, durante
+30 días (el TTL del checkpoint). **Corregido:** `_coincide` ancla las reglas de un solo token a
+límites de palabra (`(?<![a-zA-Z0-9])token(?![a-zA-Z0-9])`) -- las frases de varias palabras (ya
+suficientemente específicas por su longitud) siguen comparándose tal cual, sin ancla. Esto también
+refuerza el fix de `codigo_queja` de arriba con una defensa más general, no sólo ese caso puntual.
+Ver `tests/test_sfc_error_translator.py::TestCoincide`,
+`test_556240_incrustado_en_smart_code_no_se_clasifica_duplicate_file`.
+
 **El mismo patrón apareció en un segundo lugar (barrido de verificación,
 2026-08-26):** `S3StorageService._manejar_duplicado_o_cerrado`
 (`app/services/s3_service.py`) usaba `"ya existe" in raw_msg` -- un substring

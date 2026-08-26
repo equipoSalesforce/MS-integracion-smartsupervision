@@ -6,6 +6,38 @@ from unittest.mock import patch, AsyncMock
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 
 
+class TestCoincide(unittest.TestCase):
+    """
+    Cobertura de SfcErrorTranslator._coincide -- hallazgo de revisión, 2026-08-26.
+    Las reglas de UN SOLO TOKEN sin espacios ('codigo_queja', '556240') deben
+    anclarse a límites de palabra: si no, matchean como falso positivo cuando
+    aparecen incrustadas dentro de un identificador más largo que el cliente
+    controla (ej. un Smart_Code__c que contenga esos dígitos en medio de su parte
+    numérica). Las frases de varias palabras (con espacio) no se anclan -- ya son
+    suficientemente específicas por su longitud.
+    """
+
+    def test_token_incrustado_en_identificador_mas_largo_no_matchea(self):
+        self.assertFalse(SfcErrorTranslator._coincide("556240", "1286seq556240abc"))
+
+    def test_token_rodeado_de_no_alfanumericos_si_matchea(self):
+        self.assertTrue(SfcErrorTranslator._coincide("556240", "codigo 556240)"))
+        self.assertTrue(SfcErrorTranslator._coincide("556240", "(556240)"))
+
+    def test_token_al_inicio_o_final_del_texto_si_matchea(self):
+        self.assertTrue(SfcErrorTranslator._coincide("556240", "556240"))
+        self.assertTrue(SfcErrorTranslator._coincide("codigo_queja", "codigo_queja"))
+
+    def test_token_con_guion_bajo_incrustado_no_matchea(self):
+        self.assertFalse(SfcErrorTranslator._coincide("codigo_queja", "xcodigo_quejay"))
+
+    def test_frase_con_espacios_no_se_ancla(self):
+        # Comportamiento sin cambios para frases largas -- siguen usando substring plano,
+        # incluso "incrustadas" dentro de una oración más grande (ya son lo bastante
+        # específicas por su longitud).
+        self.assertTrue(SfcErrorTranslator._coincide("ya existe", "el anexo ya existe registrado"))
+
+
 class TestExtraerInformacionError(unittest.TestCase):
     """
     Cobertura de SfcErrorTranslator._extraer_informacion_error: hasta ahora sin ningún
@@ -280,6 +312,35 @@ class TestProcesarYLanzarContraMatrizLocalReal(unittest.IsolatedAsyncioTestCase)
                     400, '{"departamento_cod": ["Object with departamento_cod=999 does not exist."]}'
                 )
         self.assertEqual(ctx.exception.error_type, "VALIDATION_ERROR")
+
+    async def test_556240_incrustado_en_smart_code_no_se_clasifica_duplicate_file(self):
+        """
+        🔴 Vulnerabilidad reportada (auditoría adversarial v7, 2026-08-26):
+        '556240'->DUPLICATE_FILE es una regla de un solo token (código corto), sin
+        ancla -- coincide con CUALQUIER texto que la contenga como substring,
+        incluido un Smart_Code__c que la contenga incrustada en su parte numérica
+        (`^[a-zA-Z0-9_-]{1,30}$` lo permite, sea por azar o a propósito). Reproducido:
+        un error genérico de la SFC sin ninguna relación con archivos, sobre un caso
+        cuyo identificador contiene esos dígitos, se clasificaba DUPLICATE_FILE --
+        _manejar_duplicado_o_cerrado lo habría absorbido como éxito, marcando el
+        checkpoint como entregado para un archivo que nunca se transmitió.
+        """
+        with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"detail": "Unexpected server condition XYZ-1286SEQ556240ABC"}'
+                )
+        self.assertNotEqual(ctx.exception.error_type, "DUPLICATE_FILE")
+
+    async def test_556240_genuino_sigue_clasificando_duplicate_file(self):
+        """Contraprueba: el código 556240 genuino (rodeado de no-alfanuméricos, el
+        formato real documentado por la SFC) debe seguir funcionando."""
+        with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await SfcErrorTranslator.procesar_y_lanzar(
+                    400, '{"detail": "El archivo ya existe para esta queja (codigo 556240)"}'
+                )
+        self.assertEqual(ctx.exception.error_type, "DUPLICATE_FILE")
 
 
 if __name__ == "__main__":

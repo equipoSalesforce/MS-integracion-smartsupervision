@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Dict, List, Optional, Tuple
 import httpx
@@ -316,12 +317,34 @@ class SfcErrorTranslator:
             logger.warning(f"⚠️ [SfcErrorTranslator] Error al intentar notificar por correo: {mail_err}")
 
     @staticmethod
-    def _buscar_primera_coincidencia(reglas: List[Dict[str, str]], textos_lower: Tuple[str, ...]) -> Optional[Dict[str, str]]:
+    def _coincide(subcadena: str, texto: str) -> bool:
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): las reglas de UN SOLO TOKEN sin
+        espacios (nombres de campo como 'codigo_queja', o códigos cortos como
+        '556240') se anclan a límites de palabra -- si no, matchean como falso
+        positivo cuando aparecen INCRUSTADAS dentro de un identificador más largo
+        que el cliente controla. Reproducido: un Smart_Code__c que contenga
+        '556240' en medio de su parte numérica (ej. '1286SEQ556240ABC', dentro de
+        la restricción real `^[a-zA-Z0-9_-]{1,30}$`) hacía que CUALQUIER error de
+        la SFC sobre ese caso -- sin relación alguna con un archivo duplicado -- se
+        clasificara DUPLICATE_FILE, absorbiéndose como éxito y marcando el
+        checkpoint como entregado. Las frases de varias palabras (con espacio,
+        ej. "El anexo ya existe") ya son suficientemente específicas por su
+        longitud -- seguir comparándolas tal cual, sin anclar, no cambia su riesgo.
+        """
+        if " " in subcadena:
+            return subcadena in texto
+        return re.search(
+            r"(?<![a-zA-Z0-9])" + re.escape(subcadena) + r"(?![a-zA-Z0-9])", texto
+        ) is not None
+
+    @classmethod
+    def _buscar_primera_coincidencia(cls, reglas: List[Dict[str, str]], textos_lower: Tuple[str, ...]) -> Optional[Dict[str, str]]:
         for regla in reglas:
             subcadena = regla.get("subcadena", "").lower()
             if not subcadena:
                 continue
-            if any(subcadena in texto for texto in textos_lower):
+            if any(cls._coincide(subcadena, texto) for texto in textos_lower):
                 return regla
         return None
 
