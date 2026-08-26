@@ -29,6 +29,7 @@
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
 - [Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)](#momento-1-no-deduplicaba-quejas-repetidas-entre-páginas-corregido)
+- [El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)](#el-parser-de-hilos-de-correo-podía-atribuirle-al-soporte-una-respuesta-del-cliente-corregido)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -168,7 +169,7 @@ gap de deduplicación.
    `tests/test_queue_race_protection.py::test_overwrite_en_vuelo_no_marca_completed_el_evento_nuevo`.
 3. **La SFC es idempotente para las operaciones de Momento 3.** `PATCH /api/queja/{codigo}/`
    (`put_actualizar_queja`) — el endpoint que cubre trámite, fraude y cierre — **no rechaza ni duplica**
-   una actualización reenviada con la misma información: responde `200 OK` de nuevo. 
+   una actualización reenviada con la misma información: responde `200 OK` de nuevo.
 
 Con esos tres puntos juntos, el peor escenario posible es:
 
@@ -585,8 +586,7 @@ explícitamente, ya que no reclamarlo lo deja pendiente con su
 éxito** pero `marcar_exitoso` (el registro final en Redis) fallaba, no se
 alertaba ni se consumía presupuesto de reintentos -- a diferencia del escenario
 hermano (`marcar_sfc_completado` fallando en `_ejecutar_paso_sfc`), que sí
-dispara `EmailAlertService.notificar_falla_infraestructura(categoria=
-"riesgo_duplicado_post_sfc")`. El item quedaba `sfc_completado=True` y
+dispara `EmailAlertService.notificar_falla_infraestructura(categoria= "riesgo_duplicado_post_sfc")`. El item quedaba `sfc_completado=True` y
 pendiente para siempre: el próximo ciclo saltaba la SFC (ya hecha) y reintentaba
 el webhook -- ya exitoso -- reenviando una notificación duplicada al CRM en cada
 ciclo, indefinidamente, sin ninguna señal visible salvo un log crítico.
@@ -609,15 +609,13 @@ para poder validarla.
 **Código:** `app/core/security/signatures.py::PayloadSignatureStrategy`,
 `app/core/auth.py::_preparar_headers_y_firma`.
 
-`sfc_client.py` construye todas sus peticiones con `client.post(url, json=payload,
-...)`, y httpx serializa ese `json=` con separadores **compactos** (`,`/`:`, sin
+`sfc_client.py` construye todas sus peticiones con `client.post(url, json=payload, ...)`, y httpx serializa ese `json=` con separadores **compactos** (`,`/`:`, sin
 espacios). Pero la firma que va en `X-SFC-Signature` no se calcula sobre esos bytes
 compactos: `_preparar_headers_y_firma` decodifica `request.content` con `json.loads`
 y se lo pasa a `PayloadSignatureStrategy.sign()`, que vuelve a serializar con los
 separadores **por defecto** de Python (con espacios). El HMAC firma esa
 re-serialización, no el body que efectivamente sale por la red -- confirmado
-empíricamente (ver `tests/test_auth_flow_interceptor.py::
-test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado`).
+empíricamente (ver `tests/test_auth_flow_interceptor.py:: test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado`).
 
 **Por qué esto es correcto, no un bug:** `docs/SignatureGenerator_comment (1).txt`
 es el script de referencia que la propia SFC entrega a cada entidad vigilada para
@@ -648,40 +646,69 @@ mismo patrón que Momento 4 (`vistos_codigos_queja`, un `set` acumulado a lo lar
 TODAS las páginas del ciclo, no sólo dentro de una). Se filtra antes de despachar el
 procesamiento concurrente de cada queja -- evita además descargar sus adjuntos dos
 veces. No deduplica códigos ausentes/vacíos entre sí (un registro malformado no debe
-"comerse" a otro). Ver `tests/test_momento_1.py::
-test_misma_codigo_queja_en_dos_paginas_se_deduplica`,
+"comerse" a otro). Ver `tests/test_momento_1.py:: test_misma_codigo_queja_en_dos_paginas_se_deduplica`,
 `test_duplicado_dentro_de_la_misma_pagina_tambien_se_deduplica`,
 `test_codigo_queja_ausente_no_se_deduplica_contra_otro_ausente`.
 
+## El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)
+
+**Código:** `app/utils/email_parser.py::_clasificar_autor_bloque` (Caso C — bloque superior),
+`app/utils/email_parser.py::_linea_identifica_remitente_soporte`.
+
+`email_parser.py` extrae "la respuesta oficial más reciente de Global66" de un hilo de
+correo HTML provisto por el CRM, y ese texto se usa directamente como
+`cuerpo_respuesta_final` en el PDF de **cierre regulatorio** que se envía a la SFC
+(`momento_3_sync.py::_generar_y_enviar_pdf_respuesta_final`). Para el bloque más
+reciente del hilo (el que no trae un prefijo de cita tipo "El ... escribió:"), la
+clasificación de autoría buscaba el dominio `global66` en **cualquier parte del
+texto del bloque**, incluido el cuerpo del mensaje.
+
+Si el mensaje más reciente del hilo era del **cliente** (no de soporte) y su propio
+texto mencionaba "Global66" en prosa -- algo muy plausible en una respuesta de
+reclamo, ej. *"estoy de acuerdo con la resolución que Global66 me ofreció"* -- ese
+mensaje del cliente se clasificaba como la respuesta oficial de soporte, y su texto
+terminaba en el PDF de cierre regulatorio en lugar del mensaje real del agente.
+Reproducido empíricamente antes del fix.
+
+**Corregido (hallazgo del 2026-08-26):** se agregó `_linea_identifica_remitente_soporte`,
+que exige que la mención del dominio aparezca en una línea que realmente identifique
+al remitente -- un patrón de correo/dominio explícito (`soporte@global66.com`,
+`global66.com`), o una línea corta al estilo de una firma/membrete (ej. "Soporte
+Global66", ≤6 palabras) -- y ya no en cualquier oración larga de prosa del cuerpo.
+Restringir simplemente a las primeras 4 líneas de cabecera (el mismo criterio que ya
+usan los Casos A/B) no bastaba: un mensaje corto de cliente cabe completo dentro de
+esa ventana. Ver `tests/test_email_parser.py::test_parser_cliente_mas_reciente_menciona_marca_no_se_confunde_con_soporte`.
+
 ## Referencias en el código
 
-| Concepto                                                                                                  | Archivo                                                                                                                                                                               |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Endpoint único de despacho                                                                               | `app/api/routes_quejas.py::despachar_queja_crm`                                                                                                                                     |
-| Inferencia M2/M3 + self-healing                                                                           | `app/services/despacho_queja_orchestrator.py`                                                                                                                                       |
-| Momento 1                                                                                                 | `app/services/momento_1_sync.py`                                                                                                                                                    |
-| Momento 2                                                                                                 | `app/services/momento_2_sync.py`                                                                                                                                                    |
-| Momento 3 (trámite/fraude/cierre)                                                                        | `app/services/momento_3_sync.py`                                                                                                                                                    |
-| Momento 4                                                                                                 | `app/services/momento_4_sync.py`                                                                                                                                                    |
-| Cola centralizada + versión + Lua scripts                                                                | `app/services/queue_service.py`                                                                                                                                                     |
-| Worker de reintentos                                                                                      | `app/workers/scheduler.py::reintentar_despachos_pendientes_job`                                                                                                                     |
-| Idempotencia (hash + store)                                                                               | `app/services/idempotency_service.py`                                                                                                                                               |
-| Test: no-completar contenido sobrescrito                                                                  | `tests/test_queue_race_protection.py`                                                                                                                                               |
-| Test: fraude + cierre simultáneo                                                                         | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo`                                                                                            |
-| Clasificación de errores SFC por texto                                                                   | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json`                                                                                                |
-| Colección Postman oficial de la SFC (referencia de mensajes de error)                                    | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`                                                                                                |
-| Webhook al CRM (`status: "CREATED"` fijo)                                                               | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia`                                                                                                            |
-| DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                           |
-| Replay administrativo de DLQ                                                                              | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`)                                  |
-| Cancelación de pendiente tras éxito síncrono (respeta la operación)                                   | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py`                                                  |
-| Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                    |
-| Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                  |
-| Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                       |
-| Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                        |
-| Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado` |
-| Lock por caso también en el worker de reintentos                                                        | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX` |
-| Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                       | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm` |
-| Version esperada en el diferimiento por caída de SFC                                                    | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT` |
-| Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                 | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
-| Dedup de quejas repetidas entre páginas (Momento 1)                                                      | `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja` |
-| Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir) | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py` |
+| Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoint único de despacho                                                                               | `app/api/routes_quejas.py::despachar_queja_crm`                                                                                                                                                                 |
+| Inferencia M2/M3 + self-healing                                                                           | `app/services/despacho_queja_orchestrator.py`                                                                                                                                                                   |
+| Momento 1                                                                                                 | `app/services/momento_1_sync.py`                                                                                                                                                                                |
+| Momento 2                                                                                                 | `app/services/momento_2_sync.py`                                                                                                                                                                                |
+| Momento 3 (trámite/fraude/cierre)                                                                        | `app/services/momento_3_sync.py`                                                                                                                                                                                |
+| Momento 4                                                                                                 | `app/services/momento_4_sync.py`                                                                                                                                                                                |
+| Cola centralizada + versión + Lua scripts                                                                | `app/services/queue_service.py`                                                                                                                                                                                 |
+| Worker de reintentos                                                                                      | `app/workers/scheduler.py::reintentar_despachos_pendientes_job`                                                                                                                                                 |
+| Idempotencia (hash + store)                                                                               | `app/services/idempotency_service.py`                                                                                                                                                                           |
+| Test: no-completar contenido sobrescrito                                                                  | `tests/test_queue_race_protection.py`                                                                                                                                                                           |
+| Test: fraude + cierre simultáneo                                                                         | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo`                                                                                                                        |
+| Clasificación de errores SFC por texto                                                                   | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json`                                                                                                                            |
+| Colección Postman oficial de la SFC (referencia de mensajes de error)                                    | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`                                                                                                                            |
+| Webhook al CRM (`status: "CREATED"` fijo)                                                               | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia`                                                                                                                                        |
+| DLQ / fallo definitivo                                                                                    | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo`                                                                                                       |
+| Replay administrativo de DLQ                                                                              | `app/services/queue_service.py::reencolar_item_fallido`, `app/api/routes_quejas.py::reencolar_registro_fallido` (`POST /queue/{id}/reencolar`)                                                              |
+| Cancelación de pendiente tras éxito síncrono (respeta la operación)                                   | `app/services/queue_service.py::cancelar_pendiente_por_smart_code`, `tests/test_queue_cancelar_pendiente_tras_exito_sincrono.py`                                                                              |
+| Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                                                |
+| Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                                              |
+| Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)         | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                    |
+| Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                                                   |
+| Refresco periódico de catálogos/mapeos                                                                  | `app/core/mapping.py::SfcSalesforceMapper.obtener_catalogos_y_mapeos`, `app/workers/scheduler.py::refrescar_catalogos_job`                                                                                    |
+| Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |
+| Lock por caso también en el worker de reintentos                                                         | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX`                                                                                    |
+| Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                         | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm`                                                                                                                                                     |
+| Version esperada en el diferimiento por caída de SFC                                                     | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT`                                                                                                                  |
+| Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
+| Dedup de quejas repetidas entre páginas (Momento 1)                                                      | `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja`                                                                                                                                          |
+| Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir)   | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py`                                                                                                     |

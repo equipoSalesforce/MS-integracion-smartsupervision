@@ -122,6 +122,22 @@ def _segmentar_hilo_en_bloques(texto_completo: str) -> List[str]:
 # 5. CLASIFICADOR DE AUTORÍA (GLOBAL66 VS CLIENTE)
 # ======================================================================
 
+def _linea_identifica_remitente_soporte(linea: str, dominios_soporte: List[str]) -> bool:
+    """Determina si una línea individual identifica genuinamente al remitente
+    como Soporte/Global66 (cabecera o firma), y no es solo una mención de la
+    marca dentro de una oración de prosa (ej: un cliente escribiendo 'la
+    resolución que Global66 me ofreció'). Una línea cuenta como identidad del
+    remitente si trae un patrón de correo/dominio explícito, o si es corta al
+    estilo de una firma/membrete ('Soporte Global66', 'María González -
+    Global66')."""
+    linea_lower = linea.lower()
+    if not any(d in linea_lower for d in dominios_soporte):
+        return False
+    if re.search(r"@[a-zA-Z0-9.-]*global\s?66|global\s?66\.com", linea_lower):
+        return True
+    return len(linea.split()) <= 6
+
+
 def _clasificar_autor_bloque(bloque_texto: str, es_bloque_superior: bool) -> tuple[bool, str, str]:
     """
     Determina si un bloque del hilo fue escrito por el equipo de Soporte/Global66.
@@ -163,9 +179,23 @@ def _clasificar_autor_bloque(bloque_texto: str, es_bloque_superior: bool) -> tup
         return es_soporte, remitente, cuerpo
 
     # 🎯 CASO C: Bloque Superior (Llegó al inicio sin prefijo 'El ... escribió')
+    # 🔴 FIX (hallazgo de flujo, 2026-08-26): antes se buscaba el dominio en
+    # CUALQUIER parte del texto del bloque, incluida cualquier oración del
+    # cuerpo del mensaje -- si el remitente más reciente era el CLIENTE y su
+    # propio texto mencionaba "Global66" (muy plausible en una respuesta de
+    # reclamo, ej. "acepto la resolución que Global66 me ofreció"), su mensaje
+    # se clasificaba como la respuesta oficial de soporte, y ese texto
+    # terminaba en el PDF de cierre regulatorio enviado a la SFC. Restringir a
+    # `cabecera` (primeras 4 líneas) no alcanza -- un mensaje corto de cliente
+    # cabe completo ahí. Ahora se exige que la mención de dominio aparezca en
+    # una línea que realmente identifique al remitente (patrón de
+    # correo/dominio explícito, o una línea corta estilo firma/membrete como
+    # "Soporte Global66"), no incrustada en una oración larga de prosa.
     if es_bloque_superior:
-        bloque_lower = bloque_texto.lower()
-        es_soporte = any(d in bloque_lower for d in dominios_soporte)
+        es_soporte = any(
+            _linea_identifica_remitente_soporte(linea, dominios_soporte)
+            for linea in lineas
+        )
         return es_soporte, "Mensaje Superior Directo", bloque_texto
 
     return False, "Desconocido", bloque_texto

@@ -21,6 +21,24 @@ class TestEmailParser(unittest.TestCase):
         # 3. Ejemplo Intermedio: Dictamen formal de la Gerencia de Seguridad
         self.html_dictamen_seguridad_fraude = """<html><head><meta charset='UTF-8'><title>Re: Cierre definitivo de caso TEST-ALL-IN-ONE-SSV-003</title></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#202124;'><div style='max-width:760px;margin:0 auto;background:#ffffff;padding:24px 28px;border:1px solid #E5E7EB;'><div style='font-size:20px;font-weight:600;color:#202124;margin-bottom:18px;'>Re: Dictamen final sobre caso de suplantación - Global66</div><div style='border-bottom:1px solid #E5E7EB;padding-bottom:16px;margin-bottom:18px;'><table width='100%' cellpadding='0' cellspacing='0'><tr><td width='42' valign='top'><div style='width:36px;height:36px;border-radius:50%;background:#0b57d0;color:#ffffff;text-align:center;line-height:36px;font-weight:bold;'>GS</div></td><td valign='top'><div style='font-size:14px;color:#202124;'><strong>Gerencia de Seguridad y Riesgo</strong> &lt;seguridad@global66.com&gt;</div><div style='font-size:12px;color:#5f6368;margin-top:2px;'>para Carlos Alberto Mendoza · 29 jul 2026, 11:00</div></td><td align='right' valign='top'><img src='https://dummyimage.com/110x30/ffffff/003B8F.png&text=Global66' alt='Global66' style='display:block;border:1px solid #E5E7EB;border-radius:6px;'></td></tr></table></div><div style='font-size:14px;line-height:22px;color:#202124;'><p>Estimado Don Carlos Alberto,</p><p>Le informamos que el área de Seguridad Operacional ha concluido la investigación técnica correspondiente a las transacciones no reconocidas en su Tarjeta Digital.</p><p>El análisis pericial confirmó que la operación respondió a un evento de <strong>Fraude Externo por Suplantación de Identidad</strong>. En consecuencia, su solicitud ha sido resuelta de manera <strong>FAVORABLE</strong> y se ha dispuesto el reembolso total por valor de <strong>$4.800.000 COP</strong> a su cuenta origen.</p><p>Adjunto a este envío encontrará la documentación de respaldo. Damos por concluido y clausurado el caso con el código <strong>TEST-ALL-IN-ONE-SSV-003</strong>.</p><p>Atentamente,</p><div style='margin-top:18px;padding-top:14px;border-top:1px solid #E5E7EB;'><table cellpadding='0' cellspacing='0'><tr><td valign='top' style='padding-right:12px;'><img src='https://dummyimage.com/64x64/003B8F/ffffff.png&text=G66' alt='Global66' style='border-radius:12px;display:block;'></td><td valign='top' style='font-size:13px;line-height:20px;color:#374151;'><strong style='font-size:14px;color:#111827;'>Gerencia de Experiencia y Seguridad</strong><br>Global66 Colombia<br><span style='color:#0b57d0;'>contacto@global66.com</span></td></tr></table></div></div></div></body></html>"""
 
+        # 5. Hilo donde el mensaje MÁS RECIENTE es del CLIENTE, no de soporte,
+        # y su propio texto menciona "Global66" en prosa (caso plausible: un
+        # cliente aceptando una resolución). No debe confundirse con la
+        # respuesta oficial de soporte, que queda más abajo en el hilo.
+        self.html_cliente_menciona_marca_en_respuesta_mas_reciente = """<html><body>
+            <div>
+              <p>Hola,</p>
+              <p>Gracias, estoy de acuerdo con la resolucion que Global66 me ofrecio. Doy por aceptado el cierre del caso.</p>
+              <p>Saludos,<br>Daniela Rojas (cliente)</p>
+            </div>
+            <div style="margin-top:18px;border-left:3px solid #DADCE0;padding-left:14px;">
+              <div>El mié, 29 jul 2026 a las 10:13, Maria Gonzalez &lt;soporte@global66.com&gt; escribió:</div>
+              <p>Hola Daniela,</p>
+              <p>Te informamos que tu reclamo fue resuelto de forma favorable. Quedamos atentos a tu confirmacion.</p>
+              <p>Saludos,<br>Maria Gonzalez<br>Global66</p>
+            </div>
+        </body></html>"""
+
         # 4. Ejemplo Intermedio: Hilo con formato Microsoft Outlook / Exchange
         self.html_estilo_outlook = """<html>
         <body>
@@ -99,6 +117,20 @@ class TestEmailParser(unittest.TestCase):
         resultado = extraer_texto_limpio_de_html(texto_raw)
 
         self.assertEqual(resultado, "Hola,\n\nTu caso fue resuelto correctamente por Global66.\n\nSaludos.")
+
+    def test_parser_cliente_mas_reciente_menciona_marca_no_se_confunde_con_soporte(self):
+        """
+        🔴 Regresión (hallazgo de flujo, 2026-08-26): si el mensaje más reciente del
+        hilo es del CLIENTE y su propio texto menciona "Global66" en prosa (ej.
+        aceptando una resolución), el parser NO debe clasificarlo como la respuesta
+        oficial de soporte -- ese texto termina siendo el 'cuerpo_respuesta_final'
+        del PDF de cierre regulatorio enviado a la SFC.
+        """
+        resultado = extraer_texto_limpio_de_html(self.html_cliente_menciona_marca_en_respuesta_mas_reciente)
+
+        self.assertIn("Te informamos que tu reclamo fue resuelto de forma favorable", resultado)
+        self.assertNotIn("Doy por aceptado el cierre del caso", resultado)
+        self.assertNotIn("Daniela Rojas (cliente)", resultado)
 
     def test_parser_casos_vacios_o_nulos(self):
         """Verifica la resiliencia ante valores nulos o vacíos."""
