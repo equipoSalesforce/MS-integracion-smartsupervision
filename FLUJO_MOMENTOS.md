@@ -440,6 +440,15 @@ que la petición sea *internamente consistente* con esa convención acordada; la
 que esos valores realmente correspondan al caso que se está despachando es, en última instancia,
 del CRM.
 
+**Qué haría falta para cerrar esto de verdad (mismo patrón que C2/C4 más abajo):** una prueba real de
+propiedad requiere una fuente de verdad *fuera* de la petición misma — por ejemplo, que el CRM
+exponga un endpoint (o este microservicio tenga acceso de sólo lectura a su base) donde consultar
+"¿qué archivos pertenecen al caso `Case_id` X?" antes de transmitirlos a la SFC, y comparar contra
+eso en vez de contra el propio payload. Eso es una integración nueva del lado del CRM, no un cambio
+que este microservicio pueda hacer unilateralmente — no existe hoy, y sin ella cualquier "mejora" a
+esta validación sigue siendo, en el mejor de los casos, un chequeo de formato/consistencia, nunca una
+prueba de propiedad real.
+
 ### Por qué la regla es estrictamente posicional (y no acepta subcarpetas)
 
 `_validar_ownership_key` exige que `Case_id` sea exactamente el penúltimo segmento de la ruta —
