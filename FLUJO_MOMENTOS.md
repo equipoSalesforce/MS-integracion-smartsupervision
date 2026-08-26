@@ -2,11 +2,11 @@
 
 > **Propósito de este documento:** explicar cómo se mueve una queja entre el CRM (Salesforce) y la
 > Superintendencia Financiera de Colombia (SFC) a través de los cuatro "Momentos" regulatorios, y
-> documentar explícitamente una decisión de diseño **deliberada** que suele malinterpretarse como bug
-> en revisiones automatizadas: la cola centralizada en Redis permite que un evento nuevo **sobrescriba**
-> el contenido pendiente de un evento anterior del mismo caso (mismo `Smart_Code__c`), en vez de encolar
-> ambos por separado. Ver la sección [¿Por qué la sobrescritura en cola NO es un bug?](#por-qué-la-sobrescritura-en-cola-no-es-un-bug)
-> para el detalle completo.
+> documentar explícitamente varias decisiones de diseño **deliberadas** que suelen malinterpretarse
+> como bugs en revisiones automatizadas — desde cómo la cola centralizada en Redis permite que un
+> evento nuevo **sobrescriba** el contenido pendiente de un evento anterior del mismo caso, hasta
+> límites de contrato con el CRM y decisiones de alcance tomadas conscientemente. Ver el índice de
+> "Decisiones de diseño deliberadas" más abajo para el detalle de cada una.
 
 ## Índice
 
@@ -18,6 +18,11 @@
 - [Momento 4 — Usuarios (consumidores financieros)](#momento-4--usuarios-consumidores-financieros)
 - [¿Por qué la sobrescritura en cola NO es un bug?](#por-qué-la-sobrescritura-en-cola-no-es-un-bug)
 - [¿Por qué "caso ya cerrado" se trata como éxito?](#por-qué-caso-ya-cerrado-se-trata-como-éxito)
+- [¿Por qué la clasificación de errores de negocio de la SFC usa coincidencia de texto?](#por-qué-la-clasificación-de-errores-de-negocio-de-la-sfc-usa-coincidencia-de-texto)
+- [¿Por qué el webhook al CRM siempre reporta `status: "CREATED"`?](#por-qué-el-webhook-al-crm-siempre-reporta-status-created)
+- [¿Por qué la cola de fallidos (DLQ) no tiene endpoint de replay?](#por-qué-la-cola-de-fallidos-dlq-no-tiene-endpoint-de-replay)
+- [¿Por qué la cascada de timeouts no llega hasta nginx/ALB?](#por-qué-la-cascada-de-timeouts-no-llega-hasta-nginxalb)
+- [¿Por qué la deduplicación de alertas por correo es por proceso, no global?](#por-qué-la-deduplicación-de-alertas-por-correo-es-por-proceso-no-global)
 - [Referencias en el código](#referencias-en-el-código)
 
 ---
@@ -204,6 +209,178 @@ que le importa al CRM (el caso está cerrado en la SFC) ya se cumplió.
 
 ---
 
+## ¿Por qué la clasificación de errores de negocio de la SFC usa coincidencia de texto?
+
+**Código:** `SfcErrorTranslator.procesar_y_lanzar` en `app/core/exceptions.py`,
+`_es_error_caso_ya_cerrado` en `app/services/despacho_queja_orchestrator.py`.
+
+Ambos clasifican un rechazo de la SFC comparando subcadenas (`errores_sfc.json`, o frases como "ya
+cuenta con un documento de respuesta final") contra el cuerpo completo de la respuesta HTTP
+(`response_text`) — no sólo contra un código de error estructurado. En una revisión superficial esto
+parece un riesgo: si la SFC alguna vez **reflejara** contenido libre del request (por ejemplo el
+`Description` de hasta 4500 caracteres que manda el consumidor financiero) dentro del texto de un
+error, un texto coincidente por casualidad ("...mi queja se encuentra con estado cerrado...")
+podría hacer que el orquestador clasifique un rechazo real como éxito idempotente, o dispare el
+self-healing sobre un caso que en realidad no existe.
+
+**Por qué no aplica:** la API de la SFC (documentada en
+`docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json`, la colección
+oficial de la Superintendencia — no la de este repo) **nunca** devuelve contenido libre del request
+en sus respuestas de error. Todos los rechazos observados, en los cuatro Momentos, son mensajes
+fijos y enumerados, con el nombre del campo como clave y una plantilla como valor:
+
+```json
+{
+    "status_code": 400,
+    "messages": {
+        "codigo_pais": ["This field is required."],
+        "codigo_queja": ["queja with this codigo queja already exists."],
+        "entidad_cod": ["You do not have permission to for this complaint for this company"]
+    },
+    "detail": "Error APIException"
+}
+```
+
+o mensajes genéricos sin ningún dato del payload (`"Sign verification failed"`, `"missing header"`,
+`"Not found."`, `"messages": []`). La SFC no tiene ningún mecanismo, documentado ni observado, para
+reflejar el valor de un campo rechazado — y por extensión, tampoco para incluir texto libre de otro
+campo (`Description`, `SuppliedName`, etc.) que no fue el que causó el rechazo. Como el `response_text`
+completo está compuesto exclusivamente por estas plantillas fijas, comparar subcadenas contra él es
+equivalente, en la práctica, a comparar contra un enum cerrado de mensajes conocidos — no hay ninguna
+vía por la que texto del consumidor financiero pueda colarse ahí y alterar la clasificación.
+
+**Qué SÍ seguiría siendo un riesgo real:** que la SFC cambie el fraseo exacto de sus mensajes sin
+aviso (documentado ya como limitación aceptada — ver el comentario en `errores_sfc.json` y
+`notificar_error_no_mapeado`), o que en el futuro agregue un endpoint/campo que sí eche contenido
+del request. Si eso ocurre, esta sección deja de aplicar y la clasificación debe migrar a códigos de
+error estructurados de la SFC en vez de coincidencia de texto.
+
+---
+
+## ¿Por qué el webhook al CRM siempre reporta `status: "CREATED"`?
+
+**Código:** `CrmWebhookService.notificar_resolucion_contingencia` en `app/services/crm_webhook_service.py`.
+
+El payload que se envía al CRM tras resolver un caso desde la cola de contingencia es siempre:
+
+```python
+payload = {"case_number": case_id_crm, "smart_code": smart_code, "status": "CREATED"}
+```
+
+sin distinguir si lo que realmente ocurrió fue un alta (Momento 2), una actualización de trámite, un
+reporte de fraude o un cierre definitivo con respuesta final (los tres últimos, Momento 3).
+
+**Por qué es así:** el webhook es un contrato que define el CRM, no este microservicio, y ese
+contrato **no tiene hoy un campo ni una semántica para diferenciar el tipo de operación** — sólo
+espera una confirmación de que el `smart_code` en cuestión fue procesado exitosamente por la SFC.
+`"CREATED"` no se usa en su sentido literal de "alta nueva"; se usa como la única señal que el CRM
+sabe interpretar hoy: *"la última operación que se envió a la SFC para este caso ya se completó"*.
+Cambiar este valor a algo más expresivo (`"UPDATED"`, `"FRAUD_REPORTED"`, `"CLOSED"`, etc.) sin que
+el CRM tenga lógica para consumirlo no aporta nada y arriesga que un valor inesperado rompa
+validación del lado del CRM.
+
+**Qué haría falta para cerrar esto de verdad:** que el equipo de CRM defina y documente un contrato
+de webhook con estados diferenciados por tipo de operación, y que este microservicio los adopte.
+Hasta que eso exista, éste es el límite real de lo que se puede comunicar — no un descuido.
+
+---
+
+## ¿Por qué la cola de fallidos (DLQ) no tiene endpoint de replay?
+
+**Código:** `QueueService.registrar_fallo` (transición a `FAILED_FINAL` en
+`app/services/queue_service.py`), `EmailAlertService.notificar_caso_fallido_definitivo`.
+
+Cuando un caso agota `QUEUE_MAX_RETRIES` reintentos, se mueve a estado `FALLIDO_DEFINITIVO`, se
+libera su registro de idempotencia y se envía un correo a operaciones. No existe un endpoint
+administrativo que permita reprocesar ese caso, ni una notificación de vuelta al CRM avisando que el
+caso quedó sin transmitir — el CRM sólo tiene el `202 Accepted` original de cuando el caso se encoló.
+
+**Por qué es así:** al igual que el webhook de resolución, un endpoint de replay o una notificación
+de fallo definitivo requieren que el CRM tenga **algo que hacer** con esa señal — un flujo que
+reabra el caso, lo marque para revisión manual, o dispare un reintento desde su lado. Hoy ese
+contrato no existe: el CRM no tiene un endpoint que reciba "este caso falló definitivamente", ni un
+estado en Salesforce pensado para representarlo. Construir un endpoint de replay sin que el CRM
+pueda invocarlo (o sin que sepa qué hacer con la notificación) no resuelve el problema real, que es
+de coordinación entre equipos, no de código faltante en este microservicio.
+
+**El costo real de esta limitación** (y por qué no es "aceptalo y ya"): hoy la única señal de un
+caso perdido es un correo a operaciones (`notificar_caso_fallido_definitivo` — éste sí se envía uno
+por caso, sin deduplicar, a diferencia de las alertas de infraestructura descritas más abajo) — así
+que si nadie lo lee, o si además de esto el bug de `cancelar_pendiente_por_smart_code` descarta un
+evento antes de que llegue siquiera a fallar (ver issue abierto por separado), un caso regulatorio
+puede perderse sin que nadie se entere hasta una auditoría de la SFC. Ese riesgo residual es real y
+queda anotado — la falta de endpoint de replay es la parte que no se puede cerrar sin el contrato
+del CRM; el resto (que no se pierdan casos que ni siquiera llegaron a fallar) es un bug aparte y sí
+es responsabilidad de este microservicio.
+
+---
+
+## ¿Por qué la cascada de timeouts no llega hasta nginx/ALB?
+
+**Código:** `infrastructure/Dockerfile` (`gunicorn --timeout 330 --graceful-timeout 60`),
+`infrastructure/nginx.conf` (`proxy_read_timeout 60s`), `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`.
+
+El presupuesto de tiempo de Momento 1 (`SFC_SYNC_MAX_SEGUNDOS`, 300s) necesita que gunicorn no mate
+al worker a mitad de un despacho — por eso se subió `--timeout` de 120s a 330s. Pero nginx sigue
+cortando la conexión con el cliente a los 60s, y el listener del ALB (fuera de este repositorio) no
+se tocó: un request que de verdad tarde más de 60s sigue devolviendo un timeout al CRM aunque el
+worker de gunicorn continúe procesándolo de fondo hasta los 330s.
+
+**Por qué se dejó así, deliberadamente, en esta ronda:** la corrección completa de este hallazgo
+tiene dos caminos — (a) subir también `proxy_read_timeout` y el idle timeout del ALB en la misma
+proporción, o (b) sacar Momento 1 del camino síncrono por completo (convertirlo en un job de
+background con su propio mecanismo de polling/ACK, en vez de una llamada HTTP que se mantiene
+abierta mientras dura toda la paginación contra la SFC). La opción (b) es la solución de fondo, pero
+es un cambio de arquitectura no trivial (persistir quejas obtenidas-pero-no-confirmadas + cursor de
+paginación resumible en Redis, preservando el contrato síncrono actual con el CRM) que se evaluó y
+se decidió explícitamente **posponer** — no es necesario para el problema inmediato, que era evitar
+que gunicorn matara el worker a mitad de un despacho de Momento 3 normal (el caso de uso dominante,
+sin relación con la paginación larga de Momento 1). Subir sólo `--timeout` de gunicorn resuelve ese
+caso dominante sin tocar arquitectura.
+
+**Qué sigue pendiente, sin resolver:** para que Momento 1 realmente aproveche los 330s de
+presupuesto sin que el cliente (CRM) se desconecte antes por su cuenta a los 60s, hace falta (a) o
+(b). Mientras tanto, el riesgo señalado por la auditoría es real pero acotado: un request colgado
+retiene uno de los dos workers de gunicorn durante más tiempo que antes (5.5 min en vez de 2), lo
+cual es un costo aceptado a cambio de que Momento 3 no se corte a mitad de un despacho normal.
+
+---
+
+## ¿Por qué la deduplicación de alertas por correo es por proceso, no global?
+
+**Código:** `EmailAlertService._ULTIMO_ENVIO_POR_CLAVE`, `_deberia_enviar` en `app/services/email_service.py`.
+
+La deduplicación de correos de alerta (una alerta por clave cada 15 minutos, en vez de una por
+request) se implementa con un diccionario en memoria a nivel de clase. Con `WEB_CONCURRENCY=2` y N
+tareas de ECS corriendo en paralelo, esto significa que una caída de infraestructura puede generar
+hasta `2 × N` correos por ventana de 15 minutos, no exactamente uno — cada proceso gunicorn (y cada
+tarea) lleva su propia cuenta, sin coordinación entre sí.
+
+**Por qué se implementó así, deliberadamente:** el objetivo del mecanismo es evitar la tormenta de
+"un correo por request" (potencialmente miles durante un incidente), no garantizar una cota exacta
+de exactamente un correo por evento en todo el sistema. `2 × N` correos en 15 minutos sigue siendo
+una mejora de varios órdenes de magnitud sobre el problema original, y es información igual de
+accionable para operaciones (siguen siendo pocos correos, no miles). La alternativa — deduplicación
+centralizada en Redis — agregaría una dependencia de Redis a un mecanismo de alertas que
+deliberadamente debe seguir funcionando **incluso cuando Redis está caído** (es, de hecho, el
+escenario más común que dispara estas alertas): atar el propio alerting a la disponibilidad de Redis
+sería introducir el mismo antipatrón que ya se corrigió en otras partes del sistema (ver la
+sección de "caída de infraestructura no debe amplificar el incidente").
+
+**Qué NO está cubierto por esta justificación** (issues reales, no decisiones de diseño): el
+diccionario no tiene cota de tamaño — la clave de `error_no_mapeado` incorpora `sfc_field`, cuya
+cardinalidad depende de las claves que la SFC use en su JSON de error, así que puede crecer sin
+límite durante la vida del proceso. Y la clave global `"falla_infraestructura"` es compartida por
+más de nueve call sites distintos (`notificar_falla_infraestructura` se invoca desde
+`routes_quejas.py`, `idempotency_service.py`, `momento_1_sync.py`, `momento_4_sync.py`,
+`queue_service.py`, `scheduler.py` y `worker.py`, cubriendo desde el fail-closed de Redis hasta la
+caída de la SFC en distintos Momentos y el healthcheck del worker) — durante la misma ventana de 15
+minutos, el primero en dispararse silencia a todos los demás, incluido el mensaje de "riesgo de
+duplicado" tras una persistencia post-SFC fallida, que es el más accionable de todos. Ambos son
+mejoras pendientes, no parte de esta justificación.
+
+---
+
 ## Referencias en el código
 
 | Concepto | Archivo |
@@ -219,3 +396,9 @@ que le importa al CRM (el caso está cerrado en la SFC) ya se cumplió.
 | Idempotencia (hash + store) | `app/services/idempotency_service.py` |
 | Test: no-completar contenido sobrescrito | `tests/test_queue_race_protection.py` |
 | Test: fraude + cierre simultáneo | `tests/test_despacho_orquestador.py::test_5_despacho_fraude_y_cierre_simultaneo_directo` |
+| Clasificación de errores SFC por texto | `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`, `errores_sfc.json` |
+| Colección Postman oficial de la SFC (referencia de mensajes de error) | `docs/Smartsupervision - Doc API Quejas - Momento 4.postman_collection (2) (1).json` |
+| Webhook al CRM (`status: "CREATED"` fijo) | `app/services/crm_webhook_service.py::notificar_resolucion_contingencia` |
+| DLQ / fallo definitivo | `app/services/queue_service.py::registrar_fallo`, `EmailAlertService.notificar_caso_fallido_definitivo` |
+| Cascada de timeouts | `infrastructure/Dockerfile`, `infrastructure/nginx.conf`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py` |
+| Deduplicación de alertas por correo | `app/services/email_service.py::EmailAlertService._deberia_enviar` |
