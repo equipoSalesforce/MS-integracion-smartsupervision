@@ -19,6 +19,14 @@ from app.core.distributed_lock import RedisLock
 class TestRedisLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
 
     async def test_heartbeat_detecta_perdida_del_lock_y_deja_de_estar_acquired(self):
+        """
+        🔴 FIX (hallazgo de revisión, 2026-08-26): antes esta prueba sólo verificaba
+        que la tarea de heartbeat terminara (`_heartbeat_task.done()`), pero NUNCA
+        comprobaba `lock.acquired` -- el propio nombre del test prometía verificarlo
+        y no lo hacía. `self.acquired` en realidad seguía en True después de perder
+        el lock: cualquier caller que lo consultara como señal de "sigo teniendo
+        exclusividad" recibía un falso positivo.
+        """
         redis_mock = AsyncMock()
         redis_mock.set.return_value = True
         redis_mock.eval.return_value = 0  # El script CAD no encontró el owner_token esperado.
@@ -31,7 +39,27 @@ class TestRedisLockHeartbeatEdgeCases(unittest.IsolatedAsyncioTestCase):
 
         # El loop hace `break` en cuanto detecta la pérdida -- no queda reintentando indefinidamente.
         self.assertTrue(lock._heartbeat_task.done())
+        self.assertFalse(lock.acquired)
         await lock.release()
+
+    async def test_tras_perder_el_lock_release_no_intenta_liberar_en_redis(self):
+        """Consecuencia directa del fix: con `acquired` ya en False, `release()`
+        (guard `if not self.acquired: return`) no debe intentar el CAD contra Redis
+        de nuevo -- ya sabemos que no somos dueños del candado."""
+        redis_mock = AsyncMock()
+        redis_mock.set.return_value = True
+        redis_mock.eval.return_value = 0
+
+        lock = RedisLock(
+            redis_client=redis_mock, lock_key="{sfc:scheduler}:lock:test", intervalo_heartbeat=0.01
+        )
+        await lock.acquire()
+        await asyncio.sleep(0.05)
+        redis_mock.eval.reset_mock()
+
+        await lock.release()
+
+        redis_mock.eval.assert_not_called()
 
     async def test_heartbeat_error_de_redis_no_interrumpe_el_loop(self):
         redis_mock = AsyncMock()

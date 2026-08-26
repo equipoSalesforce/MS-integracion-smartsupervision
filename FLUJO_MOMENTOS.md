@@ -637,6 +637,23 @@ cruce de capas) **antes** de reclamar el item. Si está ocupado, el item se deja
 explícitamente, ya que no reclamarlo lo deja pendiente con su
 `proximo_reintento_at` intacto.
 
+**`RedisLock.acquired` no se apagaba al perder el lease (hallazgo de revisión,
+2026-08-26, menor):** `_heartbeat_loop` detectaba correctamente la pérdida del
+candado (el script de extensión devolviendo algo distinto de `1`) y cortaba el
+loop con `break`, pero nunca ponía `self.acquired = False` -- cualquier código
+que consultara `.acquired` como señal de "sigo teniendo exclusividad" recibía
+un falso positivo. Hoy ningún caller real vuelve a chequear `.acquired` tras
+adquirirlo (todos hacen `if not await lock.acquire(): ...` una sola vez y
+listo), así que el impacto activo era bajo -- pero es un invariante roto del
+propio objeto, y un test con nombre engañoso
+(`test_heartbeat_detecta_perdida_del_lock_y_deja_de_estar_acquired`) que nunca
+verificaba lo que su nombre prometía. Corregido: se apaga `acquired` en el
+punto donde Redis confirma la pérdida (no en el `except` de errores
+transitorios de conexión, donde no se sabe si el lock sigue vigente). Como
+consecuencia, `release()` ya no intenta el CAD contra Redis si el heartbeat ya
+detectó que el lock se perdió. Ver `app/core/distributed_lock.py::_heartbeat_loop`,
+`tests/test_distributed_lock_edge_cases.py`.
+
 ## Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)
 
 **1. Webhook duplicado si Redis falla justo después de notificar al CRM.** En

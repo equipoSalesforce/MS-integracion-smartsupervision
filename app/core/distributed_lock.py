@@ -83,6 +83,15 @@ class RedisLock:
                         f"⚠️ [Redis Lock] No se pudo extender el lock '{self.lock_key}'. "
                         f"El candado expiró o pertenece a otro dueño."
                     )
+                    # 🔴 FIX (hallazgo de revisión, 2026-08-26): antes el loop hacía
+                    # `break` sin tocar `self.acquired` -- quedaba en True aunque Redis
+                    # ya confirmó que el candado se perdió (expiró o lo tomó otro
+                    # dueño), dejando a cualquier caller que revise `.acquired` como
+                    # señal de "sigo teniendo exclusividad" con un falso positivo. Sólo
+                    # se apaga acá (pérdida CONFIRMADA por Redis), no en el `except` de
+                    # abajo (error transitorio de Redis -- ahí no se sabe si el lock
+                    # sigue vigente o no, y el loop ya reintenta en el siguiente ciclo).
+                    self.acquired = False
                     break
                 logger.debug(f"🔄 [Redis Lock] Heartbeat: Lock '{self.lock_key}' renovado exitosamente.")
             except Exception as e:
