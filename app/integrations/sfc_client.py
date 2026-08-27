@@ -118,15 +118,31 @@ async def log_response(response: httpx.Response):
 
 def _es_respuesta_throttled(exc: SfcIntegrationException) -> bool:
     """🟢 FIX HALLAZGO 39: sólo respuestas de regulación de cuota o Rate Limit 429,
-    separadas de fallas de infraestructura (5xx, Timeouts, DNS) o errores de negocio."""
+    separadas de fallas de infraestructura (5xx, Timeouts, DNS) o errores de negocio.
+
+    🔴 FIX (hallazgo propio, 2026-08-27, aplicando el consejo de la revisión externa
+    v8 de repetir el grep de la subcadena que se corrigió en otros lugares): los tres
+    fallbacks de texto ("throttled"/"quota"/"resource_exhausted") comparaban contra
+    `raw_message` SIN ancla -- el mismo defecto de _coincide (Y2/X2) antes de su fix,
+    pero en un archivo que esas rondas nunca revisaron. `raw_message` puede reflejar
+    valores del request (ver Y1/X1: la SFC repite el `codigo_queja` enviado en sus
+    mensajes de error), así que un Smart_Code__c/identificador que por casualidad
+    contuviera una de esas palabras como subcadena embebida convertía un error de
+    negocio real (400, ninguna relación con throttling) en una clasificación de
+    throttling -- disparando reintentos y un delay adicional (SFC_MINI_RETRY_ATTEMPTS
+    x SFC_MINI_RETRY_DELAY_SECONDS) sobre un fallo que iba a repetirse idéntico, con
+    una métrica y un log de throttling engañosos. Se reutiliza el mismo anclaje que
+    SfcErrorTranslator._coincide (alfabeto real de Smart_Code__c:
+    `[a-zA-Z0-9_-]`) en vez de reimplementarlo -- una sola fuente de verdad para
+    "esta subcadena aparece como token, no embebida"."""
     raw_msg_lower = str(getattr(exc, "raw_message", "") or "").lower()
     error_type_str = str(getattr(exc, "error_type", "") or "").upper()
     return (
         exc.status_code == 429
         or error_type_str in ("THROTTLED_ERROR", "RATE_LIMIT_ERROR")
-        or "throttled" in raw_msg_lower
-        or "quota" in raw_msg_lower
-        or "resource_exhausted" in raw_msg_lower
+        or SfcErrorTranslator._coincide("throttled", raw_msg_lower)
+        or SfcErrorTranslator._coincide("quota", raw_msg_lower)
+        or SfcErrorTranslator._coincide("resource_exhausted", raw_msg_lower)
     )
 
 

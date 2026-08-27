@@ -1078,6 +1078,31 @@ concreto (a diferencia de los dos anteriores, ambos confirmados con el body
 real de la colección Postman/`errores_sfc.json`) -- evitar un cambio
 especulativo sin evidencia que lo justifique.
 
+**Un cuarto lugar, encontrado por el barrido haber usado un patrón de `grep`
+demasiado estrecho (hallazgo propio, 2026-08-27):** el barrido de arriba buscó
+` in raw_msg`/` in msg`/` in error_msg` -- pero no ` in raw_msg_lower`, el
+nombre de variable que usa `_es_respuesta_throttled` en
+`app/integrations/sfc_client.py`. Esa función comparaba `"throttled"`,
+`"quota"` y `"resource_exhausted"` contra `raw_message` sin ancla, exactamente
+el mismo defecto que `_coincide` (arriba) y
+`S3StorageService._manejar_duplicado_o_cerrado` -- y con el mismo mecanismo de
+reflejo confirmado en esta misma sección (`SlugRelatedField`: `"Object with
+{campo}={valor} does not exist."`, donde `{valor}` es el `codigo_queja`/
+`Smart_Code__c` real del request). Reproducido: un error de negocio genuino
+(400, sin ninguna relación con throttling) cuyo `Smart_Code__c` contuviera
+`"quota"`, `"throttled"` o `"resource_exhausted"` como subcadena embebida
+(ej. `SC-QUOTA123-01`, permitido por `^[a-zA-Z0-9_-]{1,30}$`) se clasificaba
+como respuesta de throttling -- disparando `SFC_MINI_RETRY_ATTEMPTS` reintentos
+con `SFC_MINI_RETRY_DELAY_SECONDS` de delay sobre un fallo que iba a repetirse
+idéntico, con una métrica (`SSV/ThrottlingSfc`) y un log de throttling
+engañosos. A diferencia de los dos primeros casos, esta función siempre recibe
+una `SfcIntegrationException` con `status_code`/`error_type` ya estructurados
+-- no había ninguna razón para necesitar el fallback de texto sin ancla, así
+que se corrigió reutilizando `SfcErrorTranslator._coincide` (mismo alfabeto
+`[a-zA-Z0-9_-]` que valida `Smart_Code__c`) en vez de reimplementar la
+comparación. Ver
+`tests/test_throttling_classification.py::TestThrottlingClassificationSubcadenaEmbebida`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

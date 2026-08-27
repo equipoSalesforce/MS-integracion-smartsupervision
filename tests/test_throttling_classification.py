@@ -49,6 +49,93 @@ class TestThrottlingClassification(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 500)
 
 
+class TestThrottlingClassificationSubcadenaEmbebida(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): _es_respuesta_throttled comparaba
+    "throttled"/"quota"/"resource_exhausted" contra raw_message SIN ancla -- el
+    mismo defecto que la revisión externa v8 encontró (y se corrigió) en
+    SfcErrorTranslator._coincide (§X2/Y2) y en s3_service._manejar_duplicado_o_
+    cerrado (§X3), pero en un archivo que esas rondas no revisaron. raw_message
+    puede reflejar un identificador del request (ver §X1/Y1: la SFC repite
+    codigo_queja en sus mensajes de error de "does not exist"), así que un error
+    de NEGOCIO real cuyo identificador contenga una de esas palabras embebida se
+    confundía con una respuesta de throttling -- disparando mini-reintentos y
+    delay sobre un fallo que iba a repetirse idéntico.
+    """
+
+    async def test_error_de_negocio_con_quota_embebido_en_identificador_no_se_confunde_con_throttling(self):
+        mock_func = AsyncMock()
+        mock_func.side_effect = SfcIntegrationException(
+            status_code=400,
+            error_type="ALREADY_EXISTS",
+            sfc_field="codigo_queja",
+            raw_message="Object with codigo_queja=SC-QUOTA123-01 does not exist.",
+            crm_action="Revisar el código de queja."
+        )
+
+        decorated = handle_sfc_throttling(mock_func)
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await decorated()
+
+        self.assertEqual(mock_func.call_count, 1, "No debe reintentar: es un error de negocio, no throttling.")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_error_de_negocio_con_throttled_embebido_no_se_confunde_con_throttling(self):
+        mock_func = AsyncMock()
+        mock_func.side_effect = SfcIntegrationException(
+            status_code=400,
+            error_type="VALIDATION_ERROR",
+            sfc_field="canal_cod",
+            raw_message="Object with canal_cod=THROTTLED_99 does not exist.",
+            crm_action="Revisar el catálogo de canal."
+        )
+
+        decorated = handle_sfc_throttling(mock_func)
+
+        with self.assertRaises(SfcIntegrationException):
+            await decorated()
+
+        self.assertEqual(mock_func.call_count, 1, "No debe reintentar: es un error de negocio, no throttling.")
+
+    async def test_error_de_negocio_con_resource_exhausted_embebido_no_se_confunde_con_throttling(self):
+        mock_func = AsyncMock()
+        mock_func.side_effect = SfcIntegrationException(
+            status_code=400,
+            error_type="VALIDATION_ERROR",
+            sfc_field="producto_cod",
+            raw_message="Object with producto_cod=RESOURCE_EXHAUSTED_1 does not exist.",
+            crm_action="Revisar el catálogo de producto."
+        )
+
+        decorated = handle_sfc_throttling(mock_func)
+
+        with self.assertRaises(SfcIntegrationException):
+            await decorated()
+
+        self.assertEqual(mock_func.call_count, 1, "No debe reintentar: es un error de negocio, no throttling.")
+
+    async def test_mensaje_real_de_quota_como_palabra_completa_sigue_activando_el_reintento(self):
+        """Contraprueba: el ancla no debe romper la detección real de throttling."""
+        mock_func = AsyncMock()
+        mock_func.side_effect = [
+            SfcIntegrationException(
+                status_code=400,
+                error_type=None,
+                sfc_field=None,
+                raw_message="Daily quota exceeded, please retry later.",
+                crm_action="Espere unos segundos e intente de nuevo."
+            ),
+            {"status": "success"}
+        ]
+
+        decorated = handle_sfc_throttling(mock_func)
+        res = await decorated()
+
+        self.assertEqual(res, {"status": "success"})
+        self.assertEqual(mock_func.call_count, 2)
+
+
 class TestThrottlingClassificationMetricaEmf(unittest.IsolatedAsyncioTestCase):
     """Métrica EMF SSV/ThrottlingSfc (propuesta de observabilidad CX)."""
 
