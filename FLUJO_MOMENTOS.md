@@ -1172,6 +1172,25 @@ capa de defensa para cualquier otro validador futuro de este schema que llegue a
 cometer el mismo error. Ver
 `tests/test_despacho_orquestador.py::test_14b_procesar_despacho_raw_json_payload_corrupto_no_filtra_pii_en_log_ni_en_raw_message`.
 
+**El mismo `except Exception: ... str(e)` existe en el pipeline de Momento 2 (y,
+en menor medida, Momento 3):** `momento_2_sync.py::ejecutar_envio_momento_2`
+construye `SfcNuevaQuejaPayload` -- el payload YA mapeado hacia la SFC, que SÍ
+incluye PII real (`nombres`, `numero_id_CF`, `texto_queja`, mapeados desde
+`SuppliedName`/`id_number__c`/`Description`) -- y si esa construcción falla su
+propia validación Pydantic, caía en el mismo `except Exception as e: ...
+str(e)` genérico que ya se corrigió arriba para la rehidratación desde Redis.
+`resumir_validation_error_sin_pii` se movió a `app/core/exceptions.py` (única
+fuente de verdad, ya no vive sólo en el orquestador) para reutilizarse acá: se
+agrega un `except ValidationError` específico ANTES del genérico, que loguea
+con el resumen seguro y **relanza la misma excepción sin envolver** -- no se
+cambia qué reciben los llamadores (FastAPI ya la maneja de forma segura vía
+HTTP; `procesar_despacho_raw_json` ya la maneja de forma segura desde la
+cola), sólo se corrige el punto de logueo. Se aplicó el mismo patrón en
+`momento_3_sync.py` como defensa en profundidad -- `SfcActualizarQuejaPayload`
+no lleva PII directa hoy, pero un campo agregado a futuro no debería poder
+reabrir este mismo hallazgo. Ver
+`tests/test_momento_2.py::test_payload_sfc_invalido_no_filtra_el_valor_rechazado_en_el_log`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

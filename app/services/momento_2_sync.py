@@ -2,13 +2,14 @@
 import logging
 from typing import Dict, Any, List, Union, Optional, Tuple
 import httpx
+from pydantic import ValidationError
 
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput, Momento2QuejaCrmInput
 from app.schemas.sfc_payloads import SfcNuevaQuejaPayload
 from app.core.mapping import SfcSalesforceMapper
-from app.core.exceptions import SfcIntegrationException
+from app.core.exceptions import SfcIntegrationException, resumir_validation_error_sin_pii
 from app.services.email_service import EmailAlertService
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,19 @@ class Momento2SincronizacionService:
         except (httpx.RequestError, httpx.TimeoutException, ConnectionError, OSError) as net_err:
             logger.error(f"❌ [Momento 2] Fallo de red/conexión para {smart_code}: {net_err}")
             raise net_err
+
+        except ValidationError as ve:
+            # 🔴 FIX (hallazgo propio, 2026-08-27): SfcNuevaQuejaPayload (arriba) sí
+            # incluye PII real (nombres, numero_id_CF, texto_queja, mapeados desde
+            # SuppliedName/id_number__c/Description) -- a diferencia del `except
+            # Exception` genérico de abajo, que loggeaba str(e) sin filtrar. Pydantic
+            # incluye por defecto el valor rechazado de cada campo en ese texto. Se
+            # captura ANTES del genérico sólo para loggear sin PII; se relanza la
+            # MISMA excepción (sin envolver) para no alterar cómo la clasifican los
+            # llamadores existentes (FastAPI la captura vía HTTP;
+            # procesar_despacho_raw_json ya la maneja de forma segura desde la cola).
+            logger.error(f"🔥 [Momento 2] Payload SFC inválido para caso {smart_code}: {resumir_validation_error_sin_pii(ve)}")
+            raise
 
         except Exception as e:
             # 🟢 FIX HALLAZGO 40: Se relanza la excepción no controlada para tratarse como 500

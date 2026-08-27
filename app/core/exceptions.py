@@ -7,6 +7,7 @@ import re
 import time
 from typing import Dict, List, Optional, Tuple
 import httpx
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.config import settings
 
@@ -56,6 +57,23 @@ class SfcIntegrationException(Exception):
             or self.status_code in (429, 503)
             or self.error_type in self.ERROR_TYPES_TRANSITORIOS
         )
+
+
+def resumir_validation_error_sin_pii(ve: PydanticValidationError) -> str:
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): `ValidationError.json()` y `str(ValidationError)`
+    incluyen por defecto el valor RECHAZADO de cada campo (`input`/`input_value`) -- para
+    los schemas de este microservicio (QuejaUnificadaCrmInput, SfcNuevaQuejaPayload) eso
+    puede ser el email, nombre, número de identificación o dirección real de un
+    consumidor financiero. Único punto de conversión "ValidationError -> texto loggeable"
+    del repositorio: úsese en cualquier `except ValidationError` cuyo mensaje pueda llegar
+    a un log, `raw_message`/`ultimo_error` (se propaga a la cola y a alertas de correo) o
+    cualquier otro destino que no pase por `sanitizar_payload`. Se listan sólo `loc`
+    (nombre del campo) y `msg` (descripción del tipo de error) por cada error -- suficiente
+    para diagnosticar sin volcar el dato personal que lo causó.
+    """
+    partes = [f"{'.'.join(str(p) for p in e.get('loc', []))}: {e.get('msg', 'error de validación')}" for e in ve.errors()]
+    return "; ".join(partes) or "Error de validación sin detalle."
 
 
 class SfcErrorTranslator:

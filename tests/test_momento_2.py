@@ -306,6 +306,46 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload_pydantic.archivos_s3), 1)
         self.assertEqual(payload_pydantic.archivos_s3[0].nombre_archivo, "f.pdf")
 
+    async def test_payload_sfc_invalido_no_filtra_el_valor_rechazado_en_el_log(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): si SfcNuevaQuejaPayload (el payload YA
+        mapeado hacia la SFC) falla su propia validación Pydantic, el `except
+        Exception` genérico loggeaba str(e) -- que por defecto incluye el valor
+        RECHAZADO de cada campo. Con campos que sí llevan PII real (nombres,
+        numero_id_CF, mapeados desde SuppliedName/id_number__c), ese valor podía ser
+        el dato del cliente. Se fuerza la falla vía un campo (tipo_id_CF, int) con un
+        valor centinela que Pydantic reporta tal cual en su 'input' -- y se verifica
+        que ese centinela NO aparezca en el log. La excepción original SÍ se relanza
+        sin envolver (los llamadores -- FastAPI, procesar_despacho_raw_json -- ya la
+        manejan de forma segura); lo que se corrige es sólo el punto de logueo.
+        """
+        centinela_pii = "CENTINELA-PII-cliente-real-9f3a"
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+
+        service = Momento2SincronizacionService(
+            sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock
+        )
+        with patch(
+            "app.services.momento_2_sync.SfcSalesforceMapper.crm_entity_to_sfc_payload"
+        ) as mock_mapper:
+            mock_mapper.return_value = {
+                "codigo_queja": self.smart_code,
+                "departamento_cod": "11", "municipio_cod": "11001",
+                "canal_cod": 13, "producto_cod": 207, "macro_motivo_cod": 940,
+                "fecha_creacion": "2026-08-01T00:00:00",
+                "nombres": "Camila Salas", "tipo_id_CF": centinela_pii,
+                "numero_id_CF": "1040011014", "tipo_Persona": 1,
+                "texto_queja": "Prueba", "anexo_queja": False,
+                "ente_control": 99, "insta_recepcion": 1, "admision": 1,
+                "codigo_pais": "170", "punto_recepcion": 1,
+            }
+            with self.assertLogs("app.services.momento_2_sync", level="ERROR") as logs:
+                with self.assertRaises(ValidationError):
+                    await service.ejecutar_envio_momento_2(payload_pydantic)
+
+        for record in logs.records:
+            self.assertNotIn(centinela_pii, record.getMessage())
+
 
 class TestEsErrorQuejaYaExisteM2(unittest.TestCase):
     """

@@ -7,10 +7,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import httpx
+from pydantic import ValidationError
 
 from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
-from app.core.exceptions import SfcIntegrationException
+from app.core.exceptions import SfcIntegrationException, resumir_validation_error_sin_pii
 from app.core.mapping import SfcSalesforceMapper
 from app.schemas.sfc_payloads import SfcActualizarQuejaPayload
 from app.utils.email_parser import extraer_texto_limpio_de_html
@@ -234,6 +235,16 @@ class Momento3SincronizacionService:
             logger.error(f"❌ [Momento 3] Fallo de red/conexión para {smart_code}: {net_err}")
             self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="error", categoria_error="NETWORK_ERROR")
             raise net_err
+
+        except ValidationError as ve:
+            # 🔴 FIX (hallazgo propio, 2026-08-27, defensa en profundidad -- mismo
+            # patrón que momento_2_sync.py): SfcActualizarQuejaPayload no incluye PII
+            # directa hoy, pero se captura ANTES del `except Exception` genérico de
+            # abajo para que un campo con PII agregado a futuro a ese schema no
+            # reintroduzca el mismo leak. Se relanza la MISMA excepción sin envolver.
+            logger.error(f"🔥 [Momento 3] Payload SFC inválido para caso {smart_code}: {resumir_validation_error_sin_pii(ve)}")
+            self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="error", categoria_error="VALIDATION_ERROR")
+            raise
 
         except Exception as e:
             # 🟢 FIX HALLAZGO 40: Se relanza la excepción no controlada para tratarse como 500
