@@ -1,10 +1,13 @@
 # app/utils/email_parser.py
+import logging
 import re
 from dataclasses import dataclass
 from typing import List
 from bs4 import BeautifulSoup
 
 from app.core.security.sanitizer import sanitizar_html_para_pdf
+
+logger = logging.getLogger(__name__)
 
 
 # ======================================================================
@@ -271,12 +274,28 @@ def extraer_texto_limpio_de_html(html_str: str) -> str:
         if msg.es_soporte and msg.cuerpo_texto.strip():
             return msg.cuerpo_texto
 
-    # Fallback: Si no se logró clasificar explícitamente, retornar el primer bloque limpio
-    if mensajes_hilo:
-        return mensajes_hilo[0].cuerpo_texto
-    
-    texto_limpio = _limpiar_cabeceras_superiores(texto_estructurado)
-    return _limpiar_disclaimers_y_footers(texto_limpio)
+    # 🟡 FIX (hallazgo de revisión propia, 2026-08-27): antes, si NINGÚN bloque del
+    # hilo se clasificaba como escrito por soporte, se devolvía el primer bloque TAL
+    # CUAL -- sin importar de quién fuera. Ese texto es literalmente lo que
+    # momento_3_sync.py mete como respuesta oficial en el PDF de cierre regulatorio
+    # enviado a la SFC: si el hilo sólo contenía el mensaje del CLIENTE (soporte
+    # nunca llegó a responder, o su respuesta no coincidió con el heurístico), el
+    # cliente terminaba "firmando" su propio reclamo como si fuera la resolución
+    # oficial de Global66. Se prefiere devolver vacío -- momento_3_sync.py ya
+    # sustituye un texto vacío por un cierre genérico seguro ("Se emite respuesta
+    # formal y cierre definitivo..."), el mismo texto que usa el schema del CRM
+    # cuando el campo llega vacío -- antes que arriesgar una atribución incorrecta
+    # en un documento regulatorio. El costo es que una respuesta de soporte genuina
+    # cuyo heurístico falle (firma atípica, sin mención de dominio) también cae a
+    # ese texto genérico en vez de su contenido real; se deja este log para poder
+    # detectar el patrón y, si se repite, afinar el heurístico de clasificación.
+    logger.warning(
+        "⚠️ [EmailParser] Ningún bloque del hilo se identificó como respuesta de "
+        "soporte -- se descarta el contenido (pudo ser del cliente u otro remitente) "
+        "en vez de arriesgar una atribución incorrecta en el PDF de cierre. "
+        "momento_3_sync.py sustituirá esto por el texto de cierre genérico."
+    )
+    return ""
 
 
 def limpiar_texto_para_campo_pdf(html_str: str) -> str:

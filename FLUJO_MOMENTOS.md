@@ -922,6 +922,41 @@ Restringir simplemente a las primeras 4 líneas de cabecera (el mismo criterio q
 usan los Casos A/B) no bastaba: un mensaje corto de cliente cabe completo dentro de
 esa ventana. Ver `tests/test_email_parser.py::test_parser_cliente_mas_reciente_menciona_marca_no_se_confunde_con_soporte`.
 
+**El mismo riesgo, en su forma más amplia (hallazgo de revisión propia, 2026-08-27 —
+corregido):** el fix de arriba cierra el caso en que el cliente escribe **después** de
+soporte en el mismo hilo. Pero queda un caso más simple: ¿qué pasa si en **todo** el
+hilo, ningún bloque logra identificarse como soporte? Por ejemplo, si `soporte` aún no
+ha respondido cuando el CRM dispara el cierre, o si su respuesta real no coincide con
+el heurístico (firma atípica, sin mención de la marca). Antes, `extraer_texto_limpio_de_html`
+caía en un último fallback que devolvía el **primer bloque del hilo tal cual** — sin
+importar de quién fuera. Si ese hilo sólo contenía el mensaje del **cliente**, su
+propio reclamo terminaba firmado como la respuesta oficial de Global66 en el PDF
+enviado a la SFC.
+
+**Corregido:** ese fallback ahora devuelve `""` en vez del primer bloque. Esto no deja
+un hueco: `momento_3_sync.py::_generar_y_enviar_pdf_respuesta_final` ya sustituye un
+texto vacío por un cierre genérico seguro ("Se emite respuesta formal y cierre
+definitivo al caso de reclamación...") — el mismo texto, de hecho, que
+`Momento3QuejaCrmInput` (`app/schemas/crm_payloads.py`) ya usa cuando el CRM manda
+`cuerpo_respuesta_final` vacío. Se prefiere ese texto genérico, siempre correcto
+aunque poco específico, a arriesgar una atribución incorrecta en un documento
+regulatorio. Se loguea con `logger.warning` (`"[EmailParser] Ningún bloque del hilo se
+identificó como respuesta de soporte..."`) cada vez que esto ocurre, para poder
+detectar el patrón y, si se repite con frecuencia, afinar el heurístico de
+`_linea_identifica_remitente_soporte`.
+
+**Contrato implícito con el CRM (para que quede explícito, no asumido):** este parser
+sólo puede confiar en el CONTENIDO del hilo HTML que el CRM envía en
+`cuerpo_respuesta_final` — no tiene forma de verificar, desde este repositorio, que ese
+campo se puebla *únicamente* cuando ya existe una respuesta real de un agente en el
+hilo. Si el proceso del lado del CRM llega a disparar el cierre con un hilo que sólo
+tiene el mensaje del cliente (el agente aún no respondió, o su respuesta no quedó
+capturada en el HTML enviado), el resultado ya no es una atribución incorrecta -- es el
+texto de cierre genérico. Sigue siendo preferible que el CRM garantice, de su lado, que
+este campo sólo se puebla con un hilo que efectivamente contiene la respuesta del
+agente -- así el PDF de cierre reflejará el detalle real del caso en vez del texto
+genérico. Ver `tests/test_email_parser.py::test_hilo_donde_nadie_se_identifica_como_soporte_retorna_vacio`.
+
 ## `SfcErrorTranslator` clasificaba "la queja no existe" como si ya existiera (corregido)
 
 **Código:** `app/core/exceptions.py::SfcErrorTranslator.procesar_y_lanzar`,
@@ -1068,7 +1103,7 @@ especulativo sin evidencia que lo justifique.
 | Encolado respeta la categoría de operación (rechaza sobrescritura entre categorías, corregido)        | `app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py`                                                                         |
 | Cascada de timeouts (gunicorn → ALB; nginx.conf es sólo para tests locales, no está en el deploy real) | `infrastructure/Dockerfile`, `SFC_SYNC_MAX_SEGUNDOS` en `app/core/config.py`                                                                                                                                |
 | Deduplicación de alertas por correo                                                                      | `app/services/email_service.py::EmailAlertService._deberia_enviar`                                                                                                                                              |
-| Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo)        | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`                                                                                                                  |
+| Parser de hilos de correo para el cierre regulatorio (autoría por línea, no por bloque completo; sin nadie identificado como soporte, retorna vacío en vez del primer bloque) | `app/utils/email_parser.py::_clasificar_autor_bloque`, `_linea_identifica_remitente_soporte`, `extraer_texto_limpio_de_html`                                                                                  |
 | Ownership de adjuntos S3 (Case_id, posicional)                                                            | `app/services/s3_service.py::S3StorageService._validar_ownership_key`, `_validar_prefijo_pertenece_al_caso`                                                                                                   |
 | Refresco periódico de catálogos/mapeos (por proceso, sin lock cross-proceso, corregido)                 | `app/core/mapping.py::SfcSalesforceMapper.iniciar_refresco_periodico`, `tests/test_mapping_refresco_periodico.py`                                                                                             |
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |

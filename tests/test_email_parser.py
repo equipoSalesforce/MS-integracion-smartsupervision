@@ -114,11 +114,24 @@ class TestEmailParser(unittest.TestCase):
         self.assertNotIn("Reclamo por cobro duplicado", resultado)
 
     def test_parser_texto_plano_directo(self):
-        """Verifica el comportamiento cuando la entrada es texto plano sin HTML."""
-        texto_raw = "Hola,\nTu caso fue resuelto correctamente por Global66.\nSaludos."
+        """Verifica el comportamiento cuando la entrada es texto plano sin HTML
+        y SÍ trae una firma reconocible como soporte (línea corta con la marca)."""
+        texto_raw = "Hola,\nTu caso fue resuelto correctamente.\nSaludos,\nSoporte Global66"
         resultado = extraer_texto_limpio_de_html(texto_raw)
 
-        self.assertEqual(resultado, "Hola,\n\nTu caso fue resuelto correctamente por Global66.\n\nSaludos.")
+        self.assertIn("Tu caso fue resuelto correctamente", resultado)
+
+    def test_parser_texto_plano_sin_firma_reconocible_usa_cierre_generico(self):
+        """
+        🟡 FIX (hallazgo de revisión propia, 2026-08-27 -- ver más abajo el mismo
+        principio con HTML): texto plano SIN ninguna firma/mención reconocible de
+        Global66 no puede distinguirse con confianza de un mensaje del cliente --
+        se prefiere vacío (cierre genérico aguas abajo) a arriesgar la atribución.
+        """
+        texto_raw = "Hola,\nTu caso fue resuelto correctamente por la entidad.\nSaludos."
+        resultado = extraer_texto_limpio_de_html(texto_raw)
+
+        self.assertEqual(resultado, "")
 
     def test_parser_cliente_mas_reciente_menciona_marca_no_se_confunde_con_soporte(self):
         """
@@ -134,20 +147,18 @@ class TestEmailParser(unittest.TestCase):
         self.assertNotIn("Doy por aceptado el cierre del caso", resultado)
         self.assertNotIn("Daniela Rojas (cliente)", resultado)
 
-    def test_hilo_donde_nadie_se_identifica_como_soporte_usa_el_bloque_superior_como_fallback(self):
+    def test_hilo_donde_nadie_se_identifica_como_soporte_retorna_vacio(self):
         """
-        🟡 HALLAZGO (revisión propia, camino malo no probado): si NINGÚN bloque del
-        hilo se clasifica como escrito por soporte (ej. el hilo sólo contiene el
-        mensaje del cliente, sin ninguna respuesta de Global66 todavía capturada
-        en el HTML), el fallback de `extraer_texto_limpio_de_html` retorna el
-        PRIMER bloque tal cual -- que en este caso es el texto del CLIENTE, no una
-        respuesta oficial. Este texto es exactamente lo que
-        momento_3_sync.py::_generar_y_enviar_pdf_respuesta_final usa como
-        'cuerpo_respuesta_final' en el PDF de cierre regulatorio enviado a la SFC.
-        Se documenta el comportamiento actual (no se corrige aquí -- depende de si
-        el CRM garantiza que este campo sólo se puebla cuando SÍ hay una respuesta
-        real de soporte en el hilo, algo que este módulo no puede verificar por sí
-        solo) para que quede explícito y no como una sorpresa silenciosa.
+        🟡 FIX (hallazgo de revisión propia, 2026-08-27): si NINGÚN bloque del hilo
+        se clasifica como escrito por soporte (ej. el hilo sólo contiene el mensaje
+        del cliente, sin ninguna respuesta de Global66 todavía capturada en el
+        HTML), el parser YA NO devuelve el primer bloque tal cual -- antes,
+        cuando ese bloque era del CLIENTE, su texto terminaba siendo la
+        'respuesta oficial' en el PDF de cierre regulatorio enviado a la SFC.
+        Ahora retorna vacío -- momento_3_sync.py sustituye ese vacío por el texto
+        de cierre genérico ("Se emite respuesta formal y cierre definitivo..."),
+        el mismo que usa el schema del CRM cuando el campo llega vacío. Se prefiere
+        ese texto genérico a arriesgar una atribución incorrecta.
         """
         html_solo_cliente = """<html><body>
             <p>Hola,</p>
@@ -157,23 +168,53 @@ class TestEmailParser(unittest.TestCase):
 
         resultado = extraer_texto_limpio_de_html(html_solo_cliente)
 
-        self.assertIn("Quiero que revisen mi caso", resultado)
+        self.assertEqual(resultado, "")
+
+    def test_hilo_con_respuesta_real_de_soporte_sigue_extrayendola_con_normalidad(self):
+        """Contraprueba del fix anterior: cuando SÍ hay una respuesta de soporte
+        identificable en el hilo, se sigue extrayendo con normalidad -- el fix
+        sólo afecta el caso "nadie identificado", no la extracción normal."""
+        html_real = """<html><body>
+            <p>Hola,</p>
+            <p>Tu caso fue revisado y resuelto de forma favorable.</p>
+            <p>Saludos,<br>Soporte Global66</p>
+            <div style="margin-top:18px;border-left:3px solid #DADCE0;padding-left:14px;">
+              <div>El mié, 29 jul 2026 a las 10:13, Un Cliente &lt;cliente@test.com&gt; escribió:</div>
+              <p>Quiero que revisen mi caso porque no estoy de acuerdo con el trato recibido.</p>
+            </div>
+        </body></html>"""
+
+        resultado = extraer_texto_limpio_de_html(html_real)
+
+        self.assertIn("Tu caso fue revisado y resuelto de forma favorable", resultado)
+        self.assertNotIn("no estoy de acuerdo", resultado)
 
     def test_html_con_markup_severamente_roto_no_crashea(self):
         """BeautifulSoup con html.parser es tolerante a HTML mal formado -- confirma
-        que tags sin cerrar / anidados incorrectamente no lanzan excepción."""
-        html_roto = "<html><body><div><p>Texto sin cerrar<div>Otro nivel<span>más texto</body>"
+        que tags sin cerrar / anidados incorrectamente no lanzan excepción. Incluye
+        una firma reconocible para además confirmar que la extracción real sigue
+        funcionando sobre markup roto (no sólo que no crashea)."""
+        html_roto = "<html><body><div><p>Texto sin cerrar<div>Otro nivel<span>Soporte Global66</body>"
 
         resultado = extraer_texto_limpio_de_html(html_roto)
 
         self.assertIn("Texto sin cerrar", resultado)
 
+    def test_html_con_markup_roto_y_sin_firma_reconocible_no_crashea_y_retorna_vacio(self):
+        """Misma tolerancia a HTML mal formado, pero sin ninguna firma reconocible
+        -- no debe crashear, y debe preferir vacío (no el texto tal cual)."""
+        html_roto = "<html><body><div><p>Texto sin cerrar<div>Otro nivel<span>más texto</body>"
+
+        resultado = extraer_texto_limpio_de_html(html_roto)
+
+        self.assertEqual(resultado, "")
+
     def test_html_sin_ningun_tag_reconocido_se_trata_como_texto(self):
         """Un fragmento sin estructura de bloques (sin <p>/<div>/etc.) igual debe
-        producir texto legible, no una cadena vacía."""
-        resultado = extraer_texto_limpio_de_html("<span>Solo un span suelto</span>")
+        procesarse sin crashear -- con una firma reconocible, produce texto legible."""
+        resultado = extraer_texto_limpio_de_html("<span>Mensaje de Soporte Global66</span>")
 
-        self.assertIn("Solo un span suelto", resultado)
+        self.assertIn("Mensaje de Soporte Global66", resultado)
 
     def test_parser_casos_vacios_o_nulos(self):
         """Verifica la resiliencia ante valores nulos o vacíos."""

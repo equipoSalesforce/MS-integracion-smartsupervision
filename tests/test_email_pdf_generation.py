@@ -20,7 +20,7 @@ class TestEmailToPdfGeneration(unittest.TestCase):
         html_simple = """
         <p>Estimado(a) Juan Pérez,</p>
         <p>Le informamos que su solicitud ha sido resuelta de manera <b>favorable</b>.</p>
-        <p>Atentamente,<br>Servicio al Cliente</p>
+        <p>Atentamente,<br>Servicio al Cliente Global66</p>
         """
 
         texto_limpio = extraer_texto_limpio_de_html(html_simple)
@@ -54,7 +54,7 @@ class TestEmailToPdfGeneration(unittest.TestCase):
             <br>
             <p>El dinero estará disponible en su cuenta en un plazo máximo de 24 horas hábiles.</p>
             <p>Si tiene inquietudes adicionales, puede responder a este mensaje.</p>
-            <p>Cordialmente,<br><b>Defensoría del Consumidor Financiero</b></p>
+            <p>Cordialmente,<br><b>Defensoría del Consumidor Financiero - Global66</b></p>
         </div>
         """
 
@@ -86,8 +86,8 @@ class TestEmailToPdfGeneration(unittest.TestCase):
                 <p>Se determinó que la transacción no fue autorizada, por lo cual se aplicó el reintegro total en su <b>Global Account</b>.</p>
 
                 <p>Atentamente,<br>
-                <b>Equipo de Operaciones &amp; Compliance - Global66</b><br>
-                <i>Smartsupervisión Colombia</i></p>
+                <b>Equipo de Operaciones y Compliance</b><br>
+                Soporte Global66</p>
 
                 <hr>
                 <div style="color: #555555;">
