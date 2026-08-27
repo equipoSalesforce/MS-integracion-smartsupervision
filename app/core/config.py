@@ -366,7 +366,16 @@ class Settings(BaseSettings):
         para impedir el arranque con valores inseguros, URLs ficticias o wildcard CORS (*).
         """
         env_lower = (self.ENVIRONMENT or "").strip().lower()
-        ambientes_estrictos = ("production", "prod", "staging", "qa", "dev", "ci")
+        # 🔴 FIX (hallazgo propio, 2026-08-27): "development" es un valor reconocido
+        # por ENVIRONMENTS_RECONOCIDOS (arriba) pero faltaba en esta tupla -- sólo
+        # "dev" (la forma abreviada, la única que usa el pipeline real vía el
+        # `type: choice` de .github/workflows/deploy-aws.yml, que no admite texto
+        # libre) recibía la validación estricta. Un arranque manual fuera del
+        # pipeline con ENVIRONMENT=development (typo por la forma larga, o un .env
+        # copiado a mano) se colaba silenciosamente por la rama permisiva de
+        # "local"/"test" -- secretos de prueba, CORS con comodín, http:// sin
+        # cifrar, todo permitido sin ningún error.
+        ambientes_estrictos = ("production", "prod", "staging", "qa", "dev", "development", "ci")
 
         if env_lower not in ambientes_estrictos:
             return self

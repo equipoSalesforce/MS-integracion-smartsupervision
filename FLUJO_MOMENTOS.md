@@ -1206,6 +1206,38 @@ no lleva PII directa hoy, pero un campo agregado a futuro no debería poder
 reabrir este mismo hallazgo. Ver
 `tests/test_momento_2.py::test_payload_sfc_invalido_no_filtra_el_valor_rechazado_en_el_log`.
 
+## `ENVIRONMENT=development` se colaba por la rama permisiva de validación (corregido)
+
+**Código:** `app/core/config.py::Settings.validar_configuracion_estricta`.
+
+`ENVIRONMENTS_RECONOCIDOS` reconoce tanto `"dev"` como `"development"` como valores
+válidos de `ENVIRONMENT`. Pero `ambientes_estrictos` -- la tupla que decide si se
+aplican las validaciones fuertes de arranque (secretos no-default, CORS sin
+comodín, URLs `https://`, webhook autenticado, Swagger deshabilitado) -- sólo
+incluía `"dev"`. Con `ENVIRONMENT="development"`, el arranque caía en la misma
+rama permisiva que `"local"`/`"test"`, sin ninguna de esas validaciones.
+
+**Por qué no es explotable hoy vía el pipeline real:** `.github/workflows/deploy-aws.yml`
+declara `environment` como `type: choice` con `options: [ci, dev, qa, prod]` --
+GitHub Actions no permite texto libre en un `workflow_dispatch` de tipo `choice`,
+así que `render_task_def.py` (el único lugar que inyecta `ENVIRONMENT` en ECS)
+nunca puede recibir `"development"` por ese camino. Tampoco aparece en ningún
+`docker-compose*.yml` ni en ningún test existente -- es, en la práctica, un valor
+muerto.
+
+**Por qué se corrige igual:** el único otro camino de arranque (fuera del pipeline
+-- un despliegue manual, un `.env` copiado a mano con la forma larga por error) sí
+podría fijar `ENVIRONMENT=development` directamente, y en ese escenario las
+validaciones de seguridad se saltarían en silencio exactamente igual que si se
+tratara de un ambiente local. **Corregido** agregando `"development"` a
+`ambientes_estrictos` -- mismo tratamiento que `"dev"` para secretos/CORS/URLs/
+webhook/docs. Deliberadamente NO se agregó a `ambientes_redis_real` (la lista más
+estrecha de `_validar_redis_produccion`), por el mismo motivo documentado ahí para
+excluir `"dev"`: no hay ningún `docker-compose` legítimo que use la forma larga,
+pero tampoco hay razón para tratarla más estricto que su abreviación en ese punto
+específico. Ver
+`tests/test_config_security_validation.py::test_startup_fallido_en_ambiente_development_con_defaults_inseguros`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

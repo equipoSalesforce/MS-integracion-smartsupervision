@@ -35,6 +35,30 @@ class TestConfigSecurityValidation(unittest.TestCase):
         self.assertIn("RIESGO CRÍTICO DE SEGURIDAD", error_str)
         self.assertIn("CRM_API_KEY", error_str)
 
+    def test_startup_fallido_en_ambiente_development_con_defaults_inseguros(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): 'development' es un valor reconocido
+        por ENVIRONMENTS_RECONOCIDOS (igual que 'dev'), pero faltaba en la tupla de
+        ambientes_estrictos -- se colaba silenciosamente por la rama permisiva de
+        'local'/'test', sin exigir secretos reales ni bloquear el comodín CORS.
+        Mismo escenario que test_startup_fallido_en_produccion_con_defaults_inseguros,
+        con ENVIRONMENT='development' en vez de 'production'.
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            Settings(
+                _env_file=None,
+                ENVIRONMENT="development",
+                CRM_CORS_ORIGINS="*",
+                CRM_API_KEY="g66_sk_test_super_secreto_12345",
+                ADMIN_API_KEY="g66_sk_test_admin_secreto_99999",
+                SFC_SECRET_KEY="global66_sfc_secret_key_testing_2026",
+                SFC_PASSWORD="123456789"
+            )
+
+        error_str = str(ctx.exception)
+        self.assertIn("RIESGO CRÍTICO DE SEGURIDAD", error_str)
+        self.assertIn("CRM_API_KEY", error_str)
+
     def test_startup_exitoso_en_produccion_con_secretos_reales(self):
         """
         Verifica que en producción el servicio arranque sin problemas cuando
