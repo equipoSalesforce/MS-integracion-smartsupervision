@@ -26,6 +26,7 @@
 - [¿Por qué la validación de ownership de adjuntos en S3 usa Case_id y es estrictamente posicional?](#por-qué-la-validación-de-ownership-de-adjuntos-en-s3-usa-case_id-y-es-estrictamente-posicional)
 - [Refresco periódico de catálogos/mapeos (hallazgo C1, corregido de nuevo)](#refresco-periódico-de-catálogosmapeos-hallazgo-c1-corregido-de-nuevo)
 - [Lock por caso en el despacho síncrono (hallazgo E)](#lock-por-caso-en-el-despacho-síncrono-hallazgo-e)
+- [El lock por caso se mantiene durante TODO el procesamiento, no sólo al empezar (decisión deliberada)](#el-lock-por-caso-se-mantiene-durante-todo-el-procesamiento-no-sólo-al-empezar-decisión-deliberada)
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
 - [El healthcheck del contenedor no depende de Redis (confirmado, no es un bug)](#el-healthcheck-del-contenedor-no-depende-de-redis-confirmado-no-es-un-bug)
@@ -771,6 +772,32 @@ call sites lo consultan para elegir el mensaje/categoría correctos
 `app/core/distributed_lock.py::acquire`, `app/api/routes_quejas.py::_motivo_lock_no_adquirido`,
 `tests/test_distributed_lock_edge_cases.py::TestRedisLockDistingueOcupadoDeRedisFallo`.
 
+## El lock por caso se mantiene durante TODO el procesamiento, no sólo al empezar (decisión deliberada)
+
+**Código:** `app/api/routes_quejas.py::despachar_queja_crm` (adquiere en la línea ~419, dentro del
+`try`; libera en el `finally`), `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`
+(mismo patrón).
+
+El `RedisLock` por `Smart_Code__c` (hallazgo E, ver "Lock por caso en el despacho síncrono" arriba) no
+es un candado que se toma, se verifica y se suelta de inmediato -- se **mantiene adquirido durante
+toda la llamada real al orquestador**: la resolución de self-healing M2→M3 si aplica, la subida de
+cada adjunto a S3→SFC uno por uno, y cualquier reintento interno ante un 429/timeout de la SFC. Con
+adjuntos grandes o varios documentos, esto puede tomar minutos, no milisegundos -- por eso el lock se
+construye con `lease_segundos=180` (bastante más que un candado de "sólo estoy verificando") y
+`intervalo_heartbeat=45`, que renueva el lease mientras el procesamiento sigue en curso, para que no
+expire a mitad de camino.
+
+**Consecuencia observable, y por qué es deliberada:** mientras el worker (o un despacho síncrono) tiene
+el lock de un caso, **cualquier otro request para ese mismo `Smart_Code__c` se encola (202) en vez de
+procesarse**, aunque la SFC y Redis estén perfectamente sanos -- no es una señal de degradación, es
+la cola de contingencia haciendo exactamente lo que N1/hallazgo E le pidieron: nunca dejar que dos
+operaciones del mismo caso compitan por la SFC en paralelo. La alternativa -- soltar el lock apenas se
+confirma que no hay nadie más procesando, y volver a intentar tomarlo antes de cada llamada real a la
+SFC -- reabriría exactamente la ventana de carrera que este mecanismo existe para cerrar (dos llamadas
+concurrentes del mismo caso, sin ningún orden garantizado). El costo -- una ventana de minutos en la
+que un evento nuevo y genuino del mismo caso se encola en vez de despacharse en el acto -- se acepta a
+cambio de esa garantía; el evento encolado no se pierde, lo recoge el ciclo del scheduler.
+
 ## Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)
 
 **1. Webhook duplicado si Redis falla justo después de notificar al CRM.** En
@@ -1047,6 +1074,7 @@ especulativo sin evidencia que lo justifique.
 | Lock por caso en despacho síncrono + "ya cerrado" en trámite                                            | `app/core/distributed_lock.py::RedisLock`, `app/api/routes_quejas.py::despachar_queja_crm`, `app/services/despacho_queja_orchestrator.py::_ejecutar_paso_o_exito_si_ya_cerrado`                             |
 | Lock por caso también en el worker de reintentos                                                         | `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`, `app/services/queue_service.py::DESPACHO_LOCK_PREFIX`                                                                                    |
 | `RedisLock` distingue "ocupado" de "Redis falló" (corregido)                                             | `app/core/distributed_lock.py::RedisLock.acquire`, `app/api/routes_quejas.py::_motivo_lock_no_adquirido`                                                                                                     |
+| Lock por caso se mantiene durante todo el procesamiento, no sólo al empezar (deliberado, V9)             | `app/api/routes_quejas.py::despachar_queja_crm`, `app/workers/scheduler.py::_reclamar_y_procesar_si_lock_disponible`                                                                                          |
 | Alerta de riesgo de duplicado si falla la persistencia final tras webhook exitoso                         | `app/workers/scheduler.py::_ejecutar_paso_notificacion_crm`                                                                                                                                                     |
 | Version esperada en el diferimiento por caída de SFC                                                     | `app/services/queue_service.py::diferir_pendientes_por_caida_sfc`, `DIFERIR_ITEM_LUA_SCRIPT`                                                                                                                  |
 | Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
