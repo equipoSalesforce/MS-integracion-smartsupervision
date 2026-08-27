@@ -193,5 +193,31 @@ class TestCrmEntityToSfcMomento3Payload(_MapperTestCase):
         self.assertEqual(resultado["estado_cod"], 4)
 
 
+class TestFalloDeRespaldoLocalEsCritico(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de una falla de Google Sheets
+    (que sí dispara EmailAlertService.notificar_catalogo_stale si la caché envejece),
+    si el respaldo LOCAL (catalogos_sfc_crm.json / divipola_sfc_crm.json, empaquetado
+    en la imagen) también falla al cargar, CATALOGOS/DEPT_DIVIPOLA quedan vacíos para
+    siempre sin ninguna alerta -- cada queja subsiguiente se rechaza como un 400
+    CRM_PAYLOAD_VALIDATION_ERROR ordinario, disfrazando una caída total del servicio.
+    Se sube a logger.critical (antes era logger.error) para que sea visible de
+    inmediato en CloudWatch en vez de mezclarse con errores de negocio ordinarios."""
+
+    def test_fallo_cargando_catalogos_local_se_loggea_como_critical(self):
+        with patch("app.core.mapping.open", side_effect=OSError("disco corrupto")), \
+             self.assertLogs("app.core.mapping", level="CRITICAL") as logs:
+            SfcSalesforceMapper.cargar_catalogos_local(force=True)
+
+        self.assertTrue(any("catalogos_sfc_crm.json" in msg for msg in logs.output))
+
+    def test_fallo_cargando_divipola_local_se_loggea_como_critical(self):
+        with patch("app.core.mapping.open", side_effect=OSError("disco corrupto")), \
+             self.assertLogs("app.core.mapping", level="CRITICAL") as logs:
+            SfcSalesforceMapper.cargar_divipola(force=True)
+
+        self.assertTrue(any("divipola_sfc_crm.json" in msg for msg in logs.output))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,8 +29,9 @@ prefijo fijo, porque el repo usa varias convenciones reales distintas
 ("caso/{id}/archivo.pdf", "{id}/archivo.pdf", "quejas/{id}/archivo.pdf").
 """
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
 from app.services.s3_service import S3StorageService
 
@@ -118,6 +119,41 @@ class TestListarArchivosEnDirectorioRechazaPrefijoRaiz(unittest.IsolatedAsyncioT
 
         self.assertEqual(len(archivos), 1)
         self.assertEqual(archivos[0]["s3_key"], "caso/MI-CASO-123/soporte.pdf")
+
+
+class TestListarArchivosEnDirectorioSinClienteS3EnProduccion(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de obtener_stream_archivo y
+    subir_stream_archivo/subir_bytes_archivo, este método devolvía [] en silencio
+    cuando el cliente S3 no estaba inicializado en producción, en vez de fallar como
+    sus hermanos. `get_s3_client()` puede legítimamente devolver None en producción
+    si boto3.client() falla al inicializarse (la excepción se traga y el singleton
+    queda en None) -- una queja podía despacharse a la SFC con CERO adjuntos, sin
+    error, sin encolar para reintento y sin alertar.
+    """
+
+    async def test_sin_cliente_s3_en_produccion_falla_en_vez_de_devolver_vacio(self):
+        service = S3StorageService(s3_client=None)
+        with patch.object(settings, "ENVIRONMENT", "production"):
+            service.is_local = False
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await service.listar_archivos_en_directorio(
+                    prefix="caso/MI-CASO-123/", case_id_esperado="MI-CASO-123"
+                )
+        self.assertEqual(ctx.exception.status_code, 500)
+        self.assertEqual(ctx.exception.error_type, "INFRASTRUCTURE_ERROR")
+        self.assertTrue(ctx.exception.es_transitoria)
+
+    async def test_sin_cliente_s3_en_local_si_devuelve_mock(self):
+        """Comportamiento previo preservado para desarrollo local/QA."""
+        service = S3StorageService(s3_client=None)
+        service.is_local = True
+
+        archivos = await service.listar_archivos_en_directorio(
+            prefix="caso/MI-CASO-123/", case_id_esperado="MI-CASO-123"
+        )
+
+        self.assertEqual(len(archivos), 2)
 
 
 if __name__ == "__main__":

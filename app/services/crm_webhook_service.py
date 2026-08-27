@@ -221,7 +221,14 @@ class CrmWebhookService:
         # caso notificado (el mismo 'case_number' que se envió), no sólo cualquier
         # success=true. Evita aceptar como éxito una respuesta cruzada de otro caso.
         crm_case_number = raw_json.get("case_number")
-        if crm_case_number != case_id_crm:
+        # 🔴 FIX (hallazgo propio, 2026-08-27): sin el `not case_id_crm`, un
+        # case_id_crm vacío/None coincidiría trivialmente con un 'case_number'
+        # ausente en la respuesta del CRM (None != None -> False), pasando por alto
+        # por completo la protección de correlación que este bloque implementa.
+        # Actualmente inalcanzable en la práctica (scheduler.py siempre resuelve un
+        # Case_id/smart_code no vacío antes de llamar aquí), pero se cierra como
+        # defensa en profundidad dado lo deliberada que es el resto de esta validación.
+        if not case_id_crm or crm_case_number != case_id_crm:
             logger.warning(
                 f"⚠️ [CRM Webhook] El CRM confirmó éxito pero para un caso distinto al "
                 f"notificado (enviado: {case_id_crm!r}, confirmado: {crm_case_number!r}). "

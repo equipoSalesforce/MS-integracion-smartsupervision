@@ -465,6 +465,56 @@ class TestVencimientoSlaYCatalogoStaleDedupIntegracion(unittest.IsolatedAsyncioT
             await EmailAlertService.notificar_recuperacion_sfc(total_despachados=1)
         self.assertEqual(mock_create_task.call_count, 1)
 
+    async def test_ciclos_sucesivos_de_umbral_de_cola_no_reenvian(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): mismo patrón ya corregido en
+        notificar_casos_vencimiento_sla (fix 2026-08-26) -- notificar_umbral_cola no
+        tenía clave_dedup, así que total_pendientes oscilando alrededor del mismo
+        múltiplo de 100 (encolado/desencolado con la SFC intermitente) reenviaba el
+        mismo correo repetidamente.
+        """
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch("app.services.email_service.asyncio.create_task") as mock_create_task, \
+             patch("app.services.email_service.asyncio.to_thread", new=MagicMock()):
+            mock_create_task.return_value = MagicMock()
+            await EmailAlertService.notificar_umbral_cola(total_pendientes=100)
+            await EmailAlertService.notificar_umbral_cola(total_pendientes=200)
+        self.assertEqual(mock_create_task.call_count, 1)
+
+
+class TestFalloSmtpLiberaODejaLaMarcaDeDedup(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): `_deberia_enviar` marca `clave_dedup` como
+    "enviado" ANTES de intentar el envío real (deliberado, evita que envíos
+    concurrentes del mismo evento pasen todos el chequeo antes de que el primero
+    termine). Pero si el SMTP realmente falla, esa marca sobrevivía igual,
+    silenciando en falso cualquier reintento del MISMO evento durante toda la
+    ventana de deduplicación -- para categorías "one-shot" (recuperacion_sfc,
+    catalogo_stale) eso podía significar que ops nunca se enterara del evento.
+    """
+
+    def setUp(self):
+        EmailAlertService._ULTIMO_ENVIO_POR_CLAVE = {}
+        EmailAlertService._background_tasks = set()
+
+    async def test_falla_en_envio_smtp_libera_la_marca_de_dedup(self):
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "_enviar_smtp_sync", return_value=False) as mock_enviar:
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=5)
+            await EmailAlertService.shutdown(timeout_segundos=1.0)
+
+        mock_enviar.assert_called_once()
+        self.assertNotIn("recuperacion_sfc", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+
+    async def test_envio_exitoso_conserva_la_marca_de_dedup(self):
+        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
+             patch.object(EmailAlertService, "_enviar_smtp_sync", return_value=True) as mock_enviar:
+            await EmailAlertService.notificar_recuperacion_sfc(total_despachados=5)
+            await EmailAlertService.shutdown(timeout_segundos=1.0)
+
+        mock_enviar.assert_called_once()
+        self.assertIn("recuperacion_sfc", EmailAlertService._ULTIMO_ENVIO_POR_CLAVE)
+
 
 if __name__ == "__main__":
     unittest.main()

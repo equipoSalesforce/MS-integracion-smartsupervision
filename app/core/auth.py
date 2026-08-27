@@ -312,7 +312,24 @@ class SfcAuthManager(httpx.Auth):
         }
 
         response = await self.client.post(endpoint, json=payload, headers=headers)
-        response.raise_for_status()
+        # 🔴 FIX (hallazgo propio, 2026-08-27): antes `raise_for_status()` no estaba
+        # envuelto -- un 4xx/5xx del propio endpoint de login (credenciales rotadas,
+        # hiccup transitorio del servicio de auth de la SFC) escapaba como
+        # `httpx.HTTPStatusError` crudo. Ese error se propaga sin capturar por
+        # `async_auth_flow` (se llama ANTES del `yield request`) hasta el
+        # try/except de `sfc_client.py` que envuelve la llamada de negocio real,
+        # donde termina siendo clasificado con `SfcErrorTranslator` contra el texto
+        # de la respuesta de LOGIN pero interpretado como si fuera un rechazo de
+        # negocio de la queja -- casi nunca matchea nada del catálogo y cae a
+        # UNKNOWN_SFC_ERROR (es_transitoria=False), descartando permanentemente una
+        # operación que en realidad falló por un problema transitorio/operativo de
+        # autenticación. Se envuelve aquí con el mismo tratamiento que ya existía
+        # para respuestas de auth corruptas (502, es_transitoria=True vía
+        # status_code>=500), consistente con esa clasificación.
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise _envolver_error_respuesta_auth_sfc(e) from e
 
         try:
             data = response.json()
@@ -341,7 +358,13 @@ class SfcAuthManager(httpx.Auth):
         if response.status_code == 401:
             raise ValueError("Refresh Token inválido o expirado en la SFC")
 
-        response.raise_for_status()
+        # Mismo razonamiento que en _login: cualquier otro 4xx/5xx del endpoint de
+        # refresh (el 401 ya se maneja arriba, deliberadamente, como señal para caer
+        # a login completo) no debe escapar como httpx.HTTPStatusError crudo.
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise _envolver_error_respuesta_auth_sfc(e) from e
 
         try:
             data = response.json()

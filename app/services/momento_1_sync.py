@@ -58,7 +58,7 @@ class SincronizacionService:
 
             respuesta = await self.sfc_client.fetch_quejas_pagina(url=url_actual)
             response_data = respuesta.get("Response") if "Response" in respuesta else respuesta
-            lista_quejas = response_data.get("results", [])
+            lista_quejas = self._extraer_lista_quejas(response_data)
 
             if not lista_quejas:
                 break
@@ -66,11 +66,28 @@ class SincronizacionService:
             quejas_procesadas_pagina = await self._procesar_pagina_quejas(lista_quejas, vistos_codigos_queja)
             quejas_finales_crm.extend(quejas_procesadas_pagina)
 
-            url_actual = response_data.get("next")
+            # 🔴 FIX (hallazgo propio, 2026-08-27): mismo hueco asimétrico que ya se
+            # había cerrado en momento_4_sync.py::sincronizar_usuarios -- si la SFC
+            # devolviera alguna vez un body con forma inesperada (lista en vez de
+            # dict, u otro tipo), `.get("results"/"next")` sobre eso lanzaba un
+            # AttributeError crudo sin clasificar en vez de degradar con gracia como
+            # el resto del pipeline. Momento 1 nunca recibió el mismo endurecimiento.
+            url_actual = response_data.get("next") if isinstance(response_data, dict) else None
             if not url_actual:
                 break
 
         return quejas_finales_crm
+
+    @staticmethod
+    def _extraer_lista_quejas(response_data: Any) -> list:
+        """Misma tolerancia de forma que momento_4_sync.py::_extraer_lista_usuarios
+        -- si la SFC devuelve un body con forma inesperada, degrada a lista vacía
+        (fin de paginación) en vez de un AttributeError crudo."""
+        if isinstance(response_data, dict):
+            return response_data.get("results", [])
+        if isinstance(response_data, list):
+            return response_data
+        return []
 
     @staticmethod
     def _filtrar_duplicados_por_codigo_queja(

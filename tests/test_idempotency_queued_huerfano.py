@@ -101,6 +101,51 @@ class TestIdempotencyQueuedHuerfano(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(respuesta["status"], "already_queued")
 
 
+class _StubRedisDeleteFalla(_StubRedis):
+    """Igual que _StubRedis, pero DELETE siempre falla -- emula una caída
+    transitoria de Redis justo al intentar liberar un registro QUEUED huérfano."""
+
+    async def delete(self, key):
+        raise ConnectionError("redis down during orphaned QUEUED cleanup")
+
+
+class TestIdempotencyQueuedHuerfanoFalloAlLiberar(unittest.IsolatedAsyncioTestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): antes, si el DELETE del registro QUEUED
+    huérfano fallaba (error transitorio de Redis), sólo se loggeaba un warning y el
+    código caía igual hacia _iniciar_registro_processing como si la limpieza hubiera
+    funcionado. El SET...NX de ahí fallaba contra la key huérfana que en realidad
+    seguía existiendo, y el método devolvía un falso "status": "processing" --
+    bloqueando una operación legítima nueva hasta por el TTL completo del registro
+    QUEUED (hasta 30 días), sin ninguna alerta. Debe fallar cerrado (503) como
+    cualquier otro error de Redis en este flujo, no devolver un falso positivo."""
+
+    def setUp(self):
+        self.redis = _StubRedisDeleteFalla()
+        self.idem = IdempotencyService(self.redis)
+        self.payload_a = {"Smart_Code__c": "SC-1", "Status": "In Progress", "tipo_fraude__c": "Externo"}
+
+    async def test_fallo_al_liberar_registro_huerfano_falla_cerrado_no_falso_processing(self):
+        await self.idem.verificar_o_iniciar_operacion("SC-1", self.payload_a)
+        await self.idem.registrar_encolado("SC-1", self.payload_a, error_msg="SFC caida", registro_id=42)
+
+        payload_b = {
+            "Smart_Code__c": "SC-1", "Status": "Closed",
+            "tipo_fraude__c": "Externo", "Favorabilidad__c": "Favorable"
+        }
+        self.redis.store["{sfc:queue}:item:42"] = json.dumps({
+            "estado": "PENDIENTE", "payload_json": payload_b, "smart_code": "SC-1"
+        })
+
+        with patch("app.services.idempotency_service.EmailAlertService.notificar_falla_infraestructura", new=AsyncMock()):
+            es_hit, respuesta = await self.idem.verificar_o_iniciar_operacion("SC-1", self.payload_a)
+
+        self.assertTrue(es_hit)
+        self.assertEqual(respuesta["status"], "redis_unavailable")
+        self.assertEqual(respuesta["status_code"], 503)
+        self.assertNotEqual(respuesta["status"], "processing")
+
+
 class _StubRedisSetFalla(_StubRedis):
     """Igual que _StubRedis, pero SET siempre falla — emula una caída de Redis en el
     momento exacto de persistir el estado QUEUED."""

@@ -86,6 +86,31 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(exito)
         self.assertIsNotNone(detalle)
 
+    async def test_case_id_crm_ausente_con_case_number_tambien_ausente_no_pasa_trivialmente(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): sin el `not case_id_crm`, un case_id_crm
+        vacío/None coincidiría trivialmente con un 'case_number' ausente en la
+        respuesta del CRM (None != None -> False), pasando por alto por completo la
+        protección de correlación (hallazgo 14/P0-07). Defensa en profundidad: aunque
+        hoy scheduler.py siempre resuelve un Case_id/smart_code no vacío antes de
+        llamar aquí, esta validación no debe depender de esa garantía externa.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"success": True, "case_id": "50000000001"}
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm=None,
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
+
     async def test_200_ok_content_type_json_pero_cuerpo_no_es_un_objeto_rejected(self):
         """Un array JSON top-level (`[1,2,3]`) o cualquier tipo no-dict pasa el
         chequeo de Content-Type pero debe rechazarse igual -- `raw_json.get(...)`

@@ -401,7 +401,20 @@ class SfcSalesforceMapper:
 
             logger.info("📂 [SfcSalesforceMapper] Respaldo local de catálogos cargado en RAM.")
         except Exception as e:
-            logger.error(f"❌ Error al cargar catalogos_sfc_crm.json: {e}")
+            # 🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de una falla de Google
+            # Sheets (que sí dispara EmailAlertService.notificar_catalogo_stale si la
+            # caché en RAM envejece más de MAX_STALE_TTL_SEGUNDOS), si este respaldo
+            # LOCAL también falla, CATALOGOS/INVERSE_CATALOGS quedan vacíos para
+            # siempre -- sin alerta, sin reintento (es un recurso empaquetado en la
+            # imagen, no algo que vaya a "recuperarse solo"). Cada queja subsiguiente
+            # que necesite un catálogo falla `_lookup_or_fail` y se rechaza como un 400
+            # CRM_PAYLOAD_VALIDATION_ERROR ordinario -- una caída total y silenciosa
+            # disfrazada de rechazos de negocio normales. No se dispara
+            # EmailAlertService aquí porque este método corre también a nivel de
+            # módulo, en import time (línea ~901), antes de que exista un event loop
+            # corriendo -- se sube a CRITICAL para que quede visible en CloudWatch de
+            # inmediato en vez de mezclarse con errores ordinarios.
+            logger.critical(f"🔥 [SfcSalesforceMapper] Error al cargar el respaldo LOCAL catalogos_sfc_crm.json: {e}")
 
     @classmethod
     def cargar_divipola(cls, force: bool = False):
@@ -425,7 +438,9 @@ class SfcSalesforceMapper:
             cls.MUNI_DIVIPOLA["bogota"] = "11001"
             cls.MUNI_DIVIPOLA["bogota dc"] = "11001"
         except Exception as e:
-            logger.error(f"❌ Error al cargar divipola_sfc_crm.json: {e}")
+            # Mismo razonamiento que cargar_catalogos_local: sin este respaldo local,
+            # DEPT_DIVIPOLA/MUNI_DIVIPOLA quedan vacíos permanentemente y sin alerta.
+            logger.critical(f"🔥 [SfcSalesforceMapper] Error al cargar el respaldo LOCAL divipola_sfc_crm.json: {e}")
 
     @classmethod
     def get_crm_allowed_values(cls, catalog_key: str) -> Set[str]:

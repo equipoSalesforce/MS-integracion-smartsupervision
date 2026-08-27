@@ -412,6 +412,23 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ConnectionError):
             await service.ejecutar_flujo_completo_momento_1()
 
+    async def test_response_data_con_forma_inesperada_no_crashea_con_attributeerror(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): mismo hueco asimétrico ya cerrado en
+        momento_4_sync.py::sincronizar_usuarios (_extraer_lista_usuarios) -- si la
+        SFC devolviera un body con forma inesperada (ej. una lista en vez de un
+        dict), `.get("results")` sobre eso lanzaba un AttributeError crudo en vez de
+        degradar con gracia (fin de paginación) como el resto del pipeline. Momento 1
+        nunca había recibido el mismo endurecimiento.
+        """
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value={"Response": ["no", "es", "un", "dict"]})
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(resultado, [])
+        self.sfc_client_mock.fetch_quejas_pagina.assert_called_once()
+
     async def test_codigo_queja_ausente_no_se_deduplica_contra_otro_ausente(self):
         """Dos registros malformados sin codigo_queja no deben "comerse" entre
         sí -- sólo se deduplican valores realmente repetidos."""

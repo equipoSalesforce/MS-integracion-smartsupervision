@@ -356,10 +356,18 @@ class IdempotencyService:
                 f"{record.get('queue_item_id')} ya no contiene este payload. Liberando "
                 f"y procesando como una operación nueva."
             )
-            try:
-                await self.redis.delete(key)
-            except Exception as del_err:
-                logger.warning(f"No se pudo liberar el registro QUEUED huérfano para {smart_code}: {del_err}")
+            # 🔴 FIX (hallazgo propio, 2026-08-27): antes, si este DELETE fallaba
+            # (error transitorio de Redis), sólo se loggeaba un warning y el código
+            # caía igual hacia `_iniciar_registro_processing` como si la limpieza
+            # hubiera funcionado. El SET...NX de ahí fallaba contra la key huérfana
+            # que en realidad seguía existiendo, y el método devolvía un falso
+            # "status": "processing" -- bloqueando una operación legítima nueva
+            # hasta por el TTL completo del registro QUEUED (hasta 30 días), sin
+            # ninguna alerta ni indicio de que la causa real fue un fallo de Redis.
+            # Se deja propagar: el try/except de verificar_o_iniciar_operacion ya
+            # trata cualquier excepción de Redis con el mismo fail-closed (503 +
+            # alerta) que el resto del método.
+            await self.redis.delete(key)
             # No retorna: cae hacia abajo para iniciar como PROCESSING nuevo.
 
         return None

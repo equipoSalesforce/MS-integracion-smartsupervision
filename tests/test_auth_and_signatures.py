@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import datetime
+import httpx
 import jwt
 
 from app.core.auth import SfcAuthManager
@@ -160,6 +161,64 @@ class TestAuthAndSignatures(unittest.IsolatedAsyncioTestCase):
         mock_post.return_value = mock_response
 
         auth_manager = SfcAuthManager(self.signature_context)
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await auth_manager.get_valid_token()
+
+        self.assertEqual(ctx.exception.error_type, "SFC_AUTH_RESPONSE_INVALID")
+        self.assertTrue(ctx.exception.es_transitoria)
+
+    @patch("app.core.auth.httpx.AsyncClient.post")
+    async def test_login_con_4xx_del_propio_endpoint_se_clasifica_como_falla_transitoria(self, mock_post):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): un 4xx/5xx del propio endpoint
+        /api/login/ (credenciales rotadas, hiccup del servicio de auth de la SFC) no
+        tenía NINGÚN try/except sobre `raise_for_status()` -- el httpx.HTTPStatusError
+        crudo escapaba de auth_flow (se dispara ANTES del `yield request`) hasta el
+        try/except de sfc_client.py que envuelve la llamada de NEGOCIO real, donde se
+        clasificaba con SfcErrorTranslator contra el texto de la respuesta de LOGIN
+        como si fuera un rechazo de negocio de la queja -- casi nunca matchea nada del
+        catálogo y cae a UNKNOWN_SFC_ERROR (es_transitoria=False), descartando
+        permanentemente una operación que en realidad falló por un problema
+        transitorio de autenticación. Debe envolverse en SfcIntegrationException,
+        transitoria, igual que el resto de fallas de respuesta de auth.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Forbidden", request=MagicMock(), response=mock_response
+        )
+        mock_post.return_value = mock_response
+
+        auth_manager = SfcAuthManager(self.signature_context)
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await auth_manager.get_valid_token()
+
+        self.assertEqual(ctx.exception.error_type, "SFC_AUTH_RESPONSE_INVALID")
+        self.assertTrue(ctx.exception.es_transitoria)
+
+    @patch("app.core.auth.httpx.AsyncClient.post")
+    async def test_refresh_con_5xx_no_401_se_clasifica_como_falla_transitoria(self, mock_post):
+        """Mismo hallazgo que el login, pero en /api/token/refresh -- el 401 explícito
+        ya se maneja aparte (deliberado, cae a login completo), pero cualquier OTRO
+        4xx/5xx (ej. 500 del servicio de auth) no estaba envuelto."""
+        auth_manager = SfcAuthManager(self.signature_context)
+
+        expired_access = generate_mock_jwt(-5)
+        auth_manager.access_token = expired_access
+        auth_manager.refresh_token = self.mock_refresh_token
+        auth_manager.access_exp = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
+        auth_manager.refresh_exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=11)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Internal Server Error", request=MagicMock(), response=mock_response
+        )
+        mock_post.return_value = mock_response
 
         with self.assertRaises(SfcIntegrationException) as ctx:
             await auth_manager.get_valid_token()

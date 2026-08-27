@@ -104,6 +104,27 @@ class EmailAlertService:
         cls._background_tasks.add(task)
         task.add_done_callback(cls._background_tasks.discard)
 
+        # 🔴 FIX (hallazgo propio, 2026-08-27): `_deberia_enviar` ya marcó `clave_dedup`
+        # como "enviado" arriba -- deliberado, para que envíos concurrentes del mismo
+        # evento no pasen todos el chequeo antes de que el primero termine. Pero si el
+        # SMTP realmente falla (_enviar_smtp_sync devuelve False), esa marca quedaba
+        # igual, silenciando en falso cualquier reintento del MISMO evento durante toda
+        # la ventana de deduplicación -- para categorías "one-shot" (ej.
+        # notificar_recuperacion_sfc, notificar_catalogo_stale) eso podía significar que
+        # ops nunca se enterara de ese evento puntual. Se revierte la marca sólo cuando
+        # el envío falló, preservando la protección anti-flood para el caso exitoso.
+        if clave_dedup is not None:
+            task.add_done_callback(lambda t: cls._liberar_dedup_si_fallo(t, clave_dedup))
+
+    @classmethod
+    def _liberar_dedup_si_fallo(cls, task: "asyncio.Task", clave_dedup: str) -> None:
+        try:
+            exito = task.result()
+        except Exception:
+            exito = False
+        if not exito:
+            cls._ULTIMO_ENVIO_POR_CLAVE.pop(clave_dedup, None)
+
     @classmethod
     async def shutdown(cls, timeout_segundos: float = 3.0):
         """
@@ -131,10 +152,13 @@ class EmailAlertService:
         return settings.ALERT_NOTIFY_EMAILS or []
 
     @staticmethod
-    def _enviar_smtp_sync(destinatarios: List[str], asunto: str, cuerpo_html: str):
+    def _enviar_smtp_sync(destinatarios: List[str], asunto: str, cuerpo_html: str) -> bool:
+        """Devuelve True si el correo se entregó al servidor SMTP, False si falló
+        (incluyendo la ausencia de destinatarios) -- el caller usa este resultado
+        para decidir si debe liberar la marca de deduplicación de este envío."""
         if not destinatarios:
             logger.warning("⚠️ [Email Alert] No hay destinatarios configurados. Se omite envío.")
-            return
+            return False
 
         try:
             # 🟢 FIX P1-08: remitente separado de la credencial de autenticación SMTP —
@@ -154,8 +178,10 @@ class EmailAlertService:
                 server.sendmail(remitente, destinatarios, msg.as_string())
 
             logger.info(f"📧 [Email Alert] Alerta enviada a: {destinatarios}")
+            return True
         except Exception as e:
             logger.error(f"❌ [Email Alert] Error al enviar correo SMTP: {str(e)}")
+            return False
 
     @classmethod
     async def notificar_falla_infraestructura(
@@ -312,10 +338,17 @@ class EmailAlertService:
         </html>
         """
 
+        # 🔴 FIX (hallazgo propio, 2026-08-27): mismo patrón que ya se corrigió en
+        # notificar_casos_vencimiento_sla (fix 2026-08-26) -- sin `clave_dedup`, esta
+        # alerta podía reenviarse repetidamente si `total_pendientes` oscila cruzando
+        # el mismo múltiplo de 100 varias veces (encolado/desencolado en un ciclo con
+        # la SFC intermitente), inundando ops con el mismo correo. "Umbral de cola
+        # alcanzado" es un solo evento en curso, no uno nuevo por cada cruce.
         cls._programar_envio_background(
             destinatarios=cls._obtener_destinatarios(),
             asunto=asunto,
-            cuerpo_html=cuerpo_html
+            cuerpo_html=cuerpo_html,
+            clave_dedup="umbral_cola"
         )
 
     @classmethod

@@ -5,6 +5,7 @@ from app.core.security.sanitizer import (
     sanitizar_payload,
     sanitizar_headers,
     sanitizar_texto_plano,
+    sanitizar_html_para_pdf,
 )
 
 
@@ -132,6 +133,65 @@ class TestSanitizarHeaders(unittest.TestCase):
         limpio = sanitizar_headers(headers)
 
         self.assertEqual(limpio, {})
+
+
+class TestSanitizarHtmlParaPdf(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27, auditoría final de cobertura): esta función
+    es la barrera de seguridad usada antes de convertir HTML del CRM a PDF regulatorio
+    (bloquea scripts/iframes ejecutables y SSRF vía file:///IPs privadas/metadata de
+    AWS), pero ningún test la ejercitaba con contenido realmente peligroso -- sólo se
+    confiaba en la lectura del regex.
+    """
+
+    def test_vacio_retorna_cadena_vacia(self):
+        self.assertEqual(sanitizar_html_para_pdf(""), "")
+        self.assertEqual(sanitizar_html_para_pdf(None), "")
+
+    def test_script_tag_es_removido(self):
+        resultado = sanitizar_html_para_pdf("<p>hola</p><script>alert(1)</script><p>chau</p>")
+        self.assertNotIn("<script", resultado)
+        self.assertIn("hola", resultado)
+        self.assertIn("chau", resultado)
+
+    def test_iframe_embed_object_link_meta_base_son_removidos(self):
+        for tag in ("iframe", "embed", "object", "link", "meta", "base"):
+            with self.subTest(tag=tag):
+                resultado = sanitizar_html_para_pdf(f"<{tag} src='x'>contenido</{tag}>")
+                self.assertNotIn(f"<{tag}", resultado)
+
+    def test_html_benigno_no_se_modifica(self):
+        html = "<p>Estimado cliente, su caso fue <b>resuelto</b>.</p>"
+        self.assertEqual(sanitizar_html_para_pdf(html), html)
+
+    def test_file_scheme_es_neutralizado(self):
+        resultado = sanitizar_html_para_pdf('<img src="file:///etc/passwd">')
+        self.assertNotIn("file://", resultado)
+        self.assertIn('src="#"', resultado)
+
+    def test_aws_metadata_ip_es_neutralizada(self):
+        """El regex neutraliza el prefijo peligroso (esquema+host) del atributo
+        src/href -- no re-escribe la URL completa. El resto de la cadena queda como
+        texto suelto sin efecto (no vuelve a formar un atributo src/href real)."""
+        resultado = sanitizar_html_para_pdf('<img src="http://169.254.169.254/latest/meta-data/">')
+        self.assertIn('src="#"', resultado)
+        self.assertNotIn('src="http://169.254', resultado)
+
+    def test_localhost_e_ips_privadas_son_neutralizadas(self):
+        for url in (
+            "http://localhost/admin",
+            "http://127.0.0.1/x",
+            "http://10.0.0.5/x",
+            "http://172.16.0.1/x",
+            "http://192.168.1.1/x",
+        ):
+            with self.subTest(url=url):
+                resultado = sanitizar_html_para_pdf(f'<a href="{url}">link</a>')
+                self.assertNotIn(url, resultado)
+
+    def test_url_publica_no_se_toca(self):
+        html = '<a href="https://www.superfinanciera.gov.co">SFC</a>'
+        self.assertEqual(sanitizar_html_para_pdf(html), html)
 
 
 if __name__ == "__main__":

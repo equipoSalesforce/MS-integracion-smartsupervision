@@ -3,7 +3,12 @@ import unittest  # 👈 Importamos la librería nativa
 from pathlib import Path
 from unittest.mock import patch
 from pypdf import PdfReader
-from app.utils.pdf_generator import generar_pdf_respuesta_final, ajustar_ancho_texto
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NumberObject
+from app.utils.pdf_generator import (
+    generar_pdf_respuesta_final,
+    ajustar_ancho_texto,
+    _marcar_widgets_pagina_solo_lectura,
+)
 
 
 class TestAjustarAnchoTexto(unittest.TestCase):
@@ -136,3 +141,62 @@ class TestPdfGenerator(unittest.TestCase):  # 👈 Debe heredar de unittest.Test
                 generar_pdf_respuesta_final(
                     caso_nombre="Caso X", smart_code="SC-X", texto_crm="texto"
                 )
+
+
+class TestMarcarWidgetsPaginaSoloLectura(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27, auditoría final de cobertura): este
+    fallback (bloquear el widget directamente cuando no tiene /Parent) es lo que
+    hace tamper-resistente el PDF regulatorio -- pero nada probaba directamente que
+    de verdad bloquee un widget así, sólo se ejercitaba indirectamente vía la
+    plantilla real empaquetada (cuyos campos sí tienen /Parent). Si la estructura de
+    esa plantilla cambiara alguna vez, este camino podría dejar de dispararse sin
+    que ningún test lo notara.
+    """
+
+    def test_widget_sin_parent_se_bloquea_directamente(self):
+        widget = DictionaryObject({NameObject("/Subtype"): NameObject("/Widget")})
+        page = DictionaryObject({NameObject("/Annots"): ArrayObject([widget])})
+
+        _marcar_widgets_pagina_solo_lectura(page)
+
+        self.assertEqual(int(widget[NameObject("/Ff")]), 1)
+        self.assertEqual(int(widget[NameObject("/F")]), 4)
+
+    def test_widget_con_parent_bloquea_al_padre_no_al_hijo(self):
+        parent = DictionaryObject({})
+        widget = DictionaryObject({
+            NameObject("/Subtype"): NameObject("/Widget"),
+            NameObject("/Parent"): parent,
+        })
+        page = DictionaryObject({NameObject("/Annots"): ArrayObject([widget])})
+
+        _marcar_widgets_pagina_solo_lectura(page)
+
+        self.assertEqual(int(parent[NameObject("/Ff")]), 1)
+        self.assertNotIn(NameObject("/Ff"), widget)
+        self.assertEqual(int(widget[NameObject("/F")]), 4)
+
+    def test_flag_readonly_preexistente_no_se_pierde_al_combinar_bits(self):
+        """El OR bit a bit (|1) debe preservar cualquier otro flag ya presente en
+        /Ff, no sobreescribirlo."""
+        widget = DictionaryObject({
+            NameObject("/Subtype"): NameObject("/Widget"),
+            NameObject("/Ff"): NumberObject(2),  # otro flag ya activo (bit 2)
+        })
+        page = DictionaryObject({NameObject("/Annots"): ArrayObject([widget])})
+
+        _marcar_widgets_pagina_solo_lectura(page)
+
+        self.assertEqual(int(widget[NameObject("/Ff")]), 3)  # bit 1 (ReadOnly) + bit 2 preservado
+
+    def test_anotacion_que_no_es_widget_se_ignora(self):
+        no_widget = DictionaryObject({NameObject("/Subtype"): NameObject("/Link")})
+        page = DictionaryObject({NameObject("/Annots"): ArrayObject([no_widget])})
+
+        _marcar_widgets_pagina_solo_lectura(page)  # No debe lanzar ni tocar la anotación.
+
+        self.assertNotIn(NameObject("/Ff"), no_widget)
+
+    def test_pagina_sin_annots_no_lanza(self):
+        _marcar_widgets_pagina_solo_lectura(DictionaryObject({}))  # No debe lanzar.

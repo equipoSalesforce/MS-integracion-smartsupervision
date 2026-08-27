@@ -418,18 +418,6 @@ class S3StorageService:
             tmp_file.close()
             raise e
 
-    async def obtener_bytes_archivo(
-        self, 
-        s3_key: str, 
-        bucket: Optional[str] = None, 
-        max_size_mb: int = 30
-    ) -> bytes:
-        tmp_file = await self.obtener_stream_archivo(s3_key, bucket, max_size_mb)
-        try:
-            return tmp_file.read()
-        finally:
-            tmp_file.close()
-
     async def subir_stream_archivo(
         self, 
         s3_key: str, 
@@ -582,7 +570,22 @@ class S3StorageService:
             prefix_clean += "/"
 
         if not self.s3_client:
-            return self._listar_mock_local(prefix_clean, target_bucket)
+            if self.is_local:
+                return self._listar_mock_local(prefix_clean, target_bucket)
+            # 🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de obtener_stream_archivo
+            # y subir_stream_archivo/subir_bytes_archivo, este método devolvía [] en
+            # silencio cuando el cliente S3 no estaba inicializado en producción (en vez
+            # de fallar como sus hermanos) -- una queja podía despacharse a la SFC con
+            # CERO adjuntos, sin error, sin encolar para reintento y sin alertar, en vez
+            # de un 500/INFRASTRUCTURE_ERROR (transitorio) que sí dispara la cola de
+            # contingencia.
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="INFRASTRUCTURE_ERROR",
+                sfc_field="s3_client",
+                raw_message="El cliente de almacenamiento S3 no está inicializado en producción.",
+                crm_action="Contactar al equipo de infraestructura para validar la configuración de AWS S3."
+            )
 
         def _listar():
             paginator = self.s3_client.get_paginator("list_objects_v2")

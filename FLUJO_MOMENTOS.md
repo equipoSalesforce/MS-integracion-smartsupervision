@@ -1466,6 +1466,174 @@ construido (import de `app.main` + generación real de un PDF con
 `generar_pdf_respuesta_final`, para ejercitar concretamente el código que usa
 `pypdf`).
 
+## Auditoría final de cobertura -- revisión exhaustiva de los 39 archivos de `app/`
+
+**Contexto (2026-08-27):** pedido explícito de revisar TODO el repositorio en
+busca de huecos sin testear/verificar, con el mismo rigor que los documentos de
+auditoría externa recibidos. Se combinó: (a) `coverage run --source=app` sobre
+la suite completa (línea base: 96% de cobertura, 4997 sentencias) como mapa
+cuantitativo de puntos ciegos; (b) 6 revisiones profundas en paralelo, cada una
+cubriendo un clúster de archivos, clasificando cada línea sin cubrir como
+SEGURA (código defensivo correcto, sólo difícil de disparar), MUERTA (sin
+callers), HUECO GENUINO, o SIN TESTS PERO CORRECTA; (c) revisión manual directa
+de los hallazgos "genuinos" antes de aplicar ningún fix, para descartar falsos
+positivos (dos de los reportados por los subagentes resultaron ser diseño
+deliberado ya probado, no bugs -- no se tocaron).
+
+**Huecos genuinos confirmados y corregidos:**
+
+1. **`app/core/auth.py` -- fallos del propio endpoint de login/refresh de la SFC
+   no se clasificaban.** `_login`/`_refresh_access_token` envolvían fallos de
+   *parseo* de la respuesta (JSON/JWT corrupto, fix previo del 2026-08-27) pero
+   NO el `response.raise_for_status()` en sí. Un 4xx/5xx real del propio
+   endpoint de login (credenciales rotadas, hiccup del servicio de auth)
+   escapaba como `httpx.HTTPStatusError` crudo, se propagaba sin capturar desde
+   `async_auth_flow` (corre ANTES del `yield request`) hasta el try/except de
+   `sfc_client.py` que envuelve la llamada de NEGOCIO real -- ahí se clasificaba
+   con `SfcErrorTranslator` contra el texto de la respuesta de LOGIN como si
+   fuera un rechazo de negocio de la queja, casi nunca matcheaba nada del
+   catálogo y caía a `UNKNOWN_SFC_ERROR` (`es_transitoria=False`), descartando
+   permanentemente una operación que en realidad falló por un problema
+   transitorio de autenticación. Ahora se envuelve con el mismo tratamiento que
+   ya existía para respuestas de auth corruptas (502, `SFC_AUTH_RESPONSE_INVALID`,
+   transitoria). Tests: `tests/test_auth_and_signatures.py::
+   test_login_con_4xx_del_propio_endpoint_se_clasifica_como_falla_transitoria`,
+   `test_refresh_con_5xx_no_401_se_clasifica_como_falla_transitoria`.
+
+2. **`app/services/s3_service.py::listar_archivos_en_directorio` devolvía `[]`
+   en silencio sin cliente S3 en producción.** A diferencia de
+   `obtener_stream_archivo`/`subir_stream_archivo`/`subir_bytes_archivo` (que
+   fallan con `INFRASTRUCTURE_ERROR` si `s3_client` es `None` fuera de
+   local/dev), este método caía al mock local incluso en producción -- y
+   `get_s3_client()` puede legítimamente devolver `None` si `boto3.client()`
+   falla al inicializar. Resultado: una queja podía despacharse a la SFC con
+   CERO adjuntos, sin error, sin encolar para reintento y sin alertar. Ahora
+   levanta el mismo 500/`INFRASTRUCTURE_ERROR` (transitorio) que sus hermanos.
+   Tests: `tests/test_s3_directory_listing_ownership.py::
+   TestListarArchivosEnDirectorioSinClienteS3EnProduccion`.
+
+3. **`app/services/idempotency_service.py` -- limpieza de un registro `QUEUED`
+   huérfano podía fallar en silencio y bloquear una operación legítima hasta 30
+   días.** Al liberar un registro `QUEUED` huérfano (item de cola sobrescrito
+   por otro evento), si el `DELETE` en Redis fallaba (error transitorio), sólo
+   se loggeaba un warning y el código caía igual hacia `_iniciar_registro_
+   processing` como si la limpieza hubiera funcionado. El `SET...NX` de ahí
+   fallaba contra la key huérfana que en realidad seguía existiendo, y el
+   método devolvía un falso `"status": "processing"` -- bloqueando una
+   operación nueva por el TTL completo del registro (hasta 30 días), sin
+   ninguna alerta. Ahora se deja propagar: el mismo fail-closed (503 + alerta)
+   que ya cubre cualquier otro error de Redis en este flujo. Test:
+   `tests/test_idempotency_queued_huerfano.py::
+   TestIdempotencyQueuedHuerfanoFalloAlLiberar`.
+
+4. **`app/services/momento_1_sync.py` -- misma asimetría "un lado del par
+   corregido, el otro no" que el resto de la auditoría.** `momento_4_sync.py::
+   sincronizar_usuarios` ya tolera una forma de respuesta inesperada de la SFC
+   (`_extraer_lista_usuarios`, fix previo), pero Momento 1 nunca recibió el
+   mismo endurecimiento: `response_data.get("results")`/`.get("next")` asumían
+   que `response_data` siempre es un dict, y un body con forma distinta
+   lanzaba un `AttributeError` crudo sin clasificar en vez de degradar con
+   gracia (fin de paginación). Se agregó `_extraer_lista_quejas`, espejo
+   exacto de `_extraer_lista_usuarios`. Test: `tests/test_momento_1.py::
+   test_response_data_con_forma_inesperada_no_crashea_con_attributeerror`.
+
+5. **`app/services/crm_webhook_service.py` -- la verificación de correlación de
+   caso no descartaba un `case_id_crm` vacío.** `if crm_case_number !=
+   case_id_crm` coincide trivialmente si ambos son `None` (`None != None` es
+   `False`), pasando por alto la protección anti-confirmación-cruzada
+   (hallazgo 14/P0-07) para ese caso límite. Hoy inalcanzable en la práctica
+   (`scheduler.py` siempre resuelve un `Case_id`/`smart_code` no vacío antes de
+   llamar aquí), pero se cerró como defensa en profundidad. Test:
+   `tests/test_crm_webhook_service.py::
+   test_case_id_crm_ausente_con_case_number_tambien_ausente_no_pasa_trivialmente`.
+
+6. **`app/services/email_service.py` -- dos huecos en el sistema de alertas.**
+   (a) `notificar_umbral_cola` era el único notificador sin `clave_dedup`
+   (mismo patrón ya corregido en `notificar_casos_vencimiento_sla` el
+   2026-08-26) -- `total_pendientes` oscilando alrededor de un múltiplo de 100
+   podía reenviar el mismo correo repetidamente. (b) más general: `_deberia_
+   enviar` marca la clave de deduplicación como "enviada" ANTES de intentar el
+   SMTP real (deliberado, evita envíos concurrentes duplicados) -- pero si el
+   SMTP fallaba de verdad, esa marca sobrevivía igual, silenciando en falso
+   cualquier reintento del MISMO evento durante toda la ventana de dedup; para
+   categorías "one-shot" (`notificar_recuperacion_sfc`, `notificar_catalogo_
+   stale`) eso podía significar que ops nunca se enterara del evento. Ahora la
+   marca se libera sólo si el envío falló. Tests: `tests/test_email_service.py::
+   TestVencimientoSlaYCatalogoStaleDedupIntegracion::
+   test_ciclos_sucesivos_de_umbral_de_cola_no_reenvian`,
+   `TestFalloSmtpLiberaODejaLaMarcaDeDedup`.
+
+7. **`app/core/mapping.py` -- una falla del respaldo LOCAL de catálogos/DIVIPOLA
+   quedaba silenciosa.** A diferencia de una falla de Google Sheets (que sí
+   dispara `EmailAlertService.notificar_catalogo_stale` si la caché envejece
+   más de `MAX_STALE_TTL_SEGUNDOS`), si el respaldo LOCAL (`catalogos_sfc_crm.
+   json`/`divipola_sfc_crm.json`, empaquetado en la imagen) también fallaba al
+   cargar, `CATALOGOS`/`DEPT_DIVIPOLA` quedaban vacíos para siempre sin ninguna
+   señal más allá de un `logger.error` -- cada queja subsiguiente se rechaza
+   como un 400 `CRM_PAYLOAD_VALIDATION_ERROR` ordinario, disfrazando una caída
+   total del servicio. No se agregó una alerta por correo aquí (este método
+   corre también a nivel de módulo, en import time, antes de que exista un
+   event loop corriendo) -- se subió a `logger.critical` para visibilidad
+   inmediata en CloudWatch. Tests: `tests/test_mapping_translations.py::
+   TestFalloDeRespaldoLocalEsCritico`.
+
+**Código muerto eliminado:** `S3StorageService.obtener_bytes_archivo` -- sin
+ningún caller en todo `app/` (confirmado por grep), se eliminó en vez de
+dejarlo sin usar.
+
+**Cobertura nueva en superficies de seguridad previamente sin ningún test**
+(lógica ya correcta, pero nunca verificada directamente):
+
+- `infrastructure/healthcheck_worker.py` estaba en 0% de cobertura pese a ser
+  el comando `HEALTHCHECK` real del contenedor worker en el Dockerfile -- el
+  único código que decide si ECS/Docker lo considera sano o lo reinicia.
+  Nuevo archivo `tests/test_healthcheck_worker_script.py` cubre sus 3 ramas
+  (heartbeat ausente/corrupto/vencido) más el camino sano.
+- `app/core/security/sanitizer.py::sanitizar_html_para_pdf` (la barrera contra
+  scripts/iframes ejecutables y SSRF vía `file://`/IPs privadas/metadata de
+  AWS antes de convertir HTML del CRM a PDF regulatorio) nunca se había
+  ejercitado con contenido realmente peligroso.
+- `app/utils/pdf_generator.py::_marcar_widgets_pagina_solo_lectura` -- el
+  fallback que bloquea directamente un widget de formulario sin `/Parent` (lo
+  que hace tamper-resistente el PDF regulatorio) sólo se ejercitaba
+  indirectamente vía la plantilla real empaquetada, cuyos campos sí tienen
+  `/Parent`; si esa estructura cambiara, el fallback podía dejar de dispararse
+  sin que ningún test lo notara.
+
+**Hallazgos descartados tras revisión manual (falsos positivos de los
+subagentes, no huecos reales):**
+
+- `app/core/auth.py::async_auth_flow` -- el manejo del recovery post-401 que
+  silencia la excepción de re-login y deja pasar el 401 original es diseño
+  deliberado, ya cubierto por `test_401_con_recuperacion_fallida_no_reintenta_
+  ni_relanza`.
+- `app/schemas/crm_payloads.py::_validar_reglas_cierre` -- forzar `self.Status
+  = "Closed"` cuando el cierre se detectó por otros campos (`ClosedDate`/
+  `Favorabilidad__c`/`Aceptacion__c`) sin que `Status` lo dijera explícitamente
+  es normalización deliberada y consistente con `_es_estado_cierre` (que ya
+  usa esos mismos campos como señal de cierre vía OR), no un enmascaramiento
+  silencioso de lo que envió el CRM.
+
+**Huecos de cobertura restantes, documentados pero sin corregir (todos
+clasificados como "sin tests pero código correcto", ninguno es un bug):**
+docenas de ramas defensivas/de degradación en `auth.py`, `mapping.py`,
+`s3_service.py`, `queue_service.py`, `momento_2/3_sync.py`, `main.py`,
+`worker.py`, `workers/scheduler.py`, `crm_payloads.py`, `email_parser.py` y
+`signatures.py` -- principalmente casos gemelos de una rama ya probada (ej. el
+lado "dict" de una validación probado pero no el lado "objeto"), fallbacks de
+Google Sheets ya cubiertos conceptualmente por el camino local, y aislamiento
+de pasos de apagado/cron que sólo se verificó extremo a extremo para uno de
+varios pasos simétricos. Se priorizó corregir huecos con impacto real
+(clasificación de errores, pérdida silenciosa de datos/adjuntos, alertas
+perdidas) y cerrar cobertura en las superficies de seguridad más sensibles,
+en vez de perseguir el 100% de cobertura de líneas.
+
+**Verificación:** suite completa en verde, 1013 → 1039 tests (+26), corrida
+tanto con Redis real disponible (0 tests omitidos) como sin él (confirmando
+que los mismos tests que ya se saltaban por diseño ante Redis ausente siguen
+haciéndolo). Cada fix se verificó primero de forma aislada, luego con la suite
+completa.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
