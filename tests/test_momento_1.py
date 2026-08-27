@@ -10,6 +10,7 @@ from app.integrations.sfc_client import SfcClient
 from app.services.s3_service import S3StorageService
 from app.services.momento_1_sync import SincronizacionService
 from app.services.email_service import EmailAlertService
+from app.core.mapping import SfcSalesforceMapper
 
 
 class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
@@ -148,6 +149,56 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(respuesta["status"], "warning")
         self.assertEqual(respuesta["confirmados"], 0)
 
+    async def test_confirmar_recepcion_ack_parcial_algunos_ids_con_error(self):
+        """La SFC puede aceptar unos IDs y rechazar otros en el mismo lote
+        (pqrs_error) -- status debe reflejar 'partial', no 'success'."""
+        self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={
+            "Response": {"message": "Código actualizado", "pqrs_error": ["142316551509974607"]}
+        })
+        service = SincronizacionService(sfc_client=self.sfc_client_mock)
+
+        ids_a_confirmar = ["142316551509974606", "142316551509974607"]
+        respuesta = await service.confirmar_recepcion_ack(ids_quejas=ids_a_confirmar)
+
+        self.assertEqual(respuesta["status"], "partial")
+        self.assertEqual(respuesta["confirmados"], 1)
+        self.assertEqual(respuesta["ids_procesados"], ["142316551509974606"])
+        self.assertEqual(respuesta["ids_error"], ["142316551509974607"])
+
+    async def test_confirmar_recepcion_ack_excepcion_en_un_lote_marca_todo_ese_lote_como_error(self):
+        """send_ack_batch puede lanzar (timeout, 5xx) -- ese LOTE completo se
+        marca como error (nada se pierde silenciosamente), sin abortar los
+        demás lotes."""
+        TAMANO_LOTE = 100
+        ids_lote_1 = [f"id-{i}" for i in range(TAMANO_LOTE)]
+        ids_lote_2 = [f"id-{i}" for i in range(TAMANO_LOTE, TAMANO_LOTE + 3)]
+
+        async def _send_ack_batch(lote):
+            if lote == ids_lote_1:
+                raise ConnectionError("timeout SFC")
+            return {"Response": {"pqrs_error": []}}
+
+        self.sfc_client_mock.send_ack_batch = AsyncMock(side_effect=_send_ack_batch)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock)
+
+        respuesta = await service.confirmar_recepcion_ack(ids_quejas=ids_lote_1 + ids_lote_2)
+
+        self.assertEqual(respuesta["status"], "partial")
+        self.assertEqual(set(respuesta["ids_error"]), set(ids_lote_1))
+        self.assertEqual(set(respuesta["ids_procesados"]), set(ids_lote_2))
+        self.assertEqual(respuesta["confirmados"], 3)
+
+    async def test_confirmar_recepcion_ack_respuesta_sin_envoltorio_response(self):
+        """La SFC no siempre envuelve la respuesta en 'Response' -- confirma que
+        el parser tolera la forma plana también."""
+        self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"pqrs_error": []})
+        service = SincronizacionService(sfc_client=self.sfc_client_mock)
+
+        respuesta = await service.confirmar_recepcion_ack(ids_quejas=["142316551509974606"])
+
+        self.assertEqual(respuesta["status"], "success")
+        self.assertEqual(respuesta["confirmados"], 1)
+
     async def test_flujo_descarga_sin_anexos(self):
         queja_sin_anexos = dict(self.mock_quejas_response["Response"]["results"][0])
         queja_sin_anexos["anexo_queja"] = False
@@ -237,6 +288,100 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         resultado = await service.ejecutar_flujo_completo_momento_1()
 
         self.assertEqual(len(resultado), 1)
+
+    async def test_todos_los_adjuntos_fallan_transferir_a_s3_omite_la_queja(self):
+        """Regla All-or-Nothing (hallazgo 16): si la SFC reporta N adjuntos y S3
+        transfiere MENOS de N, la queja completa se descarta del lote entregado
+        al CRM -- nunca se entrega información incompleta."""
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=self.mock_quejas_response)
+        self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=self.mock_adjuntos_response)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+        # La SFC reporta 1 adjunto, pero S3 no transfirió ninguno.
+        service.s3_service.transferir_lote_sfc_a_s3 = AsyncMock(return_value=[])
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(resultado, [])
+
+    async def test_algunos_adjuntos_fallan_transferir_a_s3_omite_la_queja(self):
+        """Mismo principio, con transferencia PARCIAL: 1 de 2 adjuntos falla."""
+        dos_adjuntos = {
+            "Response": {
+                "count": 2,
+                "results": [
+                    {"id": 13, "file": "https://x/a.pdf", "type": "pdf", "state": 1, "codigo_queja": "142316551509974606"},
+                    {"id": 14, "file": "https://x/b.pdf", "type": "pdf", "state": 1, "codigo_queja": "142316551509974606"},
+                ]
+            }
+        }
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=self.mock_quejas_response)
+        self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=dos_adjuntos)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+        service.s3_service.transferir_lote_sfc_a_s3 = AsyncMock(return_value=[
+            {"codigo_queja": "142316551509974606", "nombre_archivo": "a.pdf", "s3_key": "x/a", "bucket": "b"}
+        ])
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(resultado, [])
+
+    async def test_excepcion_listando_adjuntos_en_sfc_omite_la_queja_sin_crashear_el_lote(self):
+        """`get_adjuntos_list` puede fallar (timeout, 5xx, JSON inválido) -- la
+        queja se omite, pero el resto del pipeline sigue funcionando."""
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=self.mock_quejas_response)
+        self.sfc_client_mock.get_adjuntos_list = AsyncMock(side_effect=ConnectionError("timeout SFC"))
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(resultado, [])
+
+    async def test_excepcion_transfiriendo_adjuntos_a_s3_omite_la_queja(self):
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value=self.mock_quejas_response)
+        self.sfc_client_mock.get_adjuntos_list = AsyncMock(return_value=self.mock_adjuntos_response)
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+        service.s3_service.transferir_lote_sfc_a_s3 = AsyncMock(side_effect=RuntimeError("S3 caído"))
+
+        resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(resultado, [])
+
+    async def test_una_queja_con_error_no_controlado_no_crashea_el_resto_del_lote(self):
+        """`_procesar_queja_individual` puede lanzar una excepción totalmente
+        inesperada -- asyncio.gather(return_exceptions=True) debe aislarla: el
+        resto de la página se sigue entregando en vez de perder el lote entero."""
+        queja_ok = dict(self.mock_quejas_response["Response"]["results"][0], anexo_queja=False)
+        queja_rota = dict(queja_ok, codigo_queja="OTRO-CODIGO", anexo_queja=False)
+
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(return_value={
+            "Response": {"count": 2, "next": None, "results": [queja_ok, queja_rota]}
+        })
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        original_mapper = SfcSalesforceMapper.sfc_payload_to_db_dict
+
+        def _mapear_o_explotar(queja_sfc):
+            if queja_sfc.get("codigo_queja") == "OTRO-CODIGO":
+                raise RuntimeError("fallo inesperado de mapeo")
+            return original_mapper(queja_sfc)
+
+        with patch.object(SfcSalesforceMapper, "sfc_payload_to_db_dict", side_effect=_mapear_o_explotar):
+            resultado = await service.ejecutar_flujo_completo_momento_1()
+
+        self.assertEqual(len(resultado), 1)
+        self.assertEqual(resultado[0]["Smart_Code__c"], "142316551509974606")
+
+    async def test_fetch_quejas_pagina_lanza_excepcion_se_propaga_sin_capturar(self):
+        """No hay ningún try/except alrededor de fetch_quejas_pagina en el bucle
+        de paginación -- documenta el comportamiento actual: un fallo de red/HTTP
+        al pedir una página se propaga tal cual (el caller -- el endpoint HTTP --
+        no tiene manejo especial, así que esto se traduce en un 500 al CRM en vez
+        de degradar a un lote parcial)."""
+        self.sfc_client_mock.fetch_quejas_pagina = AsyncMock(side_effect=ConnectionError("SFC inalcanzable"))
+        service = SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
+
+        with self.assertRaises(ConnectionError):
+            await service.ejecutar_flujo_completo_momento_1()
 
     async def test_codigo_queja_ausente_no_se_deduplica_contra_otro_ausente(self):
         """Dos registros malformados sin codigo_queja no deben "comerse" entre

@@ -2,13 +2,16 @@
 import unittest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import ValidationError
 
+import httpx
+
 from app.schemas.crm_payloads import Momento2QuejaCrmInput
-from app.services.momento_2_sync import Momento2SincronizacionService
+from app.services.momento_2_sync import Momento2SincronizacionService, _es_error_queja_ya_existe_m2
 from app.integrations.sfc_client import SfcClient
 from app.core.exceptions import SfcIntegrationException
+from app.services.email_service import EmailAlertService
 
 
 class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
@@ -219,6 +222,54 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await service.ejecutar_envio_momento_2(payload_pydantic)
 
+    async def test_error_sfc_no_mapeado_dispara_alerta_por_correo(self):
+        """Un error_type=UNKNOWN_SFC_ERROR (o is_unmapped=True) debe disparar
+        notificar_error_no_mapeado antes de propagarse -- sin esto, un error real
+        de la SFC que no está en la matriz curada pasa desapercibido para el
+        equipo, no sólo para el CRM."""
+        exc_no_mapeado = SfcIntegrationException(
+            status_code=500,
+            error_type="UNKNOWN_SFC_ERROR",
+            sfc_field=None,
+            raw_message="Fallo totalmente desconocido de la SFC",
+            crm_action="Revisar logs"
+        )
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(side_effect=exc_no_mapeado)
+
+        service = Momento2SincronizacionService(
+            sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock
+        )
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+
+        with patch.object(EmailAlertService, "notificar_error_no_mapeado", new_callable=AsyncMock) as mock_alerta:
+            with self.assertRaises(SfcIntegrationException):
+                await service.ejecutar_envio_momento_2(payload_pydantic)
+
+        mock_alerta.assert_awaited_once()
+        # El schema antepone un prefijo normativo a Smart_Code__c -- basta con
+        # confirmar que el smart_code real de la queja viaja en la alerta.
+        self.assertIn(self.smart_code, mock_alerta.call_args.kwargs["smart_code"])
+
+    async def test_fallo_de_red_especifico_se_relanza_por_su_propia_rama(self):
+        """httpx.RequestError/TimeoutException/ConnectionError/OSError tienen su
+        propio except (distinto del genérico) que loguea con un mensaje
+        específico de 'Fallo de red/conexión' -- confirma que ese branch
+        realmente se alcanza y no cae en el except genérico de abajo."""
+        self.sfc_client_mock.post_nueva_queja = AsyncMock(
+            side_effect=httpx.ConnectTimeout("timeout conectando a la SFC")
+        )
+        service = Momento2SincronizacionService(
+            sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock
+        )
+        payload_pydantic = Momento2QuejaCrmInput(**self.mock_datos_consolidados)
+
+        with self.assertLogs("app.services.momento_2_sync", level="ERROR") as logs:
+            with self.assertRaises(httpx.ConnectTimeout):
+                await service.ejecutar_envio_momento_2(payload_pydantic)
+
+        mensajes = [r.getMessage() for r in logs.records]
+        self.assertTrue(any("Fallo de red/conexión" in m for m in mensajes))
+
     def test_missing_smart_code(self):
         """Valida que Pydantic rechace la instanciación si faltan 'Smart_Code__c' y 'Case_id'."""
         payload_invalido = self.mock_datos_consolidados.copy()
@@ -254,6 +305,51 @@ class TestMomento2Pipeline(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(payload_pydantic.archivos_s3), 1)
         self.assertEqual(payload_pydantic.archivos_s3[0].nombre_archivo, "f.pdf")
+
+
+class TestEsErrorQuejaYaExisteM2(unittest.TestCase):
+    """
+    Cobertura directa de _es_error_queja_ya_existe_m2 -- hasta ahora sólo
+    probada indirectamente vía SfcIntegrationException/pipeline completo,
+    nunca aislada para sus ramas específicas.
+    """
+
+    def test_error_type_already_exists_tiene_prioridad_sobre_frase_de_colision_funcional(self):
+        """
+        🔴 Caso que el propio fix (2026-08-25) documenta como motivo del reordenamiento:
+        un error_type='ALREADY_EXISTS' real cuyo raw_message CONTIENE 'already_exist'
+        (la subcadena que dispara la rama de colisión funcional, paso 2) debe seguir
+        tolerándose como éxito idempotente -- la señal estructurada gana siempre,
+        sin importar qué texto libre traiga el mensaje.
+        """
+        self.assertTrue(
+            _es_error_queja_ya_existe_m2(
+                "Object already_exist in database", error_type="ALREADY_EXISTS"
+            )
+        )
+
+    def test_frase_mismo_motivo_sin_error_type_no_se_tolera(self):
+        self.assertFalse(
+            _es_error_queja_ya_existe_m2("Ya existe una queja con el mismo motivo", error_type=None)
+        )
+
+    def test_frase_mismo_producto_no_se_tolera(self):
+        self.assertFalse(
+            _es_error_queja_ya_existe_m2("Colisión: mismo producto para este cliente", error_type="VALIDATION_ERROR")
+        )
+
+    def test_keyword_already_exists_en_ingles_si_se_tolera(self):
+        self.assertTrue(_es_error_queja_ya_existe_m2("Queja already exists", error_type=None))
+
+    def test_keyword_registrado_en_la_sfc_si_se_tolera(self):
+        self.assertTrue(_es_error_queja_ya_existe_m2("El caso ya está registrado en la SFC", error_type=None))
+
+    def test_mensaje_sin_ninguna_senal_no_se_tolera(self):
+        self.assertFalse(_es_error_queja_ya_existe_m2("Error de validación de otro campo", error_type="VALIDATION_ERROR"))
+
+    def test_mensaje_vacio_o_none_no_se_tolera(self):
+        self.assertFalse(_es_error_queja_ya_existe_m2("", error_type=None))
+        self.assertFalse(_es_error_queja_ya_existe_m2(None, error_type=None))
 
 
 if __name__ == "__main__":

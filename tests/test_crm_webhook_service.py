@@ -86,6 +86,69 @@ class TestCrmWebhookServiceContractValidation(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(exito)
         self.assertIsNotNone(detalle)
 
+    async def test_200_ok_content_type_json_pero_cuerpo_no_es_un_objeto_rejected(self):
+        """Un array JSON top-level (`[1,2,3]`) o cualquier tipo no-dict pasa el
+        chequeo de Content-Type pero debe rechazarse igual -- `raw_json.get(...)`
+        asumiría un dict."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = [1, 2, 3]
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
+
+    async def test_200_ok_content_type_json_pero_cuerpo_json_malformado_rejected(self):
+        """Content-Type dice 'application/json' pero el cuerpo no parsea (JSON
+        truncado/corrupto) -- no debe crashear, debe rechazarse con detalle."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.side_effect = ValueError("Expecting value: line 1 column 1")
+        mock_response.text = '{"success": tru'
+
+        self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+        exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+            case_id_crm="CASE-001",
+            smart_code="1286SC001",
+            http_client=self.mock_http_client
+        )
+
+        self.assertFalse(exito)
+        self.assertIsNotNone(detalle)
+
+    async def test_200_ok_json_success_truthy_no_estrictamente_true_rejected(self):
+        """🟢 FIX P0-07: se exige `success is True` estricto -- un valor "truthy"
+        pero no exactamente `True` (string "true", o 1) debe rechazarse igual que
+        `False` o ausente."""
+        for valor_success in ("true", 1, "yes"):
+            with self.subTest(valor_success=valor_success):
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.headers = {"content-type": "application/json"}
+                mock_response.json.return_value = {
+                    "success": valor_success, "case_number": "CASE-001"
+                }
+                self.mock_http_client.post = AsyncMock(return_value=mock_response)
+
+                exito, detalle = await CrmWebhookService.notificar_resolucion_contingencia(
+                    case_id_crm="CASE-001",
+                    smart_code="1286SC001",
+                    http_client=self.mock_http_client
+                )
+
+                self.assertFalse(exito)
+                self.assertIsNotNone(detalle)
+
     async def test_200_ok_json_valid_contract_accepted(self):
         """Verifica que un HTTP 200 con JSON y contrato válido sea aceptado."""
         mock_response = MagicMock()
