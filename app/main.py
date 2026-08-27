@@ -152,7 +152,15 @@ def _construir_app_fastapi(cfg=None) -> FastAPI:
     que parchear `settings` después de que otro módulo ya importó `app.main` no lo cambia).
     """
     cfg = cfg or settings
-    es_entorno_local = cfg.ENVIRONMENT.strip().lower() in ("local", "development")
+    # 🔴 FIX (hallazgo propio, 2026-08-27): "development" es un valor reconocido de
+    # ENVIRONMENT (igual que "dev"), pero acá se trataba como equivalente a "local"
+    # -- exponía /docs, /redoc y /openapi.json automáticamente, sin necesitar
+    # ENABLE_DOCS=True, en cualquier despliegue manual con ENVIRONMENT=development
+    # (mismo escenario, fuera del pipeline real, del hallazgo ya corregido en
+    # config.py::ambientes_estrictos). "local" es el único valor que realmente
+    # nunca se despliega -- "development" debe requerir ENABLE_DOCS=True explícito
+    # como cualquier otro ambiente no-local.
+    es_entorno_local = cfg.ENVIRONMENT.strip().lower() == "local"
     permitir_docs = cfg.ENABLE_DOCS or es_entorno_local
 
     return FastAPI(

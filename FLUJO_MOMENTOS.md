@@ -1238,6 +1238,25 @@ pero tampoco hay razón para tratarla más estricto que su abreviación en ese p
 específico. Ver
 `tests/test_config_security_validation.py::test_startup_fallido_en_ambiente_development_con_defaults_inseguros`.
 
+**El mismo `"development"` también se colaba en la exposición de Swagger/ReDoc
+(hallazgo propio, 2026-08-27):** `app/main.py::_construir_app_fastapi` decide si
+exponer `/docs`, `/redoc` y `/openapi.json` con `es_entorno_local =
+cfg.ENVIRONMENT.strip().lower() in ("local", "development")` -- una lógica
+completamente independiente de `validar_configuracion_estricta` de arriba. Con
+`ENVIRONMENT="development"`, la documentación interactiva se exponía
+automáticamente **sin necesitar `ENABLE_DOCS=True`**, incluso aunque el arranque
+ya pase la validación estricta de secretos (es decir, este hueco seguía vivo
+incluso después de corregir el de arriba: son dos mecanismos distintos que
+ambos trataban `"development"` como sinónimo de `"local"`). `_validar_docs_
+expuestos` (en `config.py`) no lo cubre porque sólo bloquea `ENABLE_DOCS=True`
+explícito en `production`/`staging` -- nunca evaluó esta rama de auto-habilitación
+por nombre de ambiente. **Corregido**: `es_entorno_local` ahora compara
+únicamente contra `"local"` -- el único valor que en la práctica nunca se
+despliega de verdad (el pipeline real usa exclusivamente `dev`/`qa`/`prod`/`ci`
+vía el `type: choice` de `deploy-aws.yml`). Cualquier otro ambiente, incluido
+`"development"`, requiere `ENABLE_DOCS=True` explícito como cualquiera otro. Ver
+`tests/test_swagger_dissabled.py::test_docs_deshabilitados_en_ambiente_development_por_defecto`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
