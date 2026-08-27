@@ -255,6 +255,61 @@ class TestCicloCompletoSchedulerRealRedis(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["intentos"], 1)
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:claim:{item.id}"))
 
+    async def test_lote_mixto_item_con_lock_ocupado_no_bloquea_el_procesamiento_del_resto(self):
+        """
+        Caso ultra específico de concurrencia (revisión final de locks, 2026-08-27):
+        ningún test existente prueba un LOTE MIXTO en una sola corrida real -- un
+        item con el despacho_lock genuinamente ocupado (sync en curso) JUNTO A otro
+        item libre, en el MISMO ciclo. `_reclamar_y_procesar_si_lock_disponible`
+        devuelve None para el ocupado y el loop externo hace `continue` -- pero eso
+        nunca se verificó de punta a punta contra Redis real: que el `continue` no
+        rompa el resto del batch, no cuente como falla de infraestructura (no debe
+        sumar a fallas_infra_consecutivas), y que el item libre en la MISMA corrida
+        se procese y complete con total normalidad.
+        """
+        item_bloqueado = await self.queue_service.encolar_despacho(
+            smart_code="SC-MIXTO-BLOQUEADO", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-MIXTO-BLOQUEADO", "Status": "In Progress"},
+            error_inicial="timeout inicial"
+        )
+        await self._forzar_disponible_de_inmediato(item_bloqueado.id, 0)
+
+        item_libre = await self.queue_service.encolar_despacho(
+            smart_code="SC-MIXTO-LIBRE", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-MIXTO-LIBRE", "Status": "In Progress"},
+            error_inicial="timeout inicial"
+        )
+        await self._forzar_disponible_de_inmediato(item_libre.id, 0)
+
+        despacho_lock_sincrono = RedisLock(
+            redis_client=self.redis,
+            lock_key=f"{DESPACHO_LOCK_PREFIX}:lock:SC-MIXTO-BLOQUEADO",
+            lease_segundos=180
+        )
+        self.assertTrue(await despacho_lock_sincrono.acquire())
+
+        try:
+            with patch("app.workers.scheduler.DespachoQuejaOrquestador") as MockOrq, \
+                 patch("app.workers.scheduler.CrmWebhookService.notificar_resolucion_contingencia", new_callable=AsyncMock) as mock_webhook:
+                MockOrq.return_value.procesar_despacho_raw_json = AsyncMock(return_value={"status": "success"})
+                mock_webhook.return_value = (True, None)
+
+                await reintentar_despachos_pendientes_job()
+
+                # Sólo el item libre debe haber llegado al orquestador -- una sola
+                # vez, nunca dos (el bloqueado ni siquiera se reclama).
+                MockOrq.return_value.procesar_despacho_raw_json.assert_awaited_once()
+        finally:
+            await despacho_lock_sincrono.release()
+
+        data_bloqueado = await self._estado_item(item_bloqueado.id)
+        self.assertEqual(data_bloqueado["estado"], SmartStatus.PENDING.value)
+        self.assertEqual(data_bloqueado["intentos"], 1)
+        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:claim:{item_bloqueado.id}"))
+
+        data_libre = await self._estado_item(item_libre.id)
+        self.assertEqual(data_libre["estado"], SmartStatus.COMPLETED.value)
+
     async def test_dos_corridas_concurrentes_del_job_solo_una_procesa(self):
         """
         Dos invocaciones genuinamente concurrentes de

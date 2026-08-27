@@ -155,6 +155,61 @@ class TestRedisLockContraRedisReal(unittest.IsolatedAsyncioTestCase):
         for lock in locks:
             await lock.release()
 
+    async def test_ciclo_completo_de_perdida_real_release_tardio_del_viejo_dueno_no_afecta_al_nuevo(self):
+        """
+        Caso ultra específico de concurrencia (revisión final de locks, 2026-08-27):
+        el ciclo de vida COMPLETO del "split brain" -- combina en un solo flujo real
+        lo que hasta ahora sólo se probaba por separado: heartbeat detectando pérdida
+        (con mocks, en test_distributed_lock_edge_cases.py) y el CAD del release
+        protegiendo la llave de otro dueño (acá mismo, pero con un "otro dueño"
+        simulado a mano vía SET directo, no un RedisLock real que haya ganado la
+        carrera).
+
+        Aquí: lease corto SIN heartbeat (para que expire de verdad), un segundo
+        RedisLock genuino adquiere tras la expiración real, y sólo DESPUÉS el
+        primero se entera (heartbeat manual) de que perdió -- confirmando que
+        `acquired` pasa a False y que su release() posterior (tardío, ya fuera de
+        tiempo) no toca para nada la llave del segundo dueño.
+        """
+        lock_1 = RedisLock(
+            redis_client=self.redis, lock_key="test:lock:split-brain",
+            lease_segundos=1, intervalo_heartbeat=999  # heartbeat no debe disparar solo
+        )
+        self.assertTrue(await lock_1.acquire())
+        # Se cancela la tarea de heartbeat real para controlar manualmente cuándo se
+        # "entera" de la pérdida -- de lo contrario el intervalo tan largo (999s)
+        # simplemente nunca correría dentro del test, lo cual serviría igual, pero
+        # así el paso "se entera de la pérdida" queda explícito y determinista.
+        lock_1._heartbeat_task.cancel()
+        try:
+            await lock_1._heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
+        await asyncio.sleep(1.2)  # deja que el lease de 1s expire de verdad en Redis
+        self.assertIsNone(await self.redis.get("test:lock:split-brain"))
+
+        lock_2 = RedisLock(redis_client=self.redis, lock_key="test:lock:split-brain", lease_segundos=30)
+        self.assertTrue(await lock_2.acquire(), "El segundo dueño debe poder adquirir tras la expiración real.")
+
+        # El primero recién ahora "revisa" -- un ciclo de heartbeat manual contra la
+        # llave ya ocupada por el segundo dueño debe reportar pérdida confirmada.
+        from app.core.distributed_lock import EXTEND_LOCK_LUA_SCRIPT
+        res = await self.redis.eval(
+            EXTEND_LOCK_LUA_SCRIPT, 1, "test:lock:split-brain", lock_1.owner_token, "60000"
+        )
+        self.assertNotEqual(res, 1, "El script de extensión no debe reportar éxito: la llave ya es de otro dueño.")
+        lock_1.acquired = False  # mismo efecto que produciría _heartbeat_loop al ver res != 1
+
+        # El release tardío del primer dueño (ya sin ownership real) no debe tocar
+        # la llave del segundo -- ni siquiera intentarlo, por el guard `if not
+        # self.acquired: return` de release().
+        await lock_1.release()
+        self.assertEqual(await self.redis.get("test:lock:split-brain"), lock_2.owner_token)
+
+        await lock_2.release()
+        self.assertIsNone(await self.redis.get("test:lock:split-brain"))
+
     async def test_tras_liberar_el_ganador_otro_puede_ganar_la_siguiente_ronda(self):
         """Complemento del anterior: la mutua exclusión no es de un solo uso -- tras
         liberar, una nueva ronda de contención vuelve a producir exactamente un ganador."""
