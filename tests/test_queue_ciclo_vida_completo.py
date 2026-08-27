@@ -129,7 +129,7 @@ class TestCicloDeVidaCompletoDeUnCaso(unittest.IsolatedAsyncioTestCase):
         # El caso cayó a la DLQ: fuera de pendientes, idempotencia liberada, sin índice.
         self.assertEqual(await self.queue_service.contar_pendientes(), 0)
         self.assertEqual(await self.redis.scard(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO"), 1)
-        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:{smart_code}"))
+        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:{smart_code}:M3_UPDATE"))
         idem_key_queued = self.idempotency_service._get_idempotency_key(
             smart_code, IdempotencyService.infer_operation_type(payload),
             IdempotencyService.compute_payload_hash(payload)
@@ -143,7 +143,7 @@ class TestCicloDeVidaCompletoDeUnCaso(unittest.IsolatedAsyncioTestCase):
         resultado_replay = await self.queue_service.reencolar_item_fallido(item.id)
         self.assertTrue(resultado_replay["success"])
         self.assertEqual(await self.queue_service.contar_pendientes(), 1)
-        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:{smart_code}"), str(item.id))
+        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:{smart_code}:M3_UPDATE"), str(item.id))
 
         raw_item_reencolado = await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}")
         data_reencolada = json.loads(raw_item_reencolado)

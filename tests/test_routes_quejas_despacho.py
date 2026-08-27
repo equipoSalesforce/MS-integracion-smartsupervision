@@ -432,38 +432,38 @@ class TestDespachoLockPorCaso(_RoutesQuejasHttpTestCase):
         self.assertEqual(kwargs["dimensions"]["resultado"], "queued")
         self.assertEqual(kwargs["dimensions"]["categoria_error"], "CONCURRENT_DISPATCH_LOCKED")
 
-    def test_lock_ocupado_y_conflicto_de_cola_libera_la_idempotencia_processing(self):
+    def test_lock_ocupado_y_fallo_doble_de_infraestructura_libera_la_idempotencia_processing(self):
         """
         🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el chequeo del
         lock vivía ANTES del try/finally que libera la llave PROCESSING de
         idempotencia. En el caso feliz (lock ocupado -> se encola bien,
         operacion_exitosa_o_encolada=True) eso no se notaba -- pero si el lock
-        está ocupado Y ADEMÁS ya hay una operación de OTRA categoría pendiente
-        para el mismo smart_code, `encolar_despacho` rechaza con
-        QUEUE_OPERATION_CONFLICT (409) y `_encolar_despacho_por_contingencia`
-        retorna operacion_exitosa_o_encolada=False -- ese `return` salía sin pasar
-        por el `finally`, dejando el registro PROCESSING vivo (TTL 180s). Un
-        reintento del CRM dentro de esa ventana encontraba "processing" y recibía
-        un 202 afirmando que la operación seguía en curso, cuando en realidad fue
-        rechazada con 409 y no está en ningún lado -- el desenlace que el 409
-        buscaba evitar, con un mensaje que afirma lo contrario.
-        """
-        from app.core.exceptions import SfcIntegrationException
+        está ocupado Y ADEMÁS `encolar_despacho` también falla (fallo doble de
+        infraestructura: SFC caída Y Redis inalcanzable),
+        `_encolar_despacho_por_contingencia` retorna operacion_exitosa_o_
+        encolada=False -- ese `return` salía sin pasar por el `finally`, dejando
+        el registro PROCESSING vivo (TTL 180s). Un reintento del CRM dentro de esa
+        ventana encontraba "processing" y recibía un 202 afirmando que la
+        operación seguía en curso, cuando en realidad fue rechazada con 503 y no
+        está en ningún lado.
 
+        Nota (ronda 4 -- X5/Y4): el escenario original de este test usaba
+        QUEUE_OPERATION_CONFLICT (409) -- desde que el índice de cola se
+        particionó por operación, ese conflicto ya no puede ocurrir (ver
+        QueueService.encolar_despacho), así que se reemplaza por el otro camino
+        que también deja operacion_exitosa_o_encolada=False: el fallo doble de
+        infraestructura.
+        """
         self.redis_lock_mock.acquire = AsyncMock(return_value=False)
 
         with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
             mock_queue_cls.return_value.encolar_despacho = AsyncMock(
-                side_effect=SfcIntegrationException(
-                    409, "QUEUE_OPERATION_CONFLICT", None,
-                    "Ya existe una operación distinta pendiente en cola para este caso.",
-                    "Reintente esta operación más tarde."
-                )
+                side_effect=ConnectionError("redis inalcanzable")
             )
 
             response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 503)
         self.idempotency_service_mock.liberar_operacion_por_error.assert_awaited_once()
         # El lock nunca se adquirió -- release() debe seguir siendo seguro (no-op).
         self.redis_lock_mock.release.assert_awaited_once()
@@ -673,12 +673,12 @@ class TestReencolarRegistroFallido(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
 
-    def test_smart_code_con_item_mas_reciente_retorna_409(self):
+    def test_operacion_con_item_mas_reciente_retorna_409(self):
         with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
             mock_queue_cls.return_value.reencolar_item_fallido = AsyncMock(
                 return_value={
                     "success": False,
-                    "reason": "smart_code_tiene_item_mas_reciente",
+                    "reason": "operacion_tiene_item_mas_reciente",
                     "item_activo": "77"
                 }
             )

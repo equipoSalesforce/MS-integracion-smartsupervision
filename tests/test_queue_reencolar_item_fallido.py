@@ -100,7 +100,7 @@ class TestReencolarItemFallido(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item_pendiente.intentos, 0)
 
         self.assertEqual(await self.redis.scard(f"{QUEUE_PREFIX}:status:FALLIDO_DEFINITIVO"), 0)
-        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-1"), str(registro_id))
+        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-1:M3_UPDATE"), str(registro_id))
 
     async def test_reencolar_sube_la_version_del_item(self):
         registro_id = await self._encolar_reclamar_y_fallar_definitivo("SC-2")
@@ -194,12 +194,14 @@ class TestReencolarItemFallido(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(resultado["success"])
         self.assertEqual(resultado["reason"], "item_not_found")
 
-    async def test_reencolar_se_niega_si_smart_code_tiene_un_item_mas_reciente(self):
+    async def test_reencolar_se_niega_si_la_misma_operacion_tiene_un_item_mas_reciente(self):
         """
-        El item viejo cayó a FALLIDO_DEFINITIVO (su índice smart_code se borró). Antes
-        de intentar reencolarlo, llega un evento NUEVO del mismo caso -- crea un item
-        distinto y toma el índice para sí. Reencolar el item viejo ahí rompería "un
-        smart_code = un slot en cola"; debe negarse en vez de reactivarlo a ciegas.
+        El item viejo cayó a FALLIDO_DEFINITIVO (su índice operación se borró). Antes
+        de intentar reencolarlo, llega un evento NUEVO del mismo caso Y DE LA MISMA
+        categoría de operación (M3_UPDATE en ambos) -- crea un item distinto y toma el
+        índice de esa operación para sí. Reencolar el item viejo ahí rompería "una
+        obligación pendiente = un slot en cola" (hallazgo de revisión externa,
+        2026-08-26, ronda 4 -- X5/Y4); debe negarse en vez de reactivarlo a ciegas.
         """
         registro_id_viejo = await self._encolar_reclamar_y_fallar_definitivo("SC-5")
         item_nuevo = await self.queue_service.encolar_despacho(
@@ -211,10 +213,49 @@ class TestReencolarItemFallido(unittest.IsolatedAsyncioTestCase):
         resultado = await self.queue_service.reencolar_item_fallido(registro_id_viejo)
 
         self.assertFalse(resultado["success"])
-        self.assertEqual(resultado["reason"], "smart_code_tiene_item_mas_reciente")
+        self.assertEqual(resultado["reason"], "operacion_tiene_item_mas_reciente")
         self.assertEqual(resultado["item_activo"], str(item_nuevo.id))
         # El item nuevo, legítimo, no se ve afectado.
-        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-5"), str(item_nuevo.id))
+        self.assertEqual(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-5:M3_UPDATE"), str(item_nuevo.id))
+
+    async def test_reencolar_no_se_bloquea_por_un_item_de_otra_operacion(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): antes el
+        índice era compartido por TODO el smart_code -- reencolar un FRAUDE fallido se
+        bloqueaba si había un TRÁMITE más nuevo pendiente para el mismo caso, aunque
+        fueran obligaciones regulatorias totalmente distintas. Con el índice
+        particionado por operación, un item pendiente de OTRA categoría ya no bloquea
+        el replay.
+        """
+        with patch.object(settings, "QUEUE_MAX_RETRIES", 1):
+            item_fraude = await self.queue_service.encolar_despacho(
+                smart_code="SC-10", tipo_operacion="AUTO",
+                payload_json={"Smart_Code__c": "SC-10", "tipo_fraude__c": "Externo"},
+                error_inicial="timeout inicial"
+            )
+            claim = await self.queue_service.reclamar_item_para_procesamiento(
+                registro_id=item_fraude.id, worker_id="worker_1", lease_segundos=60
+            )
+            with patch(
+                "app.services.queue_service.EmailAlertService.notificar_caso_fallido_definitivo",
+                new_callable=AsyncMock
+            ):
+                await self.queue_service.registrar_fallo(
+                    item=claim, error_msg="SFC caída sostenida", worker_id="worker_1"
+                )
+
+        # Llega un TRÁMITE nuevo para el mismo caso -- categoría distinta, slot distinto.
+        item_tramite = await self.queue_service.encolar_despacho(
+            smart_code="SC-10", tipo_operacion="AUTO",
+            payload_json={"Smart_Code__c": "SC-10", "Status": "In Progress"}, error_inicial="timeout"
+        )
+
+        resultado = await self.queue_service.reencolar_item_fallido(item_fraude.id)
+
+        self.assertTrue(resultado["success"])
+        # Ambos conviven: el fraude reencolado y el trámite, cada uno en su propio slot.
+        pendientes = await self.queue_service.obtener_todos_los_encolados(estado="PENDIENTE")
+        self.assertEqual({r.id for r in pendientes}, {item_fraude.id, item_tramite.id})
 
     async def test_reencolar_dos_veces_seguidas_la_segunda_se_niega(self):
         """El propio chequeo de estado (FALLIDO_DEFINITIVO) es lo que evita una doble

@@ -15,12 +15,27 @@ obligaciones regulatorias separadas (mismo principio que N1), no un simple
 "la última versión gana" como sí lo es una segunda actualización de la MISMA
 categoría.
 
-Corregido: ENQUEUE_LUA_SCRIPT ahora guarda `operacion` (calculada en Python vía
-IdempotencyService.infer_operation_type, igual que cancelar_pendiente_por_
-smart_code) junto con cada item, y rechaza la sobrescritura -- devolviendo un
-conflicto en vez de pisar el contenido -- si la operación entrante difiere de
-la ya encolada. encolar_despacho traduce ese conflicto a un
-SfcIntegrationException(status_code=409, error_type="QUEUE_OPERATION_CONFLICT").
+Primera corrección (2026-08-26, ronda temprana): ENQUEUE_LUA_SCRIPT rechazaba
+la sobrescritura -- devolviendo un conflicto (409 QUEUE_OPERATION_CONFLICT del
+lado de Python) en vez de pisar el contenido -- si la operación entrante
+difería de la ya encolada. Cerraba la pérdida de datos, pero dejaba una
+obligación regulatoria bloqueada detrás de la otra: con la SFC caída y dos
+categorías pendientes para el mismo caso, la segunda en llegar quedaba
+rechazada con 409 hasta que la primera drenara (hasta QUEUE_MAX_RETRIES
+reintentos) -- y si el CRM no reintentaba persistentemente ante ese código
+específico, esa obligación (que podía tener plazo regulatorio, ej. un cierre)
+se perdía en la práctica.
+
+🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): el índice
+de cola pasó de "un smart_code = un slot" a "una obligación pendiente = un
+slot" (`index:{smart_code}:{operacion}` en vez de `index:{smart_code}`). Dos
+categorías de operación distintas para el mismo smart_code ya NO compiten por
+el mismo slot -- cada una se encola de forma independiente, sin rechazo ni
+pérdida. El `RedisLock` por caso (ver routes_quejas.py/scheduler.py) sigue
+garantizando que nunca salgan dos operaciones del mismo smart_code a la vez
+hacia la SFC, aunque ahora convivan en la cola. QUEUE_OPERATION_CONFLICT,
+notificar_conflicto_operacion_cola y el 409 correspondiente se retiraron por
+completo -- ya no pueden ocurrir por construcción.
 
 Se prueba contra Redis real: la protección vive en el script Lua (atómica),
 no en un chequeo de Python separado que podría tener una ventana de carrera.
@@ -35,8 +50,6 @@ except ImportError:
     redis_asyncio = None
 
 from app.services.queue_service import QueueService, QUEUE_PREFIX
-from app.core.exceptions import SfcIntegrationException
-from app.services.idempotency_service import IdempotencyService
 
 TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/15")
 
@@ -90,89 +103,42 @@ class TestEncolarRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioTestCase):
             "archivos_s3": [],
         }
 
-    async def test_operacion_distinta_no_sobrescribe_y_lanza_conflicto(self):
-        await self.queue_service.encolar_despacho(
+    async def test_operacion_distinta_se_encola_por_separado_sin_rechazo(self):
+        """El caso central de X5/Y4: fraude y trámite para el mismo smart_code ya
+        no compiten por el mismo slot -- ambos se encolan, cada uno con su propio
+        item_id y su propio índice particionado."""
+        item_fraude = await self.queue_service.encolar_despacho(
             smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
             payload_json=self.payload_fraude, error_inicial="sfc caida"
         )
-
-        with self.assertRaises(SfcIntegrationException) as ctx:
-            await self.queue_service.encolar_despacho(
-                smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-                payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
-            )
-
-        exc = ctx.exception
-        self.assertEqual(exc.status_code, 409)
-        self.assertEqual(exc.error_type, "QUEUE_OPERATION_CONFLICT")
-
-    async def test_conflicto_alerta_con_la_funcion_correcta_no_la_de_sfc_caida(self):
-        """
-        🔴 FIX (autoauditoría de la sesión, 2026-08-26): la primera versión de este
-        fix reutilizaba notificar_falla_infraestructura -- su asunto/cuerpo están
-        hardcodeados en torno a "SFC Caída" y "Acción Tomada: Caso encolado", ambos
-        falsos aquí (no es una falla de infraestructura, y el caso justamente NO se
-        encoló). Debe usarse notificar_conflicto_operacion_cola en su lugar.
-        """
-        from unittest.mock import patch, AsyncMock
-        from app.services.email_service import EmailAlertService
-
-        await self.queue_service.encolar_despacho(
+        item_tramite = await self.queue_service.encolar_despacho(
             smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-            payload_json=self.payload_fraude, error_inicial="sfc caida"
+            payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
         )
 
-        with patch.object(EmailAlertService, "notificar_conflicto_operacion_cola", new_callable=AsyncMock) as mock_correcta, \
-             patch.object(EmailAlertService, "notificar_falla_infraestructura", new_callable=AsyncMock) as mock_incorrecta:
-            with self.assertRaises(SfcIntegrationException):
-                await self.queue_service.encolar_despacho(
-                    smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-                    payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
-                )
-
-        mock_correcta.assert_awaited_once()
-        mock_incorrecta.assert_not_awaited()
-
-    async def test_conflicto_no_se_loguea_como_error_de_infraestructura(self):
-        """
-        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el
-        SfcIntegrationException(QUEUE_OPERATION_CONFLICT) se levanta DENTRO del
-        try de encolar_despacho -- sin un except específico, caía en el except
-        Exception genérico, que lo logueaba a nivel ERROR con un texto que apunta
-        a una falla del script Lua ("Error ejecutando Lua Script de encolado").
-        Un 409 esperado y normal (conflicto de negocio) no debe aparecer en
-        CloudWatch como si fuera una falla de infraestructura -- cualquier alarma
-        sobre esa cadena se dispararía por conflictos normales de negocio."""
-        from unittest.mock import patch
-
-        await self.queue_service.encolar_despacho(
-            smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-            payload_json=self.payload_fraude, error_inicial="sfc caida"
+        self.assertNotEqual(item_fraude.id, item_tramite.id)
+        self.assertFalse(item_tramite.es_duplicado)
+        self.assertEqual(
+            await self.redis.get(f"{QUEUE_PREFIX}:index:SC-FRAUDE-1:M3_FRAUD"), str(item_fraude.id)
         )
-
-        with patch("app.services.queue_service.logger") as mock_logger:
-            with self.assertRaises(SfcIntegrationException):
-                await self.queue_service.encolar_despacho(
-                    smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-                    payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
-                )
-
-        mock_logger.error.assert_not_called()
-        mensajes_warning = " ".join(str(c) for c in mock_logger.warning.call_args_list)
-        self.assertIn("Conflicto de operación", mensajes_warning)
+        self.assertEqual(
+            await self.redis.get(f"{QUEUE_PREFIX}:index:SC-FRAUDE-1:M3_UPDATE"), str(item_tramite.id)
+        )
+        # Ambos quedan pendientes -- ninguno se pierde ni se rechaza.
+        pendientes = await self.queue_service.obtener_todos_los_encolados(estado="PENDIENTE")
+        self.assertEqual({r.id for r in pendientes}, {item_fraude.id, item_tramite.id})
 
     async def test_operacion_distinta_preserva_el_contenido_de_fraude(self):
         item = await self.queue_service.encolar_despacho(
             smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
             payload_json=self.payload_fraude, error_inicial="sfc caida"
         )
+        await self.queue_service.encolar_despacho(
+            smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
+            payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
+        )
 
-        with self.assertRaises(SfcIntegrationException):
-            await self.queue_service.encolar_despacho(
-                smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
-                payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
-            )
-
+        # El item de fraude original -- mismo id, contenido intacto -- sigue ahí.
         raw = await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}")
         payload_guardado = json.loads(json.loads(raw)["payload_json"])
         self.assertEqual(payload_guardado.get("tipo_fraude__c"), "Externo")
@@ -194,53 +160,102 @@ class TestEncolarRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(item2.es_duplicado)
         self.assertEqual(item2.id, item1.id)
 
-    async def test_item_legacy_sin_campo_operacion_permite_sobrescritura(self):
-        """Compatibilidad hacia atrás: un item encolado ANTES de este fix no tiene el
-        campo 'operacion' -- no debe rechazarse por la ausencia del campo, sólo cuando
-        el campo SÍ está presente y difiere."""
+    async def test_tres_categorias_del_mismo_caso_conviven_en_slots_independientes(self):
+        """Extiende el control anterior: dos trámites seguidos (misma categoría,
+        mismo slot) más un fraude (categoría distinta, slot propio) para el mismo
+        smart_code -- el fraude no debe verse afectado por las sobrescrituras del
+        trámite, ni viceversa."""
+        p1 = {"Smart_Code__c": "SC-C", "Status": "In Progress", "archivos_s3": []}
+        p2 = {"Smart_Code__c": "SC-C", "Status": "In Progress", "archivos_s3": [], "sc_genero__c": "Masculino"}
+
+        item1 = await self.queue_service.encolar_despacho(
+            smart_code="SC-C", tipo_operacion="AUTO", payload_json=p1, error_inicial="e1"
+        )
+        item2 = await self.queue_service.encolar_despacho(
+            smart_code="SC-C", tipo_operacion="AUTO", payload_json=p2, error_inicial="e2"
+        )
+        self.assertEqual(item2.id, item1.id)  # misma categoría, mismo slot
+
+        fraude_sc_c = {**self.payload_fraude, "Smart_Code__c": "SC-C"}
+        item_fraude = await self.queue_service.encolar_despacho(
+            smart_code="SC-C", tipo_operacion="AUTO", payload_json=fraude_sc_c, error_inicial="e3"
+        )
+
+        self.assertNotEqual(item_fraude.id, item1.id)
+        pendientes = await self.queue_service.obtener_todos_los_encolados(estado="PENDIENTE")
+        self.assertEqual({r.id for r in pendientes}, {item1.id, item_fraude.id})
+
+    async def test_item_legacy_bajo_la_key_sin_particion_no_se_encuentra_ni_se_pierde(self):
+        """
+        Compatibilidad hacia atrás (ronda 4 -- X5/Y4, riesgo de migración aceptado
+        y documentado): un item encolado ANTES de este fix vive bajo la key SIN
+        partición (`index:{smart_code}`, formato anterior). El código nuevo sólo
+        consulta la key particionada (`index:{smart_code}:{operacion}`) -- no
+        encuentra ese item legacy, así que un evento nuevo de la MISMA categoría
+        no lo sobrescribe: crea un item independiente en vez de reutilizarlo.
+
+        No es pérdida de datos: el item legacy sigue en Redis, sigue en el zset de
+        pendientes, y el scheduler lo sigue reclamando y reintentando con
+        normalidad -- sólo que ahora conviven temporalmente DOS items para lo que
+        conceptualmente es la misma obligación, hasta que el legacy se resuelva
+        (su índice viejo se limpia en MARK_SUCCESS/REGISTRAR_FALLO, ver esos
+        scripts). En el peor caso, la SFC recibe el mismo PATCH dos veces -- que
+        ya es idempotente por diseño (ver FLUJO_MOMENTOS.md), así que no genera un
+        efecto duplicado real. Ventana acotada al período de transición del
+        despliegue, no un estado permanente.
+        """
         item_id = await self.redis.incr(f"{QUEUE_PREFIX}:counter")
         legacy_data = {
             "id": item_id, "smart_code": "SC-LEGACY-1", "tipo_operacion": "AUTO",
-            "payload_json": json.dumps(self.payload_fraude), "payload_hash": "x",
+            "payload_json": json.dumps(self.payload_tramite), "payload_hash": "x",
             "estado": "PENDIENTE", "sfc_completado": False, "sfc_response": None,
             "intentos": 1, "max_intentos": 10, "ultimo_error": "e",
             "proximo_reintento_at": "2026-01-01T00:00:00", "created_at": "2026-01-01T00:00:00",
             "updated_at": "2026-01-01T00:00:00", "correlation_id": "N/A",
             "es_duplicado": False, "version": 1
-            # Sin 'operacion' a propósito.
+            # Sin 'operacion' a propósito -- item legacy real, de antes de N1.
         }
         await self.redis.set(f"{QUEUE_PREFIX}:item:{item_id}", json.dumps(legacy_data))
         await self.redis.sadd(f"{QUEUE_PREFIX}:status:PENDIENTE", item_id)
         await self.redis.zadd(f"{QUEUE_PREFIX}:pending_zset", {str(item_id): 123456})
+        # Formato viejo, sin partición -- lo que un ENQUEUE pre-fix habría escrito.
         await self.redis.set(f"{QUEUE_PREFIX}:index:SC-LEGACY-1", item_id)
 
-        tramite = {"Smart_Code__c": "SC-LEGACY-1", "Status": "In Progress", "archivos_s3": []}
+        tramite_nuevo = {"Smart_Code__c": "SC-LEGACY-1", "Status": "In Progress", "archivos_s3": []}
         item_nuevo = await self.queue_service.encolar_despacho(
-            smart_code="SC-LEGACY-1", tipo_operacion="AUTO", payload_json=tramite, error_inicial="e-nuevo"
+            smart_code="SC-LEGACY-1", tipo_operacion="AUTO", payload_json=tramite_nuevo, error_inicial="e-nuevo"
         )
 
-        self.assertTrue(item_nuevo.es_duplicado)
-        self.assertEqual(item_nuevo.id, item_id)
+        # No lo reutiliza (la key vieja es invisible para el código nuevo) --
+        # crea uno propio, particionado.
+        self.assertNotEqual(item_nuevo.id, item_id)
+        self.assertFalse(item_nuevo.es_duplicado)
+        self.assertEqual(
+            await self.redis.get(f"{QUEUE_PREFIX}:index:SC-LEGACY-1:M3_UPDATE"), str(item_nuevo.id)
+        )
+        # El item legacy NO se pierde -- sigue pendiente, el scheduler lo procesará.
+        self.assertIsNotNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item_id}"))
+        pendientes = await self.queue_service.obtener_todos_los_encolados(estado="PENDIENTE")
+        self.assertEqual({r.id for r in pendientes}, {item_id, item_nuevo.id})
 
     async def test_operacion_inferida_persiste_para_la_proxima_comparacion(self):
         """Tras una sobrescritura exitosa (misma categoría), el campo 'operacion'
-        guardado debe seguir reflejando la categoría vigente -- para que una TERCERA
-        llegada de categoría distinta también se detecte correctamente."""
-        p1 = {"Smart_Code__c": "SC-C", "Status": "In Progress", "archivos_s3": []}
-        p2 = {"Smart_Code__c": "SC-C", "Status": "In Progress", "archivos_s3": [], "sc_genero__c": "Masculino"}
+        guardado debe seguir reflejando la categoría vigente -- para que
+        cancelar_pendiente_por_smart_code siga apuntando al slot correcto."""
+        p1 = {"Smart_Code__c": "SC-D", "Status": "In Progress", "archivos_s3": []}
+        p2 = {"Smart_Code__c": "SC-D", "Status": "In Progress", "archivos_s3": [], "sc_genero__c": "Masculino"}
 
-        await self.queue_service.encolar_despacho(
-            smart_code="SC-C", tipo_operacion="AUTO", payload_json=p1, error_inicial="e1"
+        item1 = await self.queue_service.encolar_despacho(
+            smart_code="SC-D", tipo_operacion="AUTO", payload_json=p1, error_inicial="e1"
         )
-        await self.queue_service.encolar_despacho(
-            smart_code="SC-C", tipo_operacion="AUTO", payload_json=p2, error_inicial="e2"
+        item2 = await self.queue_service.encolar_despacho(
+            smart_code="SC-D", tipo_operacion="AUTO", payload_json=p2, error_inicial="e2"
         )
+        self.assertEqual(item2.id, item1.id)
 
-        fraude_sc_c = {**self.payload_fraude, "Smart_Code__c": "SC-C"}
-        with self.assertRaises(SfcIntegrationException):
-            await self.queue_service.encolar_despacho(
-                smart_code="SC-C", tipo_operacion="AUTO", payload_json=fraude_sc_c, error_inicial="e3"
-            )
+        raw = await self.redis.get(f"{QUEUE_PREFIX}:item:{item1.id}")
+        data = json.loads(raw)
+        self.assertEqual(data["operacion"], "M3_UPDATE")
 
 
 if __name__ == "__main__":

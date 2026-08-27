@@ -85,7 +85,7 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(cancelado)
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}"))
-        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-SYNC-1"))
+        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-SYNC-1:M3_UPDATE"))
         self.assertEqual(await self.queue_service.contar_pendientes(), 0)
         es_miembro_zset = await self.redis.zscore(f"{QUEUE_PREFIX}:pending_zset", str(item.id))
         self.assertIsNone(es_miembro_zset)
@@ -150,9 +150,9 @@ class TestCancelarPendientePorSmartCode(unittest.IsolatedAsyncioTestCase):
             item=reclamado, error_msg="SFC rechazó el dato equivocado otra vez", worker_id="worker_1"
         )
         self.assertEqual(resultado, "not_found")
-        # No debe haber resucitado el item ni el índice del smart_code.
+        # No debe haber resucitado el item ni el índice de la operación.
         self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:item:{item.id}"))
-        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-SYNC-5"))
+        self.assertIsNone(await self.redis.get(f"{QUEUE_PREFIX}:index:SC-SYNC-5:M3_UPDATE"))
 
     async def test_cancelacion_durante_reintento_activo_marcar_sfc_completado_no_corrompe_nada(self):
         """Mismo escenario, pero el intento de A que estaba en vuelo SÍ tiene éxito
@@ -240,9 +240,19 @@ class TestCancelarPendienteRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioT
     🔴 FIX (hallazgo N1, revisión externa v5, 2026-08-25): reproduce el escenario
     exacto del hallazgo -- un reporte de FRAUDE queda encolado por una caída de la
     SFC, y después un TRÁMITE del mismo caso se despacha con éxito por la vía
-    síncrona. La versión anterior cancelaba el fraude pendiente sin mirar su
+    síncrona. La versión original cancelaba el fraude pendiente sin mirar su
     contenido -- perdiéndolo para siempre, porque nunca llegó a transmitirse a la
     SFC (a diferencia del caso "obsoleto" que este mecanismo sí debe cubrir).
+
+    🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): el
+    mecanismo que garantiza esto cambió -- ya no lee el item pendiente e infiere
+    su categoría para compararla contra `operacion_actual` (dos pasos, con una
+    ventana de carrera entre ambos). Ahora `index_key` ya viene particionado por
+    operación (`index:{smart_code}:{operacion_actual}`), así que sólo puede
+    encontrar un item de la MISMA categoría -- una operación distinta ni
+    siquiera se lee, por construcción. Los tests de esta clase no cambian sus
+    aserciones porque el comportamiento observable es el mismo; sólo cambia
+    (y se simplifica) el mecanismo interno.
     """
 
     async def asyncSetUp(self):

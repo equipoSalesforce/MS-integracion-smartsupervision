@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.core.constants import SmartStatus
-from app.core.exceptions import SfcIntegrationException
 from app.services.email_service import EmailAlertService
 from app.core.middleware import get_correlation_id
 
@@ -67,24 +66,16 @@ if existing_id then
         local raw_item = redis.call("GET", item_key)
         if raw_item then
             local data = cjson.decode(raw_item)
-            -- 🔴 FIX (hallazgo de revisión, 2026-08-26): mismo principio que la
-            -- cancelación consciente de operación (hallazgo N1) -- fraude, trámite y
-            -- cierre son obligaciones regulatorias separadas que comparten smart_code
-            -- por el endpoint unificado. Antes, un evento de una categoría distinta a
-            -- la ya encolada pisaba el payload sin darse cuenta -- ej. un trámite
-            -- reemplazando un reporte de fraude genuinamente pendiente, perdiéndolo
-            -- para siempre. `data["operacion"]` es nil para items encolados antes de
-            -- este fix -- se asume compatible (no se rechaza) para no romper items ya
-            -- en vuelo al desplegar el cambio, mismo criterio que
-            -- IdempotencyService._item_de_cola_sigue_vigente.
-            if data["operacion"] and data["operacion"] ~= operacion_actual then
-                return cjson.encode({
-                    conflict = true,
-                    operacion_pendiente = data["operacion"],
-                    operacion_actual = operacion_actual,
-                    pendientes_previos = pendientes_count
-                })
-            end
+            -- 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4):
+            -- antes, index_key era compartido por TODO el smart_code (fraude, trámite
+            -- y cierre competían por el mismo slot); una categoría distinta a la ya
+            -- encolada se rechazaba con conflict=true (409 QUEUE_OPERATION_CONFLICT
+            -- del lado de Python) en vez de pisar el payload sin darse cuenta. Ahora
+            -- index_key ya viene particionado por operación (ver encolar_despacho:
+            -- "{sfc:queue}:index:{smart_code}:{operacion}"), así que este branch sólo
+            -- puede alcanzarse con data["operacion"] == operacion_actual (o legacy,
+            -- nil) -- el conflicto entre categorías distintas ya no puede ocurrir por
+            -- construcción: cada categoría tiene su propio slot. Se retira el chequeo.
             -- 🔴 FIX (hallazgo N4, revisión externa v5, 2026-08-25): payload_json_raw se
             -- guarda TAL CUAL (string JSON opaco), sin pasar por cjson.decode -- el propio
             -- Lua cjson no distingue lista vacía de objeto vacío al re-serializar (una tabla
@@ -294,8 +285,22 @@ redis.call("ZREM", pending_zset_key, item_id)
 redis.call("DEL", claim_key)
 
 if data["smart_code"] and data["smart_code"] ~= "" then
-    local index_key = "{sfc:queue}:index:" .. data["smart_code"]
-    redis.call("DEL", index_key)
+    -- 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): el
+    -- índice ahora está particionado por operación (ver encolar_despacho) --
+    -- se borra el slot que este item realmente ocupa. "LEGACY" es el mismo
+    -- sufijo de compatibilidad usado en ENQUEUE_LUA_SCRIPT para items sin
+    -- `operacion` (encolados antes de ese campo existir). También se borra,
+    -- best effort, la key SIN partición (formato anterior a este fix): un
+    -- item que haya quedado en vuelo desde antes del deploy de este cambio
+    -- todavía pudo haberse encolado bajo esa key vieja -- sin este DEL
+    -- adicional quedaría huérfana para siempre (nunca tiene TTL). Borrar una
+    -- key que no existe es un no-op seguro.
+    local operacion_sufijo = data["operacion"]
+    if not operacion_sufijo or operacion_sufijo == "" then
+        operacion_sufijo = "LEGACY"
+    end
+    redis.call("DEL", "{sfc:queue}:index:" .. data["smart_code"] .. ":" .. operacion_sufijo)
+    redis.call("DEL", "{sfc:queue}:index:" .. data["smart_code"])
 end
 
 return cjson.encode({success = true})
@@ -434,6 +439,15 @@ if es_definitivo == "1" then
     redis.call("SADD", failed_set_key, item_id)
     redis.call("ZREM", pending_zset_key, item_id)
     if data["smart_code"] and data["smart_code"] ~= "" then
+        -- 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4):
+        -- mismo cambio que MARK_SUCCESS_LUA_SCRIPT -- índice particionado por
+        -- operación (fallback "LEGACY" para items sin `operacion`), más DEL
+        -- best-effort de la key vieja sin partición.
+        local operacion_sufijo = data["operacion"]
+        if not operacion_sufijo or operacion_sufijo == "" then
+            operacion_sufijo = "LEGACY"
+        end
+        redis.call("DEL", "{sfc:queue}:index:" .. data["smart_code"] .. ":" .. operacion_sufijo)
         redis.call("DEL", "{sfc:queue}:index:" .. data["smart_code"])
     end
 else
@@ -446,10 +460,19 @@ return cjson.encode({success = true})
 # 🟢 FIX (hallazgo C2, revisión externa v5, 2026-08-25): no existía forma de recuperar
 # un caso caído a FALLIDO_DEFINITIVO/DLQ sin tocar Redis a mano -- este script reencola
 # manualmente un item (disparado por un endpoint admin, ver routes_quejas.py). Se niega
-# si el índice smart_code->item ya apunta a OTRO item: significa que un evento más nuevo
-# del mismo caso llegó después de la falla definitiva y ya está pendiente -- reactivar el
-# item viejo ahí rompería la invariante de "un smart_code = un slot en cola" de la que
-# dependen la sobrescritura por versión y la cancelación consciente de operación de N1.
+# si el índice de SU MISMA operación ya apunta a OTRO item: significa que un evento más
+# nuevo de esa misma obligación regulatoria llegó después de la falla definitiva y ya
+# está pendiente -- reactivar el item viejo ahí rompería la invariante de "una obligación
+# pendiente = un slot en cola" de la que depende la sobrescritura por versión.
+#
+# 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): antes el índice
+# era compartido por TODO el smart_code -- el replay de un item fallido (ej. un reporte
+# de FRAUDE) podía bloquearse por error si había un item más nuevo de una operación
+# TOTALMENTE DISTINTA (ej. un TRÁMITE) pendiente para el mismo caso, sin relación alguna
+# con el fraude que se intentaba reencolar. Con el índice particionado por operación
+# (`data["operacion"]`, con "LEGACY" como fallback para items sin ese campo), el chequeo
+# ahora sólo compara contra la MISMA obligación regulatoria -- una operación distinta ya
+# no puede bloquear el replay.
 REPLAY_ITEM_LUA_SCRIPT = """
 local item_key = KEYS[1]
 local pending_set_key = KEYS[2]
@@ -476,12 +499,16 @@ end
 local smart_code = data["smart_code"]
 local index_key = nil
 if smart_code and smart_code ~= "" then
-    index_key = "{sfc:queue}:index:" .. smart_code
+    local operacion_sufijo = data["operacion"]
+    if not operacion_sufijo or operacion_sufijo == "" then
+        operacion_sufijo = "LEGACY"
+    end
+    index_key = "{sfc:queue}:index:" .. smart_code .. ":" .. operacion_sufijo
     local index_actual = redis.call("GET", index_key)
     if index_actual and index_actual ~= item_id then
         return cjson.encode({
             success = false,
-            reason = "smart_code_tiene_item_mas_reciente",
+            reason = "operacion_tiene_item_mas_reciente",
             item_activo = index_actual
         })
     end
@@ -832,18 +859,31 @@ class QueueService:
         # idempotency_service (mismo patrón que registrar_fallo/marcar_sfc_completado).
         from app.services.idempotency_service import IdempotencyService
         payload_hash = IdempotencyService.compute_payload_hash(payload_json)
-        # 🔴 FIX (hallazgo de revisión, 2026-08-26): mismo criterio que
-        # cancelar_pendiente_por_smart_code (hallazgo N1) -- se calcula la categoría de
-        # la operación ENTRANTE para que el script Lua pueda rechazar, en vez de pisar
-        # en silencio, la sobrescritura de un item pendiente de una categoría distinta
-        # (ver comentario largo en ENQUEUE_LUA_SCRIPT).
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): la
+        # categoría de la operación ENTRANTE ahora particiona el slot de cola en vez
+        # de sólo decidir si rechazar una sobrescritura -- ver el cambio de índice
+        # justo abajo.
         operacion_actual = IdempotencyService.infer_operation_type(payload_json)
 
         now_bogota = datetime.now(ZoneInfo("America/Bogota"))
         proximo_reintento = now_bogota + timedelta(minutes=settings.QUEUE_RETRY_INTERVAL_MINUTES)
 
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): antes
+        # el índice era "un smart_code = un slot en cola", compartido por TODAS las
+        # categorías de operación (fraude/trámite/cierre) -- dos obligaciones
+        # regulatorias DISTINTAS para el mismo caso competían por el mismo slot, y la
+        # segunda en llegar se rechazaba con 409 QUEUE_OPERATION_CONFLICT en vez de
+        # encolarse. Con la SFC caída y ambas pendientes, el orden de llegada decidía
+        # cuál quedaba bloqueada -- y podía ser la que tiene plazo regulatorio (un
+        # cierre). El 409 dependía de que el CRM reintentara persistentemente ante
+        # ese código específico, algo que este repositorio no controla. Corregido:
+        # el índice ahora es "una obligación pendiente = un slot en cola"
+        # (`index:{smart_code}:{operacion}`) -- cada categoría tiene su propio slot,
+        # así que ya no compiten entre sí. El RedisLock por caso (ver routes_quejas.py
+        # / scheduler.py) sigue garantizando que nunca salgan dos operaciones del
+        # mismo smart_code a la vez hacia la SFC, aunque ahora convivan en la cola.
         keys = [
-            f"{QUEUE_PREFIX}:index:{smart_code}",
+            f"{QUEUE_PREFIX}:index:{smart_code}:{operacion_actual}",
             f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}",
             f"{QUEUE_PREFIX}:pending_zset",
             f"{QUEUE_PREFIX}:created_zset",
@@ -869,32 +909,6 @@ class QueueService:
         try:
             raw_result = await self.redis.eval(ENQUEUE_LUA_SCRIPT, len(keys), *keys, *args)
             result = json.loads(raw_result)
-
-            if result.get("conflict"):
-                operacion_pendiente = result.get("operacion_pendiente")
-                logger.warning(
-                    f"⚠️ [Cola Redis] Conflicto de operación para {smart_code}: ya hay una "
-                    f"operación '{operacion_pendiente}' pendiente en cola, distinta de la "
-                    f"entrante ('{operacion_actual}'). No se sobrescribe."
-                )
-                await EmailAlertService.notificar_conflicto_operacion_cola(
-                    smart_code=smart_code,
-                    operacion_actual=operacion_actual,
-                    operacion_pendiente=operacion_pendiente
-                )
-                raise SfcIntegrationException(
-                    status_code=409,
-                    error_type="QUEUE_OPERATION_CONFLICT",
-                    sfc_field=None,
-                    raw_message=(
-                        f"Ya existe una operación '{operacion_pendiente}' pendiente en cola para "
-                        f"el caso {smart_code}, distinta de la entrante ('{operacion_actual}')."
-                    ),
-                    crm_action=(
-                        "Reintente esta operación más tarde, una vez se procese la operación "
-                        "distinta que ya está pendiente para este mismo caso."
-                    )
-                )
 
             item_data = result["data"]
             is_new = result["is_new"]
@@ -925,17 +939,6 @@ class QueueService:
 
             return item_obj
 
-        except SfcIntegrationException:
-            # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el 409 de
-            # QUEUE_OPERATION_CONFLICT se levanta DENTRO de este mismo try -- sin
-            # este except específico caía en el genérico de abajo, que lo logueaba
-            # a nivel ERROR con un texto que apunta a una falla del script Lua
-            # ("Error ejecutando Lua Script de encolado"). Un 409 esperado y normal
-            # (conflicto de negocio, ya logueado como WARNING arriba) no debe
-            # aparecer en CloudWatch como si fuera una falla de infraestructura --
-            # cualquier alarma sobre esa cadena se dispararía por conflictos
-            # normales de negocio. Se relanza tal cual, sin loguear de nuevo.
-            raise
         except Exception as e:
             logger.error(f"❌ [Cola Redis] Error ejecutando Lua Script de encolado para {smart_code}: {e}")
             raise
@@ -1366,9 +1369,9 @@ class QueueService:
         un endpoint de replay que el CRM pudiera invocar (eso sigue bloqueado por falta
         de contrato -- ver FLUJO_MOMENTOS.md).
 
-        Se niega (reason="smart_code_tiene_item_mas_reciente") si el índice
-        smart_code->item ya no apunta a este item -- ver el comentario sobre
-        REPLAY_ITEM_LUA_SCRIPT para el razonamiento completo.
+        Se niega (reason="operacion_tiene_item_mas_reciente") si el índice de la
+        MISMA operación de este item ya no apunta a este item -- ver el comentario
+        sobre REPLAY_ITEM_LUA_SCRIPT para el razonamiento completo.
 
         Retorna {"success": bool, "reason"?: str, "smart_code"?: str, "version"?: int}.
         Nunca lanza.
@@ -1616,26 +1619,29 @@ class QueueService:
         contenido. El endpoint de despacho es unificado -- fraude, trámite y
         cierre comparten smart_code -- así que un trámite síncrono exitoso podía
         borrar un reporte de FRAUDE que seguía genuinamente pendiente de
-        transmitir (nunca llegó a la SFC), perdiéndolo para siempre. Ahora sólo
-        cancela si el item pendiente es la MISMA categoría de operación
-        (`operacion_actual`, calculada por el caller vía
-        IdempotencyService.infer_operation_type sobre el payload que acaba de
-        tener éxito) que el item pendiente -- es decir, sólo cuando genuinamente
-        es contenido superado de la MISMA obligación regulatoria, nunca una
-        obligación distinta.
+        transmitir (nunca llegó a la SFC), perdiéndolo para siempre.
+
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4): antes
+        este método leía el item pendiente y COMPARABA su categoría inferida contra
+        `operacion_actual` para decidir si cancelarlo -- necesario porque el índice
+        de cola era compartido por todas las categorías del mismo smart_code. Ahora
+        que el índice está particionado por operación
+        (`index:{smart_code}:{operacion}`, ver encolar_despacho), ese chequeo es
+        redundante: `index_key` ya sólo puede apuntar a un item de la MISMA
+        categoría que `operacion_actual` -- si hay algo en ese slot, es por
+        definición contenido superado de la misma obligación regulatoria.
 
         Best-effort y nunca lanza: si falla, el peor caso es que reaparece el
         comportamiento que este método corrige (no debe convertir un despacho ya
         exitoso hacia el CRM en un error 500).
 
-        Retorna True si había un item pendiente de la misma operación y se
-        canceló; False si no había nada que cancelar, si era una operación
-        distinta, o si Redis falló.
+        Retorna True si había un item pendiente en el slot de esta operación y se
+        canceló; False si no había nada que cancelar o si Redis falló.
         """
         if not self.redis or not smart_code:
             return False
 
-        index_key = f"{QUEUE_PREFIX}:index:{smart_code}"
+        index_key = f"{QUEUE_PREFIX}:index:{smart_code}:{operacion_actual}"
         pending_set_key = f"{QUEUE_PREFIX}:status:{SmartStatus.PENDING.value}"
 
         try:
@@ -1645,19 +1651,7 @@ class QueueService:
 
             data = json.loads(raw_item, strict=False)
             item_id = data.get("id")
-            payload_pendiente = _decodificar_campo_json_opaco(data.get("payload_json")) or {}
             hash_pendiente = data.get("payload_hash")
-
-            from app.services.idempotency_service import IdempotencyService
-            operacion_pendiente = IdempotencyService.infer_operation_type(payload_pendiente)
-
-            if operacion_pendiente != operacion_actual:
-                logger.info(
-                    f"ℹ️ [Cola Redis] Item pendiente para {smart_code} NO se cancela: es una operación "
-                    f"distinta ({operacion_pendiente} vs {operacion_actual} que acaba de tener éxito) -- "
-                    f"sigue siendo una obligación regulatoria separada, no contenido obsoleto."
-                )
-                return False
 
             keys = [
                 index_key,

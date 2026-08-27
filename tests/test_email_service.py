@@ -206,28 +206,6 @@ class TestNotificarMetodos(unittest.IsolatedAsyncioTestCase):
             mock_programar.call_args.kwargs["clave_dedup"], "catalogo_stale:SfcErrorTranslator"
         )
 
-    async def test_conflicto_operacion_cola(self):
-        """
-        🔴 FIX (autoauditoría de la sesión, 2026-08-26): QueueService.encolar_
-        despacho reutilizaba notificar_falla_infraestructura para este caso, cuyo
-        asunto/cuerpo están hardcodeados en torno a "SFC Caída" -- falso para un
-        conflicto de categoría de operación en cola, que no tiene nada que ver con
-        que la SFC o Redis estén caídos.
-        """
-        with patch.object(settings, "ALERT_EMAILS_ENABLED", True), \
-             patch.object(EmailAlertService, "_programar_envio_background") as mock_programar:
-            await EmailAlertService.notificar_conflicto_operacion_cola(
-                smart_code="SC-1", operacion_actual="M3_UPDATE", operacion_pendiente="M3_FRAUD"
-            )
-        mock_programar.assert_called_once()
-        asunto = mock_programar.call_args.kwargs["asunto"]
-        cuerpo = mock_programar.call_args.kwargs["cuerpo_html"]
-        self.assertIn("SC-1", asunto)
-        self.assertNotIn("SFC Caída", asunto)
-        self.assertIn("M3_FRAUD", cuerpo)
-        self.assertIn("M3_UPDATE", cuerpo)
-        self.assertEqual(mock_programar.call_args.kwargs["clave_dedup"], "conflicto_operacion_cola:SC-1")
-
 
 class TestDedupClaveVentana(unittest.TestCase):
     """

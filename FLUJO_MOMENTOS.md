@@ -196,40 +196,51 @@ procesarse) generaría un item de cola independiente — y como cada item se rei
 eso multiplicaría innecesariamente el tráfico hacia la SFC por el mismo caso, sin ningún beneficio: la SFC
 de todas formas solo necesita ver el estado *final* del caso, no cada estado intermedio transitorio.
 
-### ¿Por qué rechazar con 409 en vez de un slot por operación? (decisión de contrato, no cerrada)
+### Slot de cola por operación, no por `smart_code` (hallazgo X5/Y4, implementado)
 
-**Código:** `QueueService.encolar_despacho` (`QUEUE_OPERATION_CONFLICT`), `app/api/routes_quejas.py`.
+**Código:** `QueueService.encolar_despacho`, `cancelar_pendiente_por_smart_code`,
+`ENQUEUE_LUA_SCRIPT`, `MARK_SUCCESS_LUA_SCRIPT`, `REGISTRAR_FALLO_LUA_SCRIPT`,
+`REPLAY_ITEM_LUA_SCRIPT`.
 
 El punto 1 de arriba ("un `smart_code` = un slot") es correcto y seguro cuando las dos escrituras en
 competencia son la **misma** obligación regulatoria (dos versiones sucesivas de un trámite, por
 ejemplo). Pero cuando son obligaciones **distintas** (ej. un fraude y un cierre concurrentes para el
-mismo caso), sobrescribir perdería una de las dos en silencio — por eso `ENQUEUE_LUA_SCRIPT` rechaza
-esa sobrescritura con `QUEUE_OPERATION_CONFLICT` (409) en vez de pisarla (hallazgo W1/V1, ya
-corregido).
+mismo caso), sobrescribir perdería una de las dos en silencio. Una primera corrección (hallazgo W1/V1)
+cerró esa pérdida de datos rechazando la sobrescritura con `QUEUE_OPERATION_CONFLICT` (409) en vez de
+pisarla — pero el 409 no resolvía el problema, sólo lo hacía visible: con la SFC caída y dos
+obligaciones pendientes para el mismo caso, el orden de llegada decidía cuál entraba a la cola y cuál
+recibía 409 — y el rechazado podía ser el que tiene plazo regulatorio (el cierre). Mientras el primero
+no drenara (hasta `QUEUE_MAX_RETRIES` reintentos), cada intento del segundo volvía a recibir 409, y si
+el CRM no reintentaba persistentemente ante ese código específico, la obligación quedaba efectivamente
+sin transmitir.
 
-**El 409 no resuelve el problema, sólo lo hace visible.** Con la SFC caída y dos obligaciones
-pendientes para el mismo caso, el orden de llegada decide cuál entra a la cola y cuál recibe 409 — y
-el rechazado puede ser el que tiene plazo regulatorio (el cierre). Mientras el primero no drene (hasta
-`QUEUE_MAX_RETRIES` reintentos), cada intento del segundo vuelve a recibir 409. Si el CRM no tiene
-lógica para reintentar persistentemente ante un `QUEUE_OPERATION_CONFLICT` específicamente (distinto
-de un reintento genérico ante 5xx/503), el resultado neto sigue siendo una obligación no transmitida
-— mejor registrada y visible en logs/métricas que con la sobrescritura silenciosa de antes, pero
-igual de pendiente.
+**Corregido (hallazgo de revisión externa, 2026-08-26, ronda 4 — X5/Y4):** el índice de cola pasó de
+"un `smart_code` = un slot" (`index:{smart_code}`) a **"una obligación pendiente = un slot"**
+(`index:{smart_code}:{operacion}`). Dos categorías de operación para el mismo `smart_code` ya no
+compiten por el mismo slot — cada una se encola de forma independiente, sin rechazo ni pérdida. El
+`RedisLock` por caso (ver "Lock por caso en el despacho síncrono" más abajo) sigue garantizando que
+nunca salgan dos operaciones del mismo `smart_code` a la vez hacia la SFC, aunque ahora convivan en la
+cola — la invariante de exclusión mutua hacia la SFC no dependía del índice de cola, así que el cambio
+es seguro. `QUEUE_OPERATION_CONFLICT`, el 409 correspondiente y
+`EmailAlertService.notificar_conflicto_operacion_cola` se retiraron por completo: ya no pueden ocurrir
+por construcción, y dejarlos como código muerto sólo confundiría a un lector futuro.
 
-**La alternativa evaluada:** un slot de cola **por operación**, no por `smart_code`
-(`index:{smart_code}:{operacion}` en vez de `index:{smart_code}`) — preservaría ambas obligaciones sin
-pedirle nada al CRM, y el `RedisLock` por caso (ver más abajo) ya garantiza que no salgan las dos a la
-vez hacia la SFC aunque compartan cola. La invariante pasaría de "un `smart_code` = un slot" a "una
-obligación pendiente = un slot".
+**Efecto colateral positivo:** `REPLAY_ITEM_LUA_SCRIPT` (reencolado administrativo de la DLQ, hallazgo
+C2) usaba el mismo índice compartido para decidir si un item fallido tiene "algo más nuevo" bloqueando
+su replay — con el índice particionado, ese chequeo ahora es por operación: reencolar un FRAUDE fallido
+ya no puede bloquearse por error debido a un TRÁMITE más nuevo y no relacionado del mismo caso (antes
+sí podía).
 
-**Por qué no se implementó todavía:** es un cambio de esquema de cola (impacta `ENQUEUE_LUA_SCRIPT`,
-los índices de listado/purga, y el contrato de `ColaItemRedis`), no un fix de una función — más
-cercano en alcance a los cambios de diseño de esta sección que a una corrección puntual. Queda como
-decisión de contrato pendiente de evaluar, no como bug: el 409 actual es estrictamente mejor que la
-sobrescritura silenciosa que reemplazó, y el riesgo que deja abierto (obligación distinta bloqueada
-por reintentos de otra) es el mismo tipo de brecha que W5/V9 más abajo — depende de un comportamiento
-del CRM (reintento persistente, o un endpoint que reciba "esto falló definitivamente") que este
-repositorio no controla.
+**Migración (ventana de riesgo acotada y aceptada):** un item encolado ANTES de este cambio vive bajo la
+key sin partición (`index:{smart_code}`). El código nuevo sólo consulta la key particionada, así que no
+lo encuentra — un evento nuevo de la misma categoría no lo sobrescribe, crea un item independiente en
+su lugar. No es pérdida de datos: el item legacy sigue en el zset de pendientes y el scheduler lo sigue
+procesando con normalidad; en el peor caso la SFC recibe el mismo `PATCH` dos veces, algo que ya tolera
+por diseño (idempotente, ver más abajo). `MARK_SUCCESS_LUA_SCRIPT` y `REGISTRAR_FALLO_LUA_SCRIPT` borran,
+best-effort, tanto la key nueva como la vieja sin partición al completar/fallar un item, para no dejar
+la key vieja huérfana para siempre (no tiene TTL). Ventana acotada al período de transición del
+despliegue, no un estado permanente. Ver
+`tests/test_queue_encolar_respeta_categoria_de_operacion.py::test_item_legacy_bajo_la_key_sin_particion_no_se_encuentra_ni_se_pierde`.
 
 ---
 
@@ -426,10 +437,16 @@ Operaciones investigando esa alerta habría visto "SFC caída" para un problema 
 dos categorías de operación compitiendo por el mismo slot de cola. Se agregó
 `EmailAlertService.notificar_conflicto_operacion_cola`, con asunto/cuerpo que describen lo que
 realmente ocurrió, deduplicada por `smart_code` (a diferencia de las alertas de infraestructura,
-que son globales por categoría -- un conflicto de cola sí es específico de un caso). Ver
-`tests/test_email_service.py::test_conflicto_operacion_cola` y
-`tests/test_queue_encolar_respeta_categoria_de_operacion.py::
-test_conflicto_alerta_con_la_funcion_correcta_no_la_de_sfc_caida`.
+que son globales por categoría -- un conflicto de cola sí es específico de un caso).
+
+**Superado (hallazgo de revisión externa, 2026-08-26, ronda 4 -- X5/Y4):** el rechazo con 409 de
+arriba resolvía la pérdida de datos, pero no la obligación bloqueada -- ver la sección "Slot de cola
+por operación, no por `smart_code`" más arriba. El índice de cola se particionó por operación
+(`index:{smart_code}:{operacion}`), así que dos categorías ya no compiten por el mismo slot:
+`QUEUE_OPERATION_CONFLICT`, el 409 y `notificar_conflicto_operacion_cola` descritos en este bloque se
+retiraron por completo -- el conflicto que resolvían ya no puede ocurrir por construcción. Se deja
+este historial porque documenta bien el patrón de la sesión (cerrar la pérdida de datos primero, la
+obligación bloqueada después), no porque el mecanismo siga vigente.
 
 ---
 
@@ -534,13 +551,11 @@ caída del todo), la cola de contingencia puede vaciarse y volver a llenarse en 
 reenviando el correo de "recuperación" repetidamente mientras la situación sigue inestable -- justo
 el escenario que menos necesita ruido. Se agregó `clave_dedup="recuperacion_sfc"`.
 
-**Nota (hallazgo de revisión externa, 2026-08-26, ronda 4 — X8):** `notificar_conflicto_operacion_cola`
-(clave `conflicto_operacion_cola:{smart_code}`, granularidad correcta) tiene la misma limitación de
-`2 × N` por ventana ya descrita arriba -- pero a diferencia de las demás alertas de esta sección, su
-disparador no es un incidente de infraestructura sino tráfico normal del CRM (dos operaciones
-distintas para el mismo caso llegando en la misma ventana de reintento). Vale la pena tenerlo
-presente: un caso con tráfico conflictivo sostenido puede generar más correos de este tipo que los
-de infraestructura, sin que eso implique una caída real de nada.
+**Nota retirada (hallazgo de revisión externa, 2026-08-26, ronda 4 — X8, superada por X5/Y4):** esta
+nota advertía sobre la misma limitación de `2 × N` por ventana aplicada a
+`notificar_conflicto_operacion_cola` -- ese notificador se retiró junto con `QUEUE_OPERATION_CONFLICT`
+(ver "Slot de cola por operación, no por `smart_code`" más arriba): el conflicto que disparaba estos
+correos ya no puede ocurrir por construcción, así que la limitación dejó de aplicar.
 
 ---
 
@@ -1041,5 +1056,6 @@ especulativo sin evidencia que lo justifique.
 | Anclaje de `_coincide` cubre el alfabeto real de `Smart_Code__c` (`_`/`-` incluidos, corregido)          | `app/core/exceptions.py::SfcErrorTranslator._coincide`, `tests/test_sfc_error_translator.py::TestCoincide`                                                                                                    |
 | `_manejar_duplicado_o_cerrado` ya no reimplementa la clasificación por texto (una sola fuente de verdad, corregido) | `app/services/s3_service.py::S3StorageService._manejar_duplicado_o_cerrado`, `tests/test_s3_service.py`                                                                                                       |
 | El lock ocupado libera la idempotencia PROCESSING antes del 409 (corregido)                              | `app/api/routes_quejas.py::despachar_queja_crm`, `tests/test_routes_quejas_despacho.py::TestDespachoLockPorCaso`                                                                                              |
-| Conflicto de cola (409) no se loguea como falla de infraestructura (corregido)                            | `app/services/queue_service.py::encolar_despacho`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py::test_conflicto_no_se_loguea_como_error_de_infraestructura`                                    |
+| Conflicto de cola (409) no se loguea como falla de infraestructura (superado por X5/Y4 -- el conflicto ya no puede ocurrir) | `app/services/queue_service.py::encolar_despacho`                                                                                                                                                              |
 | Trámite sobre caso ya cerrado reporta `noop`, no `success` (corregido)                                     | `app/services/despacho_queja_orchestrator.py::_resultado_por_cierre_confirmado`, `tests/test_despacho_orquestador.py::test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_noop`                            |
+| Slot de cola por operación, no por smart_code (elimina QUEUE_OPERATION_CONFLICT, corregido)                | `app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py`                                                                         |
