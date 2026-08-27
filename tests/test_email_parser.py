@@ -4,6 +4,8 @@ import unittest
 from app.utils.email_parser import (
     extraer_texto_limpio_de_html,
     limpiar_texto_para_campo_pdf,
+    _linea_identifica_remitente_soporte,
+    _segmentar_hilo_en_bloques,
 )
 
 
@@ -132,6 +134,47 @@ class TestEmailParser(unittest.TestCase):
         self.assertNotIn("Doy por aceptado el cierre del caso", resultado)
         self.assertNotIn("Daniela Rojas (cliente)", resultado)
 
+    def test_hilo_donde_nadie_se_identifica_como_soporte_usa_el_bloque_superior_como_fallback(self):
+        """
+        🟡 HALLAZGO (revisión propia, camino malo no probado): si NINGÚN bloque del
+        hilo se clasifica como escrito por soporte (ej. el hilo sólo contiene el
+        mensaje del cliente, sin ninguna respuesta de Global66 todavía capturada
+        en el HTML), el fallback de `extraer_texto_limpio_de_html` retorna el
+        PRIMER bloque tal cual -- que en este caso es el texto del CLIENTE, no una
+        respuesta oficial. Este texto es exactamente lo que
+        momento_3_sync.py::_generar_y_enviar_pdf_respuesta_final usa como
+        'cuerpo_respuesta_final' en el PDF de cierre regulatorio enviado a la SFC.
+        Se documenta el comportamiento actual (no se corrige aquí -- depende de si
+        el CRM garantiza que este campo sólo se puebla cuando SÍ hay una respuesta
+        real de soporte en el hilo, algo que este módulo no puede verificar por sí
+        solo) para que quede explícito y no como una sorpresa silenciosa.
+        """
+        html_solo_cliente = """<html><body>
+            <p>Hola,</p>
+            <p>Quiero que revisen mi caso porque no estoy de acuerdo con el trato recibido.</p>
+            <p>Saludos,<br>Un cliente cualquiera</p>
+        </body></html>"""
+
+        resultado = extraer_texto_limpio_de_html(html_solo_cliente)
+
+        self.assertIn("Quiero que revisen mi caso", resultado)
+
+    def test_html_con_markup_severamente_roto_no_crashea(self):
+        """BeautifulSoup con html.parser es tolerante a HTML mal formado -- confirma
+        que tags sin cerrar / anidados incorrectamente no lanzan excepción."""
+        html_roto = "<html><body><div><p>Texto sin cerrar<div>Otro nivel<span>más texto</body>"
+
+        resultado = extraer_texto_limpio_de_html(html_roto)
+
+        self.assertIn("Texto sin cerrar", resultado)
+
+    def test_html_sin_ningun_tag_reconocido_se_trata_como_texto(self):
+        """Un fragmento sin estructura de bloques (sin <p>/<div>/etc.) igual debe
+        producir texto legible, no una cadena vacía."""
+        resultado = extraer_texto_limpio_de_html("<span>Solo un span suelto</span>")
+
+        self.assertIn("Solo un span suelto", resultado)
+
     def test_parser_casos_vacios_o_nulos(self):
         """Verifica la resiliencia ante valores nulos o vacíos."""
         self.assertEqual(extraer_texto_limpio_de_html(""), "")
@@ -144,6 +187,51 @@ class TestEmailParser(unittest.TestCase):
 
         self.assertIn("Te escribimos para informarte el resultado final", resultado_pdf)
         self.assertNotIn("Daniela Rojas Mock", resultado_pdf)
+
+
+class TestLineaIdentificaRemitenteSoporte(unittest.TestCase):
+    """Cobertura directa del heurístico de firma corta (<=6 palabras) -- hasta
+    ahora sólo ejercitado indirectamente vía fixtures HTML completos."""
+
+    def setUp(self):
+        self.dominios = ["@global66.com", "global66.com", "global66", "global 66"]
+
+    def test_firma_corta_exactamente_en_el_limite_si_identifica(self):
+        self.assertTrue(_linea_identifica_remitente_soporte("Atención al Cliente Global66", self.dominios))
+
+    def test_frase_larga_de_prosa_mencionando_la_marca_no_identifica(self):
+        """Una oración de 7+ palabras que menciona la marca de pasada NO cuenta
+        como identificación del remitente -- distingue una firma real de una
+        mención dentro de un párrafo."""
+        self.assertFalse(_linea_identifica_remitente_soporte(
+            "Gracias por la resolución que Global66 me dio finalmente ayer", self.dominios
+        ))
+
+    def test_correo_explicito_de_dominio_soporte_si_identifica_sin_importar_longitud(self):
+        """Un patrón de correo/dominio explícito (@...global66...) identifica al
+        remitente sin importar cuántas palabras tenga la línea."""
+        self.assertTrue(_linea_identifica_remitente_soporte(
+            "Escríbenos con gusto a soporte@global66.com si tienes más preguntas", self.dominios
+        ))
+
+    def test_linea_sin_mencion_de_la_marca_no_identifica(self):
+        self.assertFalse(_linea_identifica_remitente_soporte("Un saludo cordial", self.dominios))
+
+
+class TestSegmentarHiloEnBloques(unittest.TestCase):
+
+    def test_texto_sin_ningun_marcador_de_frontera_es_un_solo_bloque(self):
+        texto = "Hola,\n\nEste es un mensaje sin ninguna cita previa.\n\nSaludos."
+        bloques = _segmentar_hilo_en_bloques(texto)
+
+        self.assertEqual(len(bloques), 1)
+        self.assertEqual(bloques[0], texto.strip())
+
+    def test_texto_vacio_retorna_lista_vacia(self):
+        self.assertEqual(_segmentar_hilo_en_bloques(""), [])
+
+    def test_texto_solo_con_espacios_retorna_lista_vacia(self):
+        self.assertEqual(_segmentar_hilo_en_bloques("   \n\n   "), [])
 
 
 if __name__ == "__main__":
