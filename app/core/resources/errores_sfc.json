@@ -130,11 +130,6 @@
     "accion": "La queja será enviada sin documento duplicado."
   },
   {
-    "subcadena": "556240",
-    "tipo": "DUPLICATE_FILE",
-    "accion": "La queja será enviada sin documento duplicado."
-  },
-  {
     "subcadena": "Ya existe queja con este codigo queja",
     "tipo": "ALREADY_EXISTS",
     "accion": "El código de la queja ya existe registrado en la SFC. Verificar si la queja ya se radicó previamente."

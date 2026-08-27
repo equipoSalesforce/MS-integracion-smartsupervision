@@ -361,14 +361,23 @@ class TestProcesarYLanzarContraMatrizLocalReal(unittest.IsolatedAsyncioTestCase)
     async def test_556240_incrustado_en_smart_code_no_se_clasifica_duplicate_file(self):
         """
         🔴 Vulnerabilidad reportada (auditoría adversarial v7, 2026-08-26):
-        '556240'->DUPLICATE_FILE es una regla de un solo token (código corto), sin
-        ancla -- coincide con CUALQUIER texto que la contenga como substring,
+        '556240'->DUPLICATE_FILE era una regla de un solo token (código corto), sin
+        ancla -- coincidía con CUALQUIER texto que la contenga como substring,
         incluido un Smart_Code__c que la contenga incrustada en su parte numérica
         (`^[a-zA-Z0-9_-]{1,30}$` lo permite, sea por azar o a propósito). Reproducido:
         un error genérico de la SFC sin ninguna relación con archivos, sobre un caso
         cuyo identificador contiene esos dígitos, se clasificaba DUPLICATE_FILE --
         _manejar_duplicado_o_cerrado lo habría absorbido como éxito, marcando el
         checkpoint como entregado para un archivo que nunca se transmitió.
+
+        🔴 FIX (hallazgo de revisión externa, ronda 4, sugerencia "mejor aún" --
+        aplicado 2026-08-27): más allá de anclar la regla, se retiró por completo
+        del catálogo (`errores_sfc.json`) -- un código numérico desnudo sólo tiene
+        sentido acompañado del mensaje que lo contiene; matchear por sí solo, aunque
+        esté anclado, sigue siendo frágil ante cualquier mención futura no
+        relacionada (ej. un ticket interno, un batch ID). Este test sigue vigente
+        como regresión: '556240' no debe clasificar DUPLICATE_FILE bajo ninguna
+        forma, ni incrustado ni aislado.
         """
         with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
             with self.assertRaises(SfcIntegrationException) as ctx:
@@ -377,15 +386,18 @@ class TestProcesarYLanzarContraMatrizLocalReal(unittest.IsolatedAsyncioTestCase)
                 )
         self.assertNotEqual(ctx.exception.error_type, "DUPLICATE_FILE")
 
-    async def test_556240_genuino_sigue_clasificando_duplicate_file(self):
-        """Contraprueba: el código 556240 genuino (rodeado de no-alfanuméricos, el
-        formato real documentado por la SFC) debe seguir funcionando."""
+    async def test_556240_aislado_ya_no_clasifica_duplicate_file(self):
+        """Reemplaza la contraprueba anterior ('556240 genuino sigue clasificando
+        DUPLICATE_FILE'): tras retirar la regla del catálogo, ya NO debe clasificar
+        -- ni siquiera en el formato que antes se consideraba 'legítimo' (rodeado de
+        no-alfanuméricos). Un código de caso aislado no es señal suficiente de
+        archivo duplicado sin el mensaje real que lo acompañe."""
         with patch("app.services.email_service.EmailAlertService.notificar_error_no_mapeado", new_callable=AsyncMock):
             with self.assertRaises(SfcIntegrationException) as ctx:
                 await SfcErrorTranslator.procesar_y_lanzar(
                     400, '{"detail": "El archivo ya existe para esta queja (codigo 556240)"}'
                 )
-        self.assertEqual(ctx.exception.error_type, "DUPLICATE_FILE")
+        self.assertNotEqual(ctx.exception.error_type, "DUPLICATE_FILE")
 
 
 if __name__ == "__main__":
