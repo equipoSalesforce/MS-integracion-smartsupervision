@@ -1345,6 +1345,46 @@ capturaban excepciones de forma más estrecha.
 | S3 caído -- conectividad (`BotoCoreError`) | ✅ (corregido en esta ronda) | Antes escapaba sin clasificar -- ver arriba |
 | Webhook al CRM caído (infra) | ✅ | `_es_falla_infraestructura` (con ancla, ver hallazgo de la ronda anterior) → `consumir_intento=False`, reintenta indefinidamente sin gastar presupuesto ni llegar a DLQ; el éxito ante la SFC (`sfc_completado`) ya quedó persistido de forma durable ANTES del intento de notificación, así que un reintento del webhook nunca reenvía a la SFC |
 | Webhook al CRM rechaza (negocio) | ✅ | Consume intento normalmente, eventualmente DLQ con alerta -- no reintenta indefinidamente un rechazo que no va a cambiar |
+| SFC responde con auth/token corrupto o no-JSON | ✅ (corregido en esta ronda) | Ver abajo |
+
+## La autenticación con la SFC no clasificaba una respuesta de auth corrupta (corregido)
+
+**Código:** `app/core/auth.py::SfcAuthManager._login`, `_refresh_access_token`.
+
+**Contexto:** siguiendo la misma pregunta que encontró el hueco de S3 -- ¿hay algún
+otro punto de este microservicio donde una respuesta inesperada de un sistema
+externo escape sin clasificar como transitoria, saltándose la cola de
+contingencia? -- se revisó el manejo de errores de las otras tres dependencias
+externas (httpx hacia la SFC/Sheets/webhook, Redis, SMTP). Las tres ya capturan
+de forma suficientemente amplia (httpx unifica su familia de errores de
+conectividad bajo `RequestError`, a diferencia del split de botocore; Redis y
+SMTP usan `except Exception` genérico en prácticamente todos los call sites).
+
+El único punto real que quedaba sin cubrir: `_login`/`_refresh_access_token`
+parsean la respuesta de autenticación de la SFC (`response.json()` +
+`jwt.decode(..., options={"verify_signature": False})`, sólo para leer `exp`)
+sin ningún `try/except` propio. Si la SFC respondiera alguna vez con un cuerpo
+no-JSON (una página de error de un proxy/LB mal configurado durante una caída
+real, un escenario ya contemplado para otras respuestas de la SFC en este mismo
+documento) o con un token sin `exp`/mal formado, la excepción cruda
+(`json.JSONDecodeError`/`jwt.PyJWTError`/`KeyError`/`TypeError`) no coincide con
+ningún `except` de `sfc_client.py` (`httpx.HTTPStatusError`/`httpx.RequestError`)
+ni de `routes_quejas.py` (`SfcIntegrationException`/`httpx.RequestError`/
+`ConnectionError`) -- escapa sin clasificar hasta el handler genérico de FastAPI,
+con un 500 desnudo que **nunca se encola para reintento automático**, a
+diferencia de cualquier otra falla transitoria de la SFC documentada en este
+archivo.
+
+**Corregido:** se envuelve en `SfcIntegrationException(status_code=502,
+error_type="SFC_AUTH_RESPONSE_INVALID", ...)` -- `status_code >= 500` hace que
+`es_transitoria` sea `True` automáticamente, mismo tratamiento que cualquier
+otra falla transitoria de la SFC. Aplicado simétricamente en `_login` y
+`_refresh_access_token` (mismo patrón de "un lado se corrige, el otro se olvida"
+que se repitió toda esta revisión). El resto de `auth.py` que parsea datos
+externos (`_load_from_redis`, el registro de tokens compartido en Redis) ya
+tenía `except Exception` genérico -- no hacía falta tocarlo. Ver
+`tests/test_auth_and_signatures.py::test_login_con_body_no_json_se_clasifica_como_falla_transitoria`
+y `test_login_con_token_mal_formado_se_clasifica_como_falla_transitoria`.
 
 ## Referencias en el código
 

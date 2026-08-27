@@ -5,6 +5,7 @@ import datetime
 import jwt
 
 from app.core.auth import SfcAuthManager
+from app.core.exceptions import SfcIntegrationException
 from app.core.security.signatures import (
     SfcSignatureContext,
     UrlSignatureStrategy,
@@ -121,6 +122,50 @@ class TestAuthAndSignatures(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(token, new_access)
         self.assertIn("/api/token/refresh", str(mock_post.call_args[0][0]))
+
+    @patch("app.core.auth.httpx.AsyncClient.post")
+    async def test_login_con_body_no_json_se_clasifica_como_falla_transitoria(self, mock_post):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): si la SFC respondiera con un cuerpo que
+        no es JSON válido (ej. una página de error de un proxy/LB mal configurado
+        durante una caída real) el fallo de _login no tenía ningún try/except propio
+        -- la excepción cruda (json.JSONDecodeError) no coincide con ningún `except`
+        de sfc_client.py/routes_quejas.py y nunca se encolaba para reintento
+        automático, a diferencia de una caída de conectividad real contra la SFC.
+        Debe envolverse en SfcIntegrationException, transitoria.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+        mock_post.return_value = mock_response
+
+        auth_manager = SfcAuthManager(self.signature_context)
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await auth_manager.get_valid_token()
+
+        self.assertEqual(ctx.exception.error_type, "SFC_AUTH_RESPONSE_INVALID")
+        self.assertTrue(ctx.exception.es_transitoria)
+
+    @patch("app.core.auth.httpx.AsyncClient.post")
+    async def test_login_con_token_mal_formado_se_clasifica_como_falla_transitoria(self, mock_post):
+        """Mismo hallazgo, pero con un JSON válido cuyo 'access' no es un JWT
+        decodificable (jwt.decode lanza dentro de _save_tokens_local)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access": "esto-no-es-un-jwt-valido",
+            "refresh": self.mock_refresh_token
+        }
+        mock_post.return_value = mock_response
+
+        auth_manager = SfcAuthManager(self.signature_context)
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await auth_manager.get_valid_token()
+
+        self.assertEqual(ctx.exception.error_type, "SFC_AUTH_RESPONSE_INVALID")
+        self.assertTrue(ctx.exception.es_transitoria)
 
 
 if __name__ == "__main__":

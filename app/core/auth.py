@@ -9,6 +9,7 @@ import httpx
 import jwt
 
 from app.core.config import settings
+from app.core.exceptions import SfcIntegrationException
 from app.core.security.signatures import SfcSignatureContext, ssl_context
 from app.db.redis import get_redis_client
 
@@ -49,6 +50,31 @@ if data["access_token"] == rejected_access_token then
 end
 return 0
 """
+
+# 🔴 FIX (hallazgo propio, 2026-08-27): _login/_refresh_access_token parseaban la
+# respuesta de la SFC (response.json() + jwt.decode sin verificar firma, sólo para
+# leer 'exp') sin ningún try/except propio. Si la SFC respondiera alguna vez con un
+# cuerpo no-JSON (ej. una página de error de un proxy/LB mal configurado durante una
+# caída real) o con un JWT sin 'exp'/mal formado, la excepción cruda
+# (json.JSONDecodeError/jwt.PyJWTError/KeyError/TypeError) no coincide con ningún
+# `except` de sfc_client.py (httpx.HTTPStatusError/httpx.RequestError) ni de
+# routes_quejas.py (SfcIntegrationException/httpx.RequestError/ConnectionError) --
+# escapa sin clasificar hasta el handler genérico de FastAPI, con un 500 desnudo que
+# NUNCA se encola para reintento automático (a diferencia de una caída real de
+# conectividad contra la SFC, que sí se encola). Se envuelve en SfcIntegrationException
+# (502, es_transitoria=True vía status_code>=500) para que este caso reciba el mismo
+# tratamiento que cualquier otra falla transitoria de la SFC.
+_ERRORES_RESPUESTA_AUTH_SFC = (json.JSONDecodeError, jwt.exceptions.PyJWTError, KeyError, TypeError, ValueError)
+
+
+def _envolver_error_respuesta_auth_sfc(e: Exception) -> SfcIntegrationException:
+    return SfcIntegrationException(
+        status_code=502,
+        error_type="SFC_AUTH_RESPONSE_INVALID",
+        sfc_field=None,
+        raw_message=f"La SFC devolvió una respuesta de autenticación inválida o inesperada: {e}",
+        crm_action="Reintente la operación más tarde; puede tratarse de un problema transitorio del servicio de autenticación de la SFC."
+    )
 
 
 class SfcAuthManager(httpx.Auth):
@@ -288,10 +314,13 @@ class SfcAuthManager(httpx.Auth):
         response = await self.client.post(endpoint, json=payload, headers=headers)
         response.raise_for_status()
 
-        data = response.json()
-        access = data.get("access") or data.get("access_token")
-        refresh = data.get("refresh") or data.get("refresh_token")
-        self._save_tokens_local(access, refresh)
+        try:
+            data = response.json()
+            access = data.get("access") or data.get("access_token")
+            refresh = data.get("refresh") or data.get("refresh_token")
+            self._save_tokens_local(access, refresh)
+        except _ERRORES_RESPUESTA_AUTH_SFC as e:
+            raise _envolver_error_respuesta_auth_sfc(e) from e
 
     async def _refresh_access_token(self):
         endpoint = "/api/token/refresh"
@@ -313,11 +342,14 @@ class SfcAuthManager(httpx.Auth):
             raise ValueError("Refresh Token inválido o expirado en la SFC")
 
         response.raise_for_status()
-        data = response.json()
 
-        new_refresh = data.get("refresh") or data.get("refresh_token") or self.refresh_token
-        new_access = data.get("access") or data.get("access_token")
-        self._save_tokens_local(new_access, new_refresh)
+        try:
+            data = response.json()
+            new_refresh = data.get("refresh") or data.get("refresh_token") or self.refresh_token
+            new_access = data.get("access") or data.get("access_token")
+            self._save_tokens_local(new_access, new_refresh)
+        except _ERRORES_RESPUESTA_AUTH_SFC as e:
+            raise _envolver_error_respuesta_auth_sfc(e) from e
 
     def _save_tokens_local(self, access: str, refresh: str):
         self.access_token = access
