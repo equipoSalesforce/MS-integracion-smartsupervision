@@ -12,7 +12,7 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware
+from app.core.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware, get_correlation_id, get_aws_trace_id
 
 
 class TestCorrelationIdMiddleware(unittest.TestCase):
@@ -35,6 +35,65 @@ class TestCorrelationIdMiddleware(unittest.TestCase):
         response = self.client.get("/ping")
         self.assertNotIn("X-Amzn-Trace-Id", response.headers)
         self.assertIn("X-Correlation-ID", response.headers)
+
+    def test_correlation_id_provisto_por_el_cliente_se_respeta_no_se_reemplaza(self):
+        """Si el CRM manda su propio X-Correlation-ID, debe propagarse tal cual
+        (no generarse uno nuevo) -- es la clave que el CRM usa para correlacionar
+        sus propios logs con los nuestros."""
+        response = self.client.get("/ping", headers={"X-Correlation-ID": "cid-del-crm-123"})
+        self.assertEqual(response.headers["X-Correlation-ID"], "cid-del-crm-123")
+
+    def test_sin_correlation_id_se_genera_uno_nuevo_valido(self):
+        import uuid
+        response = self.client.get("/ping")
+        cid = response.headers["X-Correlation-ID"]
+        # No debe crashear -- confirma que es un UUID válido, no un placeholder vacío.
+        uuid.UUID(cid)
+
+    def test_dos_requests_sin_correlation_id_reciben_valores_distintos(self):
+        r1 = self.client.get("/ping")
+        r2 = self.client.get("/ping")
+        self.assertNotEqual(r1.headers["X-Correlation-ID"], r2.headers["X-Correlation-ID"])
+
+    def test_get_correlation_id_dentro_del_handler_ve_el_mismo_valor_de_la_peticion(self):
+        """El ContextVar debe reflejar el correlation_id de LA PETICIÓN ACTUAL
+        dentro del propio handler -- no sólo en el header de respuesta."""
+        capturado = {}
+
+        app2 = FastAPI()
+        app2.add_middleware(CorrelationIdMiddleware)
+
+        @app2.get("/capturar")
+        def capturar():
+            capturado["cid"] = get_correlation_id()
+            capturado["trace"] = get_aws_trace_id()
+            return {"ok": True}
+
+        client2 = TestClient(app2)
+        client2.get("/capturar", headers={"X-Correlation-ID": "cid-visible-en-handler", "X-Amzn-Trace-Id": "trace-visible"})
+
+        self.assertEqual(capturado["cid"], "cid-visible-en-handler")
+        self.assertEqual(capturado["trace"], "trace-visible")
+
+    def test_contextvar_se_libera_incluso_si_el_handler_lanza_una_excepcion(self):
+        """El `finally` debe resetear el ContextVar aunque call_next propague una
+        excepción -- de lo contrario, el correlation_id de una request fallida
+        podría filtrarse hacia la siguiente request atendida por el mismo
+        worker/tarea si algo reutiliza el ContextVar por fuera del ciclo normal."""
+        app3 = FastAPI()
+        app3.add_middleware(CorrelationIdMiddleware)
+
+        @app3.get("/explota")
+        def explota():
+            raise RuntimeError("fallo simulado del handler")
+
+        client3 = TestClient(app3, raise_server_exceptions=False)
+        response = client3.get("/explota", headers={"X-Correlation-ID": "cid-de-la-request-fallida"})
+
+        self.assertEqual(response.status_code, 500)
+        # Tras la excepción, el contexto por defecto (fuera de cualquier request) debe
+        # volver a su valor neutro -- no debe quedar "pegado" al de la request fallida.
+        self.assertEqual(get_correlation_id(), "N/A")
 
 
 class TestMaxBodySizeMiddlewareAsgi(unittest.IsolatedAsyncioTestCase):
