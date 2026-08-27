@@ -538,6 +538,39 @@ class TestEsFallaInfraestructuraUsaExcepcionEstructurada(unittest.TestCase):
         self.assertFalse(_es_falla_infraestructura("El CRM no confirmó éxito explícito (success=False)."))
 
 
+class TestEsFallaInfraestructuraAncladoEnMensajeWebhookCrm(unittest.TestCase):
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): el fallback de texto de
+    _es_falla_infraestructura para el mensaje del webhook al CRM asumía formato
+    predecible sin datos externos -- pero _validar_respuesta_exitosa (crm_webhook_
+    service.py) interpola case_id_crm/crm_case_number (mismo alfabeto que Smart_
+    Code__c/Case_id, predominantemente numérico) en el mensaje de "confirmó éxito
+    para un caso distinto". Un Smart_Code__c/Case_id que por azar contenga
+    "503"/"429" como subcadena embebida convertía una violación de contrato real
+    (correlación de caso rota) en una caída de infraestructura -- exactamente el
+    mismo defecto ya corregido arriba para el lado de la SFC, sin anclar acá.
+    """
+
+    def test_mensaje_de_correlacion_rota_con_503_embebido_en_case_id_no_se_confunde_con_infra(self):
+        mensaje = (
+            "El CRM confirmó éxito pero para un caso distinto al notificado "
+            "(enviado='111635888992248094', confirmado='SC-999')."
+        )
+        self.assertFalse(_es_falla_infraestructura(mensaje))
+
+    def test_mensaje_de_correlacion_rota_con_429_embebido_en_case_id_no_se_confunde_con_infra(self):
+        mensaje = (
+            "El CRM confirmó éxito pero para un caso distinto al notificado "
+            "(enviado='SC-4291234', confirmado='SC-999')."
+        )
+        self.assertFalse(_es_falla_infraestructura(mensaje))
+
+    def test_mensaje_real_de_http_503_del_crm_sigue_clasificando_como_infra(self):
+        """Contraprueba: el ancla no debe romper la detección real de un 5xx del CRM."""
+        mensaje = "El CRM respondió con código HTTP de error 503."
+        self.assertTrue(_es_falla_infraestructura(mensaje))
+
+
 class TestClasificacionEstructuradaNoDifiereElRestoDelLotePorFalsoPositivo(unittest.IsolatedAsyncioTestCase):
     """Verifica el efecto de punta a punta del fix: un rechazo de negocio real (con
     '503' coincidiendo en el texto) ya NO dispara el diferimiento del resto del lote

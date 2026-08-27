@@ -1103,6 +1103,29 @@ que se corrigió reutilizando `SfcErrorTranslator._coincide` (mismo alfabeto
 comparación. Ver
 `tests/test_throttling_classification.py::TestThrottlingClassificationSubcadenaEmbebida`.
 
+**Un quinto lugar, el mismo defecto ya corregido una vez para este mismo
+call site (hallazgo propio, 2026-08-27):** `scheduler.py::_es_falla_infraestructura`
+ya fue corregido (ver arriba, ERROR_TYPES_TRANSITORIOS) para usar campos
+estructurados cuando hay una `SfcIntegrationException` disponible -- pero su
+propio comentario justificaba dejar el fallback de subcadena SIN anclar para
+"el mensaje del webhook al CRM (CrmWebhookService), cuyo texto lo generamos
+nosotros mismos con un formato predecible". Esa premisa es falsa para uno de
+los mensajes reales: `crm_webhook_service.py::_validar_respuesta_exitosa`
+interpola `case_id_crm`/`crm_case_number` -- valores del payload/CRM, mismo
+alfabeto `[a-zA-Z0-9_-]` que `Smart_Code__c`/`Case_id` -- directamente en el
+mensaje de "El CRM confirmó éxito pero para un caso distinto al notificado
+(enviado=X, confirmado=Y)". Un `Smart_Code__c`/`Case_id` predominantemente
+numérico (el caso real, ej. `111635888992248094`) tiene probabilidad no
+despreciable de contener por azar `"503"`/`"429"`/etc. como subcadena.
+Reclasificar una violación de contrato real (correlación de caso rota, una
+señal de un bug o de manipulación real) como caída transitoria de
+infraestructura hace que `_ejecutar_paso_notificacion_crm` fije
+`consumir_intento=False` -- el caso reintenta indefinidamente cada ciclo sin
+consumir presupuesto ni llegar nunca a DLQ, ocultando el problema en vez de
+escalarlo. Corregido reutilizando el mismo anclaje de `SfcErrorTranslator.
+_coincide` para los keywords de un solo token de esta lista. Ver
+`tests/test_scheduler_retry_job.py::TestEsFallaInfraestructuraAncladoEnMensajeWebhookCrm`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

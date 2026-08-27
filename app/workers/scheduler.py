@@ -16,7 +16,7 @@ from app.services.email_service import EmailAlertService
 from app.services.idempotency_service import IdempotencyService
 from app.api.dependencies import get_sfc_client_con_http_client as get_sfc_client, get_s3_client
 from app.services.crm_webhook_service import CrmWebhookService
-from app.core.exceptions import SfcIntegrationException
+from app.core.exceptions import SfcIntegrationException, SfcErrorTranslator
 from app.core.distributed_lock import RedisLock
 from app.core.config import settings
 from app.core.middleware import correlation_id_ctx
@@ -143,8 +143,26 @@ def _es_falla_infraestructura(error_msg: Optional[str], exc: Optional[BaseExcept
     routes_quejas.py::es_error_contingencia) en vez de parsear el mensaje. El match por
     subcadena queda como fallback sólo para excepciones genéricas sin campos
     estructurados (ConnectionError, httpx.TimeoutException, etc.) y para el mensaje del
-    webhook al CRM (CrmWebhookService), cuyo texto lo generamos nosotros mismos con un
-    formato predecible -- no viene de un sistema externo con datos de negocio libres.
+    webhook al CRM (CrmWebhookService).
+
+    🔴 FIX (hallazgo propio, 2026-08-27): el fallback de texto para el mensaje del
+    webhook al CRM asumía que ese texto siempre lo generamos nosotros con formato
+    predecible -- cierto para la mayoría de los casos, pero
+    `_validar_respuesta_exitosa` interpola `case_id_crm`/`crm_case_number` (valores
+    del payload/CRM, con el mismo alfabeto `[a-zA-Z0-9_-]` que Smart_Code__c/Case_id)
+    directamente en el mensaje de "confirmó éxito para un caso distinto". Un
+    Smart_Code__c/Case_id predominantemente numérico (el caso real, ej.
+    "111635888992248094") tiene una probabilidad no despreciable de contener por
+    azar "503"/"502"/"504"/"429" como subcadena -- el mismo defecto ya corregido
+    para el lado de la SFC arriba (ver ERROR_TYPES_TRANSITORIOS), sin anclar en este
+    fallback. Reclasificar una violación de contrato real (correlación de caso
+    rota) como caída transitoria de infraestructura hace que `consumir_intento=False`
+    (ver _ejecutar_paso_notificacion_crm) -- el caso reintenta indefinidamente cada
+    ciclo sin consumir presupuesto ni llegar nunca a DLQ, ocultando un bug de
+    correlación real en vez de escalarlo. Se reutiliza el mismo anclaje que
+    SfcErrorTranslator._coincide (alfabeto real de Smart_Code__c/Case_id) para los
+    keywords de un solo token; las frases de varias palabras ya son suficientemente
+    específicas por su longitud y siguen comparándose tal cual.
     """
     if isinstance(exc, SfcIntegrationException):
         return exc.es_transitoria
@@ -158,7 +176,7 @@ def _es_falla_infraestructura(error_msg: Optional[str], exc: Optional[BaseExcept
         "indisponible", "no se encuentra disponible", "throttled", "throttling",
         "name or service not known", "service unavailable", "bad gateway"
     ]
-    return any(kw in msg_lower for kw in keywords)
+    return any(SfcErrorTranslator._coincide(kw, msg_lower) for kw in keywords)
 
 
 async def _emitir_metricas_cola(
