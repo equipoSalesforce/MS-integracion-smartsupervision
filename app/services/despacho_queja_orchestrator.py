@@ -15,6 +15,24 @@ from app.core.clasificacion_operacion import es_estado_cierre
 logger = logging.getLogger(__name__)
 
 
+def _resumir_validation_error_sin_pii(ve: ValidationError) -> str:
+    """
+    🔴 FIX (hallazgo propio, 2026-08-27): `ValidationError.json()` y `str(ValidationError)`
+    incluyen por defecto el valor RECHAZADO de cada campo (`input`/`input_value`) --
+    para QuejaUnificadaCrmInput eso puede ser el email, nombre, número de identificación
+    o dirección real de un consumidor financiero. `procesar_despacho_raw_json` usa este
+    resumen tanto para el log de error como para `raw_message` de la excepción -- y
+    `raw_message` se propaga a `ultimo_error` en Redis (queue_service.py), a las alertas
+    de correo (`notificar_caso_fallido_definitivo`) y a la respuesta de error del CRM, sin
+    pasar por `sanitizar_payload` (pensado para el JSON de request/response HTTP, no para
+    este objeto). Se listan sólo `loc` (nombre del campo) y `msg` (descripción del tipo de
+    error) por cada error -- suficiente para diagnosticar un item corrupto en la cola sin
+    volcar el dato personal que lo causó.
+    """
+    partes = [f"{'.'.join(str(p) for p in e.get('loc', []))}: {e.get('msg', 'error de validación')}" for e in ve.errors()]
+    return "; ".join(partes) or "Error de validación sin detalle."
+
+
 def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     """
     Evalúa si la SFC rechazó la petición porque la queja YA se encuentra cerrada /
@@ -166,12 +184,13 @@ class DespachoQuejaOrquestador:
                 payload=payload, limpiar_checkpoint_en_exito=limpiar_checkpoint_en_exito
             )
         except ValidationError as ve:
-            logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola Redis: {ve.json()}")
+            resumen_sin_pii = _resumir_validation_error_sin_pii(ve)
+            logger.error(f"[Orquestador] Error de validación Pydantic al rehidratar desde la cola Redis: {resumen_sin_pii}")
             raise SfcIntegrationException(
                 status_code=500,
                 error_type="REDIS_PAYLOAD_INVALIDO",
                 sfc_field=None,
-                raw_message=f"Estructura inválida en el payload rehidratado de Redis: {str(ve)}",
+                raw_message=f"Estructura inválida en el payload rehidratado de Redis: {resumen_sin_pii}",
                 crm_action="Contactar al equipo de infraestructura: un ítem de la cola quedó con datos corruptos/incompletos."
             ) from ve
 

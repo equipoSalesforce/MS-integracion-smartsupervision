@@ -1126,6 +1126,52 @@ escalarlo. Corregido reutilizando el mismo anclaje de `SfcErrorTranslator.
 _coincide` para los keywords de un solo token de esta lista. Ver
 `tests/test_scheduler_retry_job.py::TestEsFallaInfraestructuraAncladoEnMensajeWebhookCrm`.
 
+## El validador de email filtraba el correo real del cliente en logs/alertas/cola (corregido)
+
+**Código:** `app/schemas/crm_payloads.py::validar_formato_email`,
+`app/services/despacho_queja_orchestrator.py::procesar_despacho_raw_json`.
+
+**Contexto:** `sanitizar_payload`/`sanitizar_headers` (`app/core/security/sanitizer.py`)
+son la defensa deliberada de este repositorio contra PII en logs -- una allowlist
+(`CAMPOS_LOGGEABLES`) donde cualquier campo no reconocido se enmascara por
+defecto. Se aplican consistentemente en `sfc_client.py`/`crm_webhook_service.py`
+para los logs `AUDIT_HTTP_*`. Pero esa defensa protege el JSON de request/response
+HTTP -- no protege el `msg`/`raw_message` que produce Pydantic cuando un
+`@field_validator` rechaza un campo.
+
+**Hallazgo (revisión propia, 2026-08-27):** `validar_formato_email` construía su
+`ValueError` con el correo RECHAZADO embebido: `f"El correo electrónico '{v}' no
+tiene un formato válido..."`. Ese mensaje se propaga sin pasar por el sanitizer
+por al menos tres caminos:
+
+1. `despacho_queja_orchestrator.py::procesar_despacho_raw_json` -- al rehidratar un
+   item de la cola Redis, un `ValidationError` se logueaba con `ve.json()` (que
+   además incluye el campo `input` de CADA error, no sólo el del email) y se
+   convertía en `raw_message` con `str(ve)` -- ambos formatos de Pydantic incluyen
+   por defecto el valor rechazado.
+2. Ese `raw_message` se guarda como `ultimo_error` en el item de la cola
+   (`queue_service.py`), viaja en el correo de `notificar_caso_fallido_definitivo`
+   si el item agota reintentos, y se devuelve en la respuesta 500 del endpoint.
+3. `app/main.py::pydantic_validation_exception_handler` (la validación normal al
+   ingreso del payload, no sólo la rehidratación) también usa `msg` para construir
+   `raw_message` de la respuesta 400 -- aunque en ese caso el CRM ya conoce el dato
+   que envió, así que el riesgo real está en los otros dos caminos (logs/alertas
+   internas).
+
+A diferencia de los otros validadores de campos con PII de este mismo schema
+(`id_number__c`, `SuppliedName`), que ya evitan embeber el valor rechazado en su
+mensaje, `validar_formato_email` era la excepción -- el mismo patrón de "la regla
+se aplicó a un lado y no al otro" ya documentado arriba para otros hallazgos.
+
+**Corregido:** el mensaje ya no incluye el valor; identifica el campo por nombre
+(`'SuppliedEmail'`) en vez de por su contenido -- suficiente para diagnosticar sin
+volcar el dato personal. Adicionalmente, `procesar_despacho_raw_json` ahora arma su
+log/`raw_message` a partir de `_resumir_validation_error_sin_pii` (sólo `loc` +
+`msg` de cada error, nunca `input`) en vez de `ve.json()`/`str(ve)` -- una segunda
+capa de defensa para cualquier otro validador futuro de este schema que llegue a
+cometer el mismo error. Ver
+`tests/test_despacho_orquestador.py::test_14b_procesar_despacho_raw_json_payload_corrupto_no_filtra_pii_en_log_ni_en_raw_message`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

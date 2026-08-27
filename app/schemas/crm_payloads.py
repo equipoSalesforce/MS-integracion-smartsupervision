@@ -219,12 +219,19 @@ class Momento2QuejaCrmInput(BaseModel):
     @field_validator("SuppliedEmail", mode="after")
     @classmethod
     def validar_formato_email(cls, v: Optional[str]) -> Optional[str]:
+        # 🔴 FIX (hallazgo propio, 2026-08-27): el mensaje incluía el correo real del
+        # consumidor financiero (`v`) -- a diferencia de los demás validadores de PII de
+        # este schema (id_number__c, SuppliedName), que ya evitan embeber el valor
+        # rechazado en el mensaje de error. Pydantic no sanitiza `msg`: ese texto viaja
+        # sin pasar por sanitizar_payload hacia el log de despacho_queja_orchestrator
+        # (rehidratación desde Redis), `ultimo_error` en la cola, alertas de correo a
+        # ops y la respuesta 400 al CRM. Se retira el valor, igual de específico sin él.
         if v is not None:
             email_clean = v.strip()
             if email_clean:
                 pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
                 if not re.match(pattern, email_clean):
-                    raise ValueError(f"El correo electrónico '{v}' no tiene un formato válido (debe incluir '@' y un dominio válido).")
+                    raise ValueError("El correo electrónico ('SuppliedEmail') no tiene un formato válido (debe incluir '@' y un dominio válido).")
                 return email_clean
         return v
 

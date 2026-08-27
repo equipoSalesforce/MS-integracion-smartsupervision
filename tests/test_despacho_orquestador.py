@@ -507,6 +507,30 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.error_type, "REDIS_PAYLOAD_INVALIDO")
         self.assertEqual(ctx.exception.status_code, 500)
 
+    async def test_14b_procesar_despacho_raw_json_payload_corrupto_no_filtra_pii_en_log_ni_en_raw_message(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): antes se usaba ve.json()/str(ve) para el
+        log y para raw_message -- Pydantic incluye por defecto el VALOR rechazado
+        ('input'/'input_value') de cada campo. Con un email inválido, ese valor es el
+        correo real del consumidor financiero, y raw_message se propaga a Redis
+        (ultimo_error), a alertas de correo y a la respuesta del CRM. Se verifica que
+        ni el log ni raw_message contengan el email real -- sólo el nombre del campo y
+        el tipo de error.
+        """
+        payload_con_email_pii_invalido = self.base_payload_dict.copy()
+        email_real_del_cliente = "cliente.real.con.pii@dominio-verificable.com"
+        payload_con_email_pii_invalido["SuppliedEmail"] = email_real_del_cliente + "###formato-roto"
+
+        with self.assertLogs("app.services.despacho_queja_orchestrator", level="ERROR") as logs:
+            with self.assertRaises(SfcIntegrationException) as ctx:
+                await self.orquestador.procesar_despacho_raw_json(payload_con_email_pii_invalido)
+
+        self.assertEqual(ctx.exception.error_type, "REDIS_PAYLOAD_INVALIDO")
+        self.assertNotIn(email_real_del_cliente, ctx.exception.raw_message)
+        self.assertIn("suppliedemail", ctx.exception.raw_message.lower())
+        for linea in logs.output:
+            self.assertNotIn(email_real_del_cliente, linea)
+
     async def test_15_directorio_s3_encontrado_asigna_archivos_dinamicamente(self):
         """Si el payload trae sólo 'directorio_s3' (sin 'archivos_s3'), el orquestador
         debe listar el directorio en S3 y poblar archivos_s3 dinámicamente."""
