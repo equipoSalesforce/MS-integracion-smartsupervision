@@ -6,10 +6,11 @@ from fastapi.responses import JSONResponse
 from typing import List, Optional, Tuple
 
 from app.api.dependencies import (
-    get_sfc_client, 
-    get_s3_client, 
+    get_sfc_client,
+    get_s3_client,
     verificar_api_key_crm,
-    verificar_api_key_admin
+    verificar_api_key_admin,
+    verificar_rate_limit_crm
 )
 from app.integrations.sfc_client import SfcClient
 from app.services.email_service import EmailAlertService
@@ -127,7 +128,7 @@ RESPUESTAS_DESPACHO_OPENAPI = {
     status_code=status.HTTP_200_OK, 
     summary="Obtener Quejas Nuevas de la SFC y procesar adjuntos a S3",
     response_model=List[QuejaMapeadaCrmResponse],
-    dependencies=[Depends(verificar_api_key_crm)]
+    dependencies=[Depends(verificar_api_key_crm), Depends(verificar_rate_limit_crm)]
 )
 async def ejecutar_sync_momento_1(
     sfc_client: SfcClient = Depends(get_sfc_client),
@@ -141,7 +142,7 @@ async def ejecutar_sync_momento_1(
     "/sync/momento-1/ack",
     status_code=status.HTTP_200_OK,
     summary="Confirmar recepción exitosa de quejas (ACK) a la SFC",
-    dependencies=[Depends(verificar_api_key_crm)]
+    dependencies=[Depends(verificar_api_key_crm), Depends(verificar_rate_limit_crm)]
 )
 async def confirmar_ack_momento_1(
     payload: ConfirmacionAckInput,
@@ -313,7 +314,7 @@ async def _encolar_despacho_por_contingencia(
     status_code=status.HTTP_200_OK,
     responses=RESPUESTAS_DESPACHO_OPENAPI,
     summary="Trigger Unificado de Despacho con Cola Centralizada Redis",
-    dependencies=[Depends(verificar_api_key_crm)],
+    dependencies=[Depends(verificar_api_key_crm), Depends(verificar_rate_limit_crm)],
     description="""
         ### 🚀 Orquestador de Despacho Unificado Stateless
 
@@ -614,7 +615,7 @@ async def health_ready_ssv(response: Response):
     "/sync/momento-4",
     status_code=status.HTTP_200_OK,
     summary="Obtener información actualizada de usuarios desde la SFC",
-    dependencies=[Depends(verificar_api_key_crm)]
+    dependencies=[Depends(verificar_api_key_crm), Depends(verificar_rate_limit_crm)]
 )
 async def actualizar_usuarios(
     sfc_client: SfcClient = Depends(get_sfc_client),
@@ -627,7 +628,7 @@ async def actualizar_usuarios(
     "/sync/momento-4/ack",
     status_code=status.HTTP_200_OK,
     summary="Confirmar recepción exitosa de datos de usuarios (ACK) a la SFC",
-    dependencies=[Depends(verificar_api_key_crm)]
+    dependencies=[Depends(verificar_api_key_crm), Depends(verificar_rate_limit_crm)]
 )
 async def confirmar_ack_momento_4(
     payload: ConfirmacionAckUsuariosInput,

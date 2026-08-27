@@ -1386,6 +1386,44 @@ tenía `except Exception` genérico -- no hacía falta tocarlo. Ver
 `tests/test_auth_and_signatures.py::test_login_con_body_no_json_se_clasifica_como_falla_transitoria`
 y `test_login_con_token_mal_formado_se_clasifica_como_falla_transitoria`.
 
+## Rate limit por API key para los endpoints del CRM (nuevo)
+
+**Código:** `app/api/dependencies.py::verificar_rate_limit_crm`.
+
+**Motivación (revisión de seguridad general, 2026-08-27):** los endpoints que
+consume el CRM no tenían ningún límite de tasa -- sólo `MaxBodySizeMiddleware`
+(tamaño del body) y la resiliencia normal del pipeline (idempotencia, cola). Un
+bucle o bug del lado del CRM (ej. un reintento mal configurado en Salesforce)
+podía en principio machacar la cuota de la SFC o el pool de conexiones sin
+ningún freno propio de este microservicio.
+
+**Diseño:** ventana fija en Redis por API key (`INCR` + `EXPIRE`, sin Lua --
+`INCR` ya es atómico, sólo el request que ve `resultado == 1` fija el TTL, sin
+ventana de carrera). Default **120 solicitudes / 60 segundos** por API key
+(`CRM_RATE_LIMIT_MAX_REQUESTS`/`CRM_RATE_LIMIT_WINDOW_SECONDS`, configurables;
+`CRM_RATE_LIMIT_ENABLED` para desactivarlo por completo). Se aplica como
+dependencia de FastAPI encadenada a `Depends(verificar_api_key_crm)` -- corre
+**antes** de cualquier lógica de negocio (idempotencia, lock, orquestador), y
+sólo a los 5 endpoints que autentican con la API key del CRM (`/sync/momento-1`,
+`/sync/momento-1/ack`, `/sync/despacho`, `/sync/momento-4`, `/sync/momento-4/ack`)
+-- los endpoints
+administrativos (`verificar_api_key_admin`) y `/health*` quedan fuera a
+propósito, no son tráfico del CRM.
+
+**Fail-open, a propósito:** a diferencia de `IdempotencyService` (que debe
+fallar cerrado -- bloquear con 503 -- para no arriesgar un duplicado ante la
+SFC), una caída de Redis en el rate limit deja pasar la solicitud sin contar.
+El rate limit es una capa de defensa adicional contra abuso, no una garantía de
+correctitud; sumarle un fail-closed propio encima del que `IdempotencyService`
+ya aplica sólo añadiría un modo de fallo nuevo sin beneficio real.
+
+Ver `tests/test_api_dependencies.py::TestVerificarRateLimitCrm` (la dependencia
+aislada: bajo el límite, en el límite, deshabilitado, fail-open ante Redis
+caído/ausente, contadores independientes por API key) y
+`tests/test_routes_quejas_despacho.py::TestRateLimitCrmEndToEnd` (el wiring
+real a través del endpoint HTTP: 429 con `Retry-After`, nunca toca idempotencia
+cuando ya excedió el límite, y el endpoint admin no se ve afectado).
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |

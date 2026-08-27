@@ -694,5 +694,73 @@ class TestReencolarRegistroFallido(unittest.TestCase):
         self.assertNotEqual(response.status_code, 200)
 
 
+class TestRateLimitCrmEndToEnd(_RoutesQuejasHttpTestCase):
+    """
+    🟢 Rate limit por API key para los endpoints CRM (revisión de seguridad,
+    2026-08-27): verifica el wiring REAL a través del endpoint HTTP -- no sólo la
+    dependencia aislada (ver test_api_dependencies.py::TestVerificarRateLimitCrm) --
+    para confirmar que corre ANTES de la lógica de negocio (idempotencia, lock,
+    orquestador nunca se tocan cuando el límite ya se excedió) y que el 429 tiene
+    la forma de respuesta esperada por el CRM.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.mock_redis_rate_limit = MagicMock()
+        self.get_redis_rate_limit_patcher = patch(
+            "app.api.dependencies.get_redis_client", return_value=self.mock_redis_rate_limit
+        )
+        self.get_redis_rate_limit_patcher.start()
+
+    def tearDown(self):
+        self.get_redis_rate_limit_patcher.stop()
+        super().tearDown()
+
+    def test_por_debajo_del_limite_deja_pasar_la_request(self):
+        """No importa si el despacho en sí termina en éxito/hit -- basta con que la
+        request pase de largo el gate del rate limit. Se fuerza un hit idempotente
+        para no depender de que el resto del pipeline (SFC/orquestador, mockeado
+        de forma mínima en la clase base) complete con éxito."""
+        self.mock_redis_rate_limit.incr = AsyncMock(return_value=1)
+        self.mock_redis_rate_limit.expire = AsyncMock()
+        self.idempotency_service_mock.verificar_o_iniciar_operacion = AsyncMock(
+            return_value=(True, {"status": "success", "is_idempotent_hit": True, "message": "ya procesado"})
+        )
+
+        with patch.object(settings, "CRM_RATE_LIMIT_MAX_REQUESTS", 5):
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertNotEqual(response.status_code, 429)
+
+    def test_al_exceder_el_limite_responde_429_sin_tocar_idempotencia_ni_orquestador(self):
+        self.mock_redis_rate_limit.incr = AsyncMock(return_value=999)
+
+        with patch.object(settings, "CRM_RATE_LIMIT_MAX_REQUESTS", 5):
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 429)
+        # HTTPException con detail=dict -- FastAPI la envuelve como {"detail": {...}}
+        # (a diferencia de los exception_handler custom de main.py, que devuelven el
+        # cuerpo plano). Mismo patrón ya usado por verificar_api_key_crm/admin (401).
+        detail = response.json()["detail"]
+        self.assertEqual(detail["error_type"], "RATE_LIMIT_EXCEEDED")
+        self.assertIn("Retry-After", response.headers)
+        self.idempotency_service_mock.verificar_o_iniciar_operacion.assert_not_called()
+
+    def test_endpoint_admin_no_esta_sujeto_al_rate_limit_del_crm(self):
+        """El rate limit sólo se aplica a los endpoints con verificar_api_key_crm --
+        /queue (admin) no debe verse afectado aunque el contador CRM esté saturado."""
+        self.mock_redis_rate_limit.incr = AsyncMock(return_value=999)
+        admin_client = TestClient(app)
+        admin_client.headers.update({"X-API-Key": settings.ADMIN_API_KEY})
+
+        with patch.object(settings, "CRM_RATE_LIMIT_MAX_REQUESTS", 5), \
+             patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.obtener_todos_los_encolados = AsyncMock(return_value=[])
+            response = admin_client.get("/api/v1/quejas/queue")
+
+        self.assertNotEqual(response.status_code, 429)
+
+
 if __name__ == "__main__":
     unittest.main()

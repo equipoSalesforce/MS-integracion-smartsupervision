@@ -103,6 +103,24 @@ class Settings(BaseSettings):
         description="Tamaño máximo permitido (en bytes) para el body de una request HTTP entrante."
     )
 
+    # 🟢 Rate limit por API key para los endpoints que consume el CRM (revisión de
+    # seguridad, 2026-08-27): ventana fija en Redis (INCR + EXPIRE) -- protege contra
+    # un bucle/bug del lado del CRM que sature la cuota de la SFC o el pool de
+    # conexiones, sin frenar tráfico legítimo bajo condiciones normales. No aplica a
+    # los endpoints administrativos (`verificar_api_key_admin`), pensados para uso
+    # manual/interno, ni a `/health*`. Fail-open ante una caída de Redis -- es una
+    # capa de defensa adicional, no una garantía de correctitud como la idempotencia
+    # (que ya falla cerrado por su cuenta).
+    CRM_RATE_LIMIT_ENABLED: bool = Field(default=True)
+    CRM_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=120,
+        description="Máximo de solicitudes permitidas por API key del CRM dentro de la ventana."
+    )
+    CRM_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        description="Duración (segundos) de la ventana fija del rate limit del CRM."
+    )
+
     # --- Configuración AWS S3 ---
     AWS_S3_BUCKET: str = Field(..., description="Nombre del bucket S3 para adjuntos")
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)

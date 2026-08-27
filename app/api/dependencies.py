@@ -1,18 +1,22 @@
 # app/api/dependencies.py
 import os
 import secrets
+import time
 import logging
 import boto3
 import httpx
-from fastapi import Header, HTTPException, status, Request
+from fastapi import Depends, Header, HTTPException, status, Request
 from fastapi.security.api_key import APIKeyHeader
 
 from app.core.config import settings
 from app.core.security.signatures import SfcSignatureContext
 from app.core.auth import SfcAuthManager
 from app.integrations.sfc_client import SfcClient
+from app.db.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
+
+RATE_LIMIT_PREFIX = "{sfc:ratelimit}"
 
 # 🛡️ Esquema de seguridad
 API_KEY_NAME = "X-API-Key"
@@ -152,3 +156,64 @@ async def verificar_api_key_crm(
         )
 
     return x_api_key
+
+
+async def verificar_rate_limit_crm(x_api_key: str = Depends(verificar_api_key_crm)) -> None:
+    """
+    🟢 Rate limit por API key para los endpoints que consume el CRM (revisión de
+    seguridad, 2026-08-27): protege contra un bucle/bug del lado del CRM que sature
+    la cuota de la SFC o el pool de conexiones -- no un límite pensado para tráfico
+    legítimo bajo condiciones normales.
+
+    Ventana fija en Redis vía INCR + EXPIRE: sólo el primer INCR de cada ventana
+    (resultado == 1) fija el TTL, así que no hay ventana de carrera en la que dos
+    requests concurrentes pisen el EXPIRE del otro -- INCR es atómico, únicamente
+    una de ellas puede ver el resultado 1.
+
+    Encadena `Depends(verificar_api_key_crm)` -- corre DESPUÉS de validar la key
+    (nunca cuenta ni bloquea intentos con key inválida, eso es un problema distinto)
+    y reutiliza el mismo valor ya validado (FastAPI cachea la dependencia por
+    request, no se re-ejecuta el chequeo de key dos veces).
+
+    Fail-open ante cualquier fallo de Redis: a diferencia de IdempotencyService (que
+    debe fallar cerrado para no arriesgar un duplicado ante la SFC), el rate limit es
+    una capa de defensa adicional -- una caída de Redis no debe sumar un modo de
+    fallo nuevo sobre el que IdempotencyService ya maneja fail-closed por su cuenta.
+    """
+    if not settings.CRM_RATE_LIMIT_ENABLED:
+        return
+
+    redis = get_redis_client()
+    if not redis:
+        return
+
+    ventana_actual = int(time.time() // settings.CRM_RATE_LIMIT_WINDOW_SECONDS)
+    clave = f"{RATE_LIMIT_PREFIX}:{x_api_key}:{ventana_actual}"
+
+    try:
+        conteo = await redis.incr(clave)
+        if conteo == 1:
+            await redis.expire(clave, settings.CRM_RATE_LIMIT_WINDOW_SECONDS)
+    except Exception as e:
+        logger.warning(f"⚠️ [Rate Limit CRM] No se pudo consultar/actualizar el contador en Redis: {e}")
+        return
+
+    if conteo > settings.CRM_RATE_LIMIT_MAX_REQUESTS:
+        logger.warning(
+            f"🚦 [Rate Limit CRM] Límite excedido: {conteo} solicitudes en la ventana actual "
+            f"({settings.CRM_RATE_LIMIT_MAX_REQUESTS} permitidas cada {settings.CRM_RATE_LIMIT_WINDOW_SECONDS}s)."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "status_code": 429,
+                "error_type": "RATE_LIMIT_EXCEEDED",
+                "sfc_field": None,
+                "raw_message": (
+                    f"Se superó el límite de {settings.CRM_RATE_LIMIT_MAX_REQUESTS} solicitudes "
+                    f"por {settings.CRM_RATE_LIMIT_WINDOW_SECONDS} segundos."
+                ),
+                "crm_action_friendly": "Reduzca la frecuencia de solicitudes y reintente en unos segundos."
+            },
+            headers={"Retry-After": str(settings.CRM_RATE_LIMIT_WINDOW_SECONDS)}
+        )
