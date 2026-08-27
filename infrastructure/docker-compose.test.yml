@@ -14,25 +14,42 @@ services:
     env_file:
       - .env.test
     environment:
-      - ENVIRONMENT=dev
+      - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AWS_ACCESS_KEY_ID                      
-      - AWS_SECRET_ACCESS_KEY                  
-      - AWS_SESSION_TOKEN
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_S3_BUCKET=global66-sfc-bucket-local
+      - AWS_REGION=us-east-1
+    # --workers 1 fijado explícitamente (antes implícito por default de uvicorn):
+    # para descartar de raíz la hipótesis de 2 procesos concurrentes como causa
+    # de los logs duplicados vistos en el arranque local.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # 🔴 FIX (diagnóstico local, 2026-08-27): el lifespan de FastAPI bloquea el
+    # arranque hasta completar dos llamadas de red reales a Google Sheets
+    # (SfcErrorTranslator.obtener_matriz_errores + SfcSalesforceMapper.obtener_
+    # catalogos_y_mapeos, ver app/main.py::_iniciar_recursos_globales) -- el puerto
+    # 8000 no queda escuchando hasta que eso termina. Con el presupuesto anterior
+    # (start_period 10s + 3 reintentos x 15s ~= 55s), un primer arranque en frío
+    # (DNS/TLS fríos contra Sheets) podía marcar el contenedor "unhealthy" antes de
+    # que la app realmente terminara de levantar -- y como `worker` depende de
+    # `app: condition: service_healthy`, Compose abortaba el `up` completo sin
+    # siquiera intentar crear el contenedor worker. Se amplía el presupuesto total
+    # a ~90s (start_period 40s + 5 reintentos x 10s) para darle margen real al
+    # arranque en frío sin dejar de detectar un cuelgue genuino.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 40s
 
   # --- WORKER DE PROCESAMIENTO (Simula la tarea/servicio Worker en AWS ECS) ---
   worker:
@@ -45,12 +62,14 @@ services:
     env_file:
       - .env.test
     environment:
-      - ENVIRONMENT=dev
+      - ENVIRONMENT=local
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AWS_ACCESS_KEY_ID                      
-      - AWS_SECRET_ACCESS_KEY                  
-      - AWS_SESSION_TOKEN
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_S3_BUCKET=global66-sfc-bucket-local
+      - AWS_REGION=us-east-1
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     depends_on:
