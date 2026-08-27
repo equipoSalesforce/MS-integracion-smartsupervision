@@ -1424,6 +1424,48 @@ caído/ausente, contadores independientes por API key) y
 real a través del endpoint HTTP: 429 con `Retry-After`, nunca toca idempotencia
 cuando ya excedió el límite, y el endpoint admin no se ve afectado).
 
+## Auditoría de dependencias (`requirements.txt`) -- CVEs corregidos
+
+**Contexto:** revisión general de seguridad, 2026-08-27. Se contrastó cada paquete
+de `requirements.txt` contra bases de datos de CVE reales (no sólo memoria del
+modelo). Dos paquetes tenían una vulnerabilidad conocida en la versión pineada:
+
+- **`cryptography` 49.0.0 → 50.0.1**: CVE-2026-69247 (oráculo Bleichenbacher --
+  `pkcs7_decrypt_*` filtra información de la clave de contenido RSA por
+  diferencias de timing/errores distinguibles ante `EnvelopedData` adaptativo).
+  Afecta 44.0.0 hasta (sin incluir) 50.0.0. Este repositorio no llama a la API de
+  `cryptography` directamente (`app/core/security/signatures.py` usa el módulo
+  `ssl` estándar) -- es una dependencia transitiva vía boto3/botocore -- pero se
+  actualiza igual: la superficie de riesgo real depende de qué haga esa cadena de
+  dependencias internamente, no de lo que este código llame explícitamente.
+- **`pypdf` 6.14.2 → 6.16.2**: CVE-2026-71852 (DoS -- rangos de ancho de fuente
+  CID grandes en un PDF causan iteración excesiva/consumo de memoria). Corregido
+  en 6.15.0+. Baja explotabilidad real aquí (`pdf_generator.py` sólo parsea
+  `plantilla_respuesta_final.pdf`, un archivo propio y estático, nunca un PDF
+  suministrado por un tercero) pero se actualiza de todas formas.
+
+**Dos CVEs adicionales encontrados y descartados como no explotables** (no
+requirieron cambio de versión, verificados contra el código real, no sólo
+contra el número de versión):
+
+- `soupsieve` 2.8.4 -- CVE-2026-49476 (agotamiento de memoria vía selectores CSS
+  gigantes pasados a `.select()`/`.select_one()`). `email_parser.py` sólo usa
+  `.find_all([...])` con listas de tags fijas -- la ruta vulnerable nunca se
+  invoca.
+- `APScheduler` 3.11.3 -- CVE-2026-31072 (RCE crítica vía deserialización
+  insegura en `JSONSerializer`/`CBORSerializer`). `scheduler.py` usa
+  `AsyncIOScheduler()` sin configurar `jobstores` -- el default es
+  `MemoryJobStore` (en RAM, sin serialización); los serializadores vulnerables
+  sólo se usan con job stores persistentes que este proyecto no tiene.
+
+**Verificación de la actualización:** suite completa (1013 tests) en verde con
+las nuevas versiones instaladas localmente, más build real de Docker (`docker
+build --target final-api` y `--target final-worker`, igual que
+`docker-build-smoke` en CI) y una prueba de humo dentro del contenedor ya
+construido (import de `app.main` + generación real de un PDF con
+`generar_pdf_respuesta_final`, para ejercitar concretamente el código que usa
+`pypdf`).
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
