@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MensajeHilo:
-    indice: int             # 0 = Más reciente (arriba), N = Más antiguo (abajo)
-    remitente_cabecera: str # Texto del encabezado / remitente detectado
     cuerpo_texto: str       # Mensaje limpio sin encabezado ni metadatos de UI
     es_soporte: bool        # True si pertenece a Global66
 
@@ -252,18 +250,16 @@ def extraer_texto_limpio_de_html(html_str: str) -> str:
     mensajes_hilo: List[MensajeHilo] = []
     
     for idx, bloque_raw in enumerate(bloques_raw):
-        es_soporte, remitente, cuerpo = _clasificar_autor_bloque(
-            bloque_texto=bloque_raw, 
+        es_soporte, _remitente, cuerpo = _clasificar_autor_bloque(
+            bloque_texto=bloque_raw,
             es_bloque_superior=(idx == 0)
         )
-        
+
         cuerpo_limpio = _limpiar_cabeceras_superiores(cuerpo)
         cuerpo_limpio = _limpiar_disclaimers_y_footers(cuerpo_limpio)
-        
+
         mensajes_hilo.append(
             MensajeHilo(
-                indice=idx,
-                remitente_cabecera=remitente,
                 cuerpo_texto=cuerpo_limpio,
                 es_soporte=es_soporte
             )
@@ -296,8 +292,3 @@ def extraer_texto_limpio_de_html(html_str: str) -> str:
         "momento_3_sync.py sustituirá esto por el texto de cierre genérico."
     )
     return ""
-
-
-def limpiar_texto_para_campo_pdf(html_str: str) -> str:
-    """Fachada pública para generar la respuesta oficial en el PDF de la SFC."""
-    return extraer_texto_limpio_de_html(html_str)

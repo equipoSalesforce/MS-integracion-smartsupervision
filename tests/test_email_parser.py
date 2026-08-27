@@ -3,7 +3,6 @@ import unittest
 
 from app.utils.email_parser import (
     extraer_texto_limpio_de_html,
-    limpiar_texto_para_campo_pdf,
     _linea_identifica_remitente_soporte,
     _segmentar_hilo_en_bloques,
 )
@@ -221,13 +220,6 @@ class TestEmailParser(unittest.TestCase):
         self.assertEqual(extraer_texto_limpio_de_html(""), "")
         self.assertEqual(extraer_texto_limpio_de_html(None), "")
         self.assertEqual(extraer_texto_limpio_de_html("   "), "")
-
-    def test_limpiar_texto_para_campo_pdf(self):
-        """Valida la función fachada consumida por la generación de PDFs."""
-        resultado_pdf = limpiar_texto_para_campo_pdf(self.html_hilo_complejo_gmail)
-
-        self.assertIn("Te escribimos para informarte el resultado final", resultado_pdf)
-        self.assertNotIn("Daniela Rojas Mock", resultado_pdf)
 
 
 class TestLineaIdentificaRemitenteSoporte(unittest.TestCase):

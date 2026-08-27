@@ -31,9 +31,6 @@ async def close_crm_webhook_client():
         logger.info("🛑 Pool de conexiones HTTP Client para CRM Webhook liberado limpiamente.")
 
 
-close_crm_fallback_client = close_crm_webhook_client
-
-
 class CrmWebhookService:
 
     @staticmethod
