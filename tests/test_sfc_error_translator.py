@@ -37,6 +37,17 @@ class TestCoincide(unittest.TestCase):
         # específicas por su longitud).
         self.assertTrue(SfcErrorTranslator._coincide("ya existe", "el anexo ya existe registrado"))
 
+    def test_token_incrustado_con_guion_no_matchea(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el límite
+        [a-zA-Z0-9] no cubre el alfabeto real de Smart_Code__c
+        (^[a-zA-Z0-9_-]{1,30}$). Reproducido: 'SC-556240-01' seguía matcheando
+        '556240' porque el '-' contaba como límite válido -- ahora no."""
+        self.assertFalse(SfcErrorTranslator._coincide("556240", "sc-556240-01"))
+
+    def test_token_incrustado_con_guion_bajo_no_matchea(self):
+        self.assertFalse(SfcErrorTranslator._coincide("556240", "sc_556240_01"))
+
 
 class TestExtraerInformacionError(unittest.TestCase):
     """
@@ -73,14 +84,48 @@ class TestExtraerInformacionError(unittest.TestCase):
         self.assertIsNone(sfc_field)
         self.assertEqual(raw_message, "Authentication credentials were not provided.")
 
-    def test_detail_generico_error_en_api_cae_a_fallback_generico(self):
-        """Si detail es el genérico 'Error en API', se ignora ese branch (no aporta info real)."""
-        response_text = '{"detail": "Error en API"}'
+    def test_detail_generico_error_apiexception_cae_a_fallback_generico(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el literal
+        genérico comparado era 'Error en API', un valor que no aparece en ningún
+        response real de la SFC (verificado contra la colección Postman oficial).
+        El placeholder genérico real es 'Error APIException' -- se corrige el
+        literal comparado."""
+        response_text = '{"detail": "Error APIException"}'
         sfc_field, raw_message = SfcErrorTranslator._extraer_informacion_error(response_text)
         # Único campo presente ('detail') está excluido del fallback -> no hay fields_list,
         # raw_message queda igual al texto crudo original.
         self.assertIsNone(sfc_field)
         self.assertEqual(raw_message, response_text)
+
+    def test_messages_plural_arma_sfc_field_y_raw_message_igual_que_message(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el envoltorio de
+        error ESTÁNDAR real de la SFC (colección Postman oficial, la forma que
+        cubre la mayoría de los endpoints) usa 'messages' en PLURAL, no 'message'.
+        Reproducido con el ejemplo real de la colección:
+        {"status_code": 400, "messages": {"codigo_queja": [...]}, "detail": "Error APIException"}
+        -- antes de este fix, sfc_field quedaba en None y raw_message en la
+        constante genérica "Error APIException", perdiendo toda la información
+        estructurada del error."""
+        sfc_field, raw_message = SfcErrorTranslator._extraer_informacion_error(
+            '{"status_code": 400, "messages": {"codigo_queja": '
+            '["Object with codigo_queja=111635888992248094 does not exist."]}, '
+            '"detail": "Error APIException"}'
+        )
+        self.assertEqual(sfc_field, "codigo_queja")
+        self.assertEqual(
+            raw_message, "codigo_queja: Object with codigo_queja=111635888992248094 does not exist."
+        )
+
+    def test_message_singular_tiene_prioridad_sobre_messages_plural_si_ambos_estan(self):
+        """Caso borde -- si por alguna razón ambos vinieran presentes, 'message'
+        (singular) conserva la prioridad que ya tenía antes de este fix."""
+        sfc_field, raw_message = SfcErrorTranslator._extraer_informacion_error(
+            '{"message": {"campo_singular": ["error singular"]}, '
+            '"messages": {"campo_plural": ["error plural"]}}'
+        )
+        self.assertEqual(sfc_field, "campo_singular")
 
     def test_dict_sin_message_ni_detail_usa_fallback_de_campos_sueltos(self):
         sfc_field, raw_message = SfcErrorTranslator._extraer_informacion_error(

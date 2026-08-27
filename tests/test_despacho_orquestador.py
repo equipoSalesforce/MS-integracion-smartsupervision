@@ -430,7 +430,7 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SfcIntegrationException):
             await self.orquestador.procesar_despacho(payload)
 
-    async def test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_exito(self):
+    async def test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_noop(self):
         """
         Hallazgo E (revisión externa v5): sin serialización por caso, un trámite
         simple puede llegarle a la SFC después de que otro request para el mismo
@@ -438,6 +438,12 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
         simplemente un trámite tardío). Antes esto propagaba el rechazo de la SFC
         como error real al CRM -- a diferencia de cierre y fraude, que ya
         absorbían este mismo escenario como éxito idempotente.
+
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- W5/V7/X7): a
+        diferencia del cierre, el trámite NUNCA se aplicó -- la SFC lo rechazó por
+        completo. Reportar "success" le afirma al CRM que esos campos quedaron
+        sincronizados cuando en realidad no se tocó nada. Debe ser "noop": no es
+        un error (nada que reintentar), pero tampoco fue una escritura exitosa.
         """
         tramite_dict = self.base_payload_dict.copy()
         tramite_dict.update({
@@ -455,8 +461,9 @@ class TestDespachoQuejaOrquestadorPipeline(unittest.IsolatedAsyncioTestCase):
 
         resultado = await self.orquestador.procesar_despacho(payload)
 
-        self.assertEqual(resultado["status"], "success")
+        self.assertEqual(resultado["status"], "noop")
         self.assertIn("ya se encuentra cerrado", resultado["message"])
+        self.assertIn("no se aplicó", resultado["message"])
         self.orquestador.m3_service.ejecutar_actualizacion_tramite.assert_called_once()
 
     async def test_12c_tramite_con_mensaje_sfc_no_mapeado_no_se_absorbe(self):

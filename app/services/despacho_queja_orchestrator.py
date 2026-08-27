@@ -40,31 +40,56 @@ def _es_error_caso_ya_cerrado(exc: Exception) -> bool:
     return any(frase in raw_msg for frase in frases_ya_cerrada)
 
 
-def _resultado_exito_por_cierre_confirmado(smart_code: str) -> Dict[str, Any]:
+def _resultado_por_cierre_confirmado(smart_code: str, es_cierre: bool) -> Dict[str, Any]:
+    """
+    🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4 -- W5/V7/X7): antes
+    este resultado era SIEMPRE {"status": "success"}, sin importar si el paso que
+    la SFC rechazó (por "el caso ya está cerrado") era el CIERRE o el TRÁMITE. Para
+    el cierre, "success" es correcto -- el estado final deseado (caso cerrado) ya
+    se cumplió, sea porque este request lo cerró o porque otro lo hizo antes. Para
+    un TRÁMITE (actualización de gestor/novedades/etc. sobre un caso que ya está
+    cerrado), la actualización NUNCA se aplicó -- la SFC la rechazó por completo --
+    y reportar "success" le afirma al CRM que esos campos quedaron sincronizados
+    cuando en realidad no se tocó nada. Se distingue con status="noop": no es un
+    error (no hay nada que reintentar, el caso seguirá cerrado en el próximo
+    intento), pero tampoco fue una escritura exitosa.
+    """
+    if es_cierre:
+        return {
+            "status": "success",
+            "message": f"Caso {smart_code} ya se encuentra cerrado en la SFC (Estado 4).",
+            "codigo_queja_sfc": smart_code
+        }
     return {
-        "status": "success",
-        "message": f"Caso {smart_code} ya se encuentra cerrado en la SFC (Estado 4).",
+        "status": "noop",
+        "message": (
+            f"La actualización de trámite para el caso {smart_code} no se aplicó: la SFC "
+            f"reporta que el caso ya se encuentra cerrado (Estado 4)."
+        ),
         "codigo_queja_sfc": smart_code
     }
 
 
-async def _ejecutar_paso_o_exito_si_ya_cerrado(coro, smart_code: str) -> Dict[str, Any]:
+async def _ejecutar_paso_o_exito_si_ya_cerrado(coro, smart_code: str, es_cierre: bool) -> Dict[str, Any]:
     """
     Ejecuta un paso de Momento 3 que debe tratar "la SFC ya tiene el caso cerrado"
-    como éxito idempotente en vez de propagar el rechazo -- compartido por el paso
-    de cierre y el de trámite (hallazgo E, revisión externa v5): sin serialización
-    por caso, cualquiera de los dos puede llegarle a la SFC después de que otro
-    request para el mismo Smart_Code__c ya cerró el caso.
+    como resultado idempotente en vez de propagar el rechazo -- compartido por el
+    paso de cierre y el de trámite (hallazgo E, revisión externa v5): sin
+    serialización por caso, cualquiera de los dos puede llegarle a la SFC después
+    de que otro request para el mismo Smart_Code__c ya cerró el caso. `es_cierre`
+    decide si el resultado idempotente es "success" (cierre) o "noop" (trámite --
+    ver _resultado_por_cierre_confirmado).
     """
     try:
         return await coro
     except SfcIntegrationException as exc:
         if _es_error_caso_ya_cerrado(exc):
+            resultado = _resultado_por_cierre_confirmado(smart_code, es_cierre)
             logger.info(
                 f"✅ [Orquestador] El caso {smart_code} ya figuraba como cerrado en SFC. "
-                f"Marcando la operación como exitosa."
+                f"Marcando la operación como '{resultado['status']}'."
             )
-            return _resultado_exito_por_cierre_confirmado(smart_code)
+            return resultado
         raise
 
 async def limpiar_checkpoint_si_cierre_exitoso(
@@ -291,13 +316,13 @@ class DespachoQuejaOrquestador:
         if es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo CIERRE DEFINITIVO para {payload.Smart_Code__c}...")
             resultado = await _ejecutar_paso_o_exito_si_ya_cerrado(
-                self.m3_service.ejecutar_cierre_definitivo(payload=payload), payload.Smart_Code__c
+                self.m3_service.ejecutar_cierre_definitivo(payload=payload), payload.Smart_Code__c, es_cierre=True
             )
 
         if not es_fraude and not es_cierre:
             logger.info(f"[Momento 3 Pipeline] Transmitiendo ACTUALIZACIÓN DE TRÁMITE para {payload.Smart_Code__c}...")
             resultado = await _ejecutar_paso_o_exito_si_ya_cerrado(
-                self.m3_service.ejecutar_actualizacion_tramite(payload=payload), payload.Smart_Code__c
+                self.m3_service.ejecutar_actualizacion_tramite(payload=payload), payload.Smart_Code__c, es_cierre=False
             )
 
         return resultado

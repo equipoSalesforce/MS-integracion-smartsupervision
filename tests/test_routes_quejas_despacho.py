@@ -432,6 +432,42 @@ class TestDespachoLockPorCaso(_RoutesQuejasHttpTestCase):
         self.assertEqual(kwargs["dimensions"]["resultado"], "queued")
         self.assertEqual(kwargs["dimensions"]["categoria_error"], "CONCURRENT_DISPATCH_LOCKED")
 
+    def test_lock_ocupado_y_conflicto_de_cola_libera_la_idempotencia_processing(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el chequeo del
+        lock vivía ANTES del try/finally que libera la llave PROCESSING de
+        idempotencia. En el caso feliz (lock ocupado -> se encola bien,
+        operacion_exitosa_o_encolada=True) eso no se notaba -- pero si el lock
+        está ocupado Y ADEMÁS ya hay una operación de OTRA categoría pendiente
+        para el mismo smart_code, `encolar_despacho` rechaza con
+        QUEUE_OPERATION_CONFLICT (409) y `_encolar_despacho_por_contingencia`
+        retorna operacion_exitosa_o_encolada=False -- ese `return` salía sin pasar
+        por el `finally`, dejando el registro PROCESSING vivo (TTL 180s). Un
+        reintento del CRM dentro de esa ventana encontraba "processing" y recibía
+        un 202 afirmando que la operación seguía en curso, cuando en realidad fue
+        rechazada con 409 y no está en ningún lado -- el desenlace que el 409
+        buscaba evitar, con un mensaje que afirma lo contrario.
+        """
+        from app.core.exceptions import SfcIntegrationException
+
+        self.redis_lock_mock.acquire = AsyncMock(return_value=False)
+
+        with patch("app.api.routes_quejas.QueueService") as mock_queue_cls:
+            mock_queue_cls.return_value.encolar_despacho = AsyncMock(
+                side_effect=SfcIntegrationException(
+                    409, "QUEUE_OPERATION_CONFLICT", None,
+                    "Ya existe una operación distinta pendiente en cola para este caso.",
+                    "Reintente esta operación más tarde."
+                )
+            )
+
+            response = self.client.post("/api/v1/quejas/sync/despacho", json=self.payload)
+
+        self.assertEqual(response.status_code, 409)
+        self.idempotency_service_mock.liberar_operacion_por_error.assert_awaited_once()
+        # El lock nunca se adquirió -- release() debe seguir siendo seguro (no-op).
+        self.redis_lock_mock.release.assert_awaited_once()
+
     def test_lock_no_adquirido_por_fallo_de_redis_usa_categoria_distinta(self):
         """
         🔴 FIX (hallazgo de revisión, 2026-08-26): acquire()==False significaba tanto

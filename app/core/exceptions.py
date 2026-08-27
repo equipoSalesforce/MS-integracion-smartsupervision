@@ -250,6 +250,22 @@ class SfcErrorTranslator:
 
     @classmethod
     def _extraer_informacion_error(cls, response_text: str) -> Tuple[Optional[str], str]:
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): sólo leía
+        `data.get("message")` (singular). El envoltorio de error ESTÁNDAR real de la
+        SFC (colección Postman oficial, la forma que cubre la mayoría de los
+        endpoints) usa `"messages"`, en PLURAL:
+        `{"status_code": 400, "messages": {"codigo_queja": [...]}, "detail": "Error APIException"}`.
+        Con sólo `message`, ese envoltorio caía en la rama de `detail`
+        (`raw_message = "Error APIException"`, `sfc_field = None`) -- toda la
+        información estructurada de error se perdía antes de llegar a la
+        clasificación, a los logs y a las métricas, y la prioridad de
+        `codigo_queja` en `procesar_y_lanzar` (que depende de `sfc_field`) nunca se
+        activaba para esta forma, la más común. De paso se corrige el literal
+        genérico comparado en la rama de `detail`: era `"Error en API"`, un valor
+        que no aparece en ningún response real de la SFC (verificado contra la
+        colección Postman) -- el placeholder genérico real es `"Error APIException"`.
+        """
         sfc_field = None
         raw_message = response_text
 
@@ -259,6 +275,8 @@ class SfcErrorTranslator:
                 return sfc_field, raw_message
 
             msg_obj = data.get("message")
+            if msg_obj is None:
+                msg_obj = data.get("messages")
 
             if isinstance(msg_obj, dict):
                 fields_list = []
@@ -267,13 +285,13 @@ class SfcErrorTranslator:
                     val_str = str(value[0]) if isinstance(value, list) and value else str(value)
                     fields_list.append(key)
                     messages_list.append(f"{key}: {val_str}")
-                
+
                 sfc_field = ", ".join(fields_list) if fields_list else None
                 raw_message = " | ".join(messages_list) if messages_list else response_text
 
             elif isinstance(msg_obj, str):
                 raw_message = msg_obj
-            elif "detail" in data and data["detail"] != "Error en API":
+            elif "detail" in data and data["detail"] != "Error APIException":
                 raw_message = str(data["detail"])
             else:
                 fields_list = []
@@ -332,10 +350,17 @@ class SfcErrorTranslator:
         ej. "El anexo ya existe") ya son suficientemente específicas por su
         longitud -- seguir comparándolas tal cual, sin anclar, no cambia su riesgo.
         """
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el límite
+        # [a-zA-Z0-9] no cubre el alfabeto real de Smart_Code__c
+        # (^[a-zA-Z0-9_-]{1,30}$), que también permite guion y guion bajo.
+        # Reproducido: "SC-556240-01" y "SC_556240_01" seguían matcheando '556240'
+        # como embebido (el '-'/'_' contaba como límite válido) -- el mismo falso
+        # positivo que este fix ya cerraba para "SC556240001". Se ancla ahora al
+        # mismo alfabeto que valida el propio Smart_Code__c.
         if " " in subcadena:
             return subcadena in texto
         return re.search(
-            r"(?<![a-zA-Z0-9])" + re.escape(subcadena) + r"(?![a-zA-Z0-9])", texto
+            r"(?<![a-zA-Z0-9_-])" + re.escape(subcadena) + r"(?![a-zA-Z0-9_-])", texto
         ) is not None
 
     @classmethod

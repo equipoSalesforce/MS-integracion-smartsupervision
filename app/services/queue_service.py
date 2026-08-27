@@ -925,6 +925,17 @@ class QueueService:
 
             return item_obj
 
+        except SfcIntegrationException:
+            # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el 409 de
+            # QUEUE_OPERATION_CONFLICT se levanta DENTRO de este mismo try -- sin
+            # este except específico caía en el genérico de abajo, que lo logueaba
+            # a nivel ERROR con un texto que apunta a una falla del script Lua
+            # ("Error ejecutando Lua Script de encolado"). Un 409 esperado y normal
+            # (conflicto de negocio, ya logueado como WARNING arriba) no debe
+            # aparecer en CloudWatch como si fuera una falla de infraestructura --
+            # cualquier alarma sobre esa cadena se dispararía por conflictos
+            # normales de negocio. Se relanza tal cual, sin loguear de nuevo.
+            raise
         except Exception as e:
             logger.error(f"❌ [Cola Redis] Error ejecutando Lua Script de encolado para {smart_code}: {e}")
             raise

@@ -798,8 +798,6 @@ class S3StorageService:
         exc: SfcIntegrationException, checkpoint_service: IdempotencyService, sfc_codigo_queja: str,
         identificador_archivo: str, original_name: str
     ) -> Optional[Dict[str, Any]]:
-        raw_msg = (getattr(exc, "raw_message", "") or str(exc)).lower()
-
         # 🔴 FIX (hallazgo de revisión externa, 2026-08-25): "se encuentra cerrada" ya
         # NO se trata como duplicado. Un duplicado significa "la SFC ya tiene este
         # archivo" (correcto marcar el checkpoint como completado); "el caso está
@@ -817,25 +815,32 @@ class S3StorageService:
         # puro (sin cierre), no hay ninguna razón de negocio para intentar adjuntar
         # un archivo a un caso ya cerrado -- debe propagarse como error real y
         # visible para el CRM, no absorberse en silencio como si hubiera funcionado.
-        # 🔴 FIX (hallazgo de revisión, 2026-08-26): "ya existe" (genérico, sin ancla)
-        # también coincide con mensajes que no tienen NADA que ver con un archivo
-        # duplicado -- "Ya existe queja con este codigo queja" o "ya existe una Queja
-        # radicada para la entidad con el mismo motivo" (ambas reglas reales de
-        # errores_sfc.json, sobre la QUEJA, no sobre el archivo). Reproducido: ese
-        # tipo de mensaje se absorbía igual que un duplicado genuino, marcando el
-        # checkpoint como entregado para un archivo que la SFC en realidad nunca
-        # recibió -- mismo patrón que el hallazgo de ALREADY_EXISTS/NOT_FOUND_ERROR en
-        # SfcErrorTranslator (ver FLUJO_MOMENTOS.md). Se acota a las frases reales que
-        # errores_sfc.json mapea a DUPLICATE_FILE ("El anexo ya existe", "El documento
-        # ya existe"), igual de específicas que "ya cuenta con un documento" ya usada
-        # más abajo en esta misma condición.
-        es_duplicado = (
-            getattr(exc, "error_type", None) == "DUPLICATE_FILE"
-            or "el anexo ya existe" in raw_msg
-            or "el documento ya existe" in raw_msg
-            or "556240" in raw_msg
-            or "ya cuenta con un documento" in raw_msg
-        )
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): esta función
+        # reimplementaba su propia clasificación de texto en paralelo a
+        # SfcErrorTranslator, con dos problemas reales:
+        # 1. "556240" se comparaba sin ancla (subcadena cruda) -- exactamente el
+        #    mismo falso positivo por Smart_Code__c embebido que _coincide ya
+        #    resuelve correctamente en el traductor (con ancla sobre el alfabeto
+        #    real `[a-zA-Z0-9_-]`). Reproducido: un Smart_Code__c como
+        #    "SC-556240-01" seguía marcando CUALQUIER error sobre ese caso como
+        #    duplicado, aunque SfcErrorTranslator ya clasificara correctamente
+        #    otra cosa.
+        # 2. "ya cuenta con un documento" es una coincidencia PARCIAL de "ya cuenta
+        #    con un documento de respuesta final" -- la frase real de la matriz
+        #    (errores_sfc.json) que mapea a BUSINESS_RULE_ERROR, no a
+        #    DUPLICATE_FILE, y que despacho_queja_orchestrator._es_error_caso_ya_
+        #    cerrado reconoce explícitamente como "el caso ya está cerrado". Este
+        #    condicional la absorbía aquí como si fuera un archivo duplicado
+        #    (marcando el checkpoint como entregado) en vez de dejarla propagar
+        #    para que el orquestador la tratara como éxito idempotente SIN tocar
+        #    el checkpoint -- contradiciendo el fix de 2026-08-25 documentado
+        #    arriba, que explícitamente NO quiere que "el caso está cerrado" se
+        #    absorba en este punto.
+        # Se reemplazan las cuatro comparaciones de texto por `error_type ==
+        # "DUPLICATE_FILE"`, la señal ya producida por SfcErrorTranslator con su
+        # propio anclaje correcto -- una sola fuente de verdad para "esto es un
+        # archivo duplicado" en vez de dos implementaciones que podían divergir.
+        es_duplicado = getattr(exc, "error_type", None) == "DUPLICATE_FILE"
 
         if not es_duplicado:
             return None

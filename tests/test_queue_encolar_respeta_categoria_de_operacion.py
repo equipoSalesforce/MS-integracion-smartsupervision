@@ -133,6 +133,34 @@ class TestEncolarRespetaCategoriaDeOperacion(unittest.IsolatedAsyncioTestCase):
         mock_correcta.assert_awaited_once()
         mock_incorrecta.assert_not_awaited()
 
+    async def test_conflicto_no_se_loguea_como_error_de_infraestructura(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): el
+        SfcIntegrationException(QUEUE_OPERATION_CONFLICT) se levanta DENTRO del
+        try de encolar_despacho -- sin un except específico, caía en el except
+        Exception genérico, que lo logueaba a nivel ERROR con un texto que apunta
+        a una falla del script Lua ("Error ejecutando Lua Script de encolado").
+        Un 409 esperado y normal (conflicto de negocio) no debe aparecer en
+        CloudWatch como si fuera una falla de infraestructura -- cualquier alarma
+        sobre esa cadena se dispararía por conflictos normales de negocio."""
+        from unittest.mock import patch
+
+        await self.queue_service.encolar_despacho(
+            smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
+            payload_json=self.payload_fraude, error_inicial="sfc caida"
+        )
+
+        with patch("app.services.queue_service.logger") as mock_logger:
+            with self.assertRaises(SfcIntegrationException):
+                await self.queue_service.encolar_despacho(
+                    smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",
+                    payload_json=self.payload_tramite, error_inicial="sfc caida de nuevo"
+                )
+
+        mock_logger.error.assert_not_called()
+        mensajes_warning = " ".join(str(c) for c in mock_logger.warning.call_args_list)
+        self.assertIn("Conflicto de operación", mensajes_warning)
+
     async def test_operacion_distinta_preserva_el_contenido_de_fraude(self):
         item = await self.queue_service.encolar_despacho(
             smart_code="SC-FRAUDE-1", tipo_operacion="AUTO",

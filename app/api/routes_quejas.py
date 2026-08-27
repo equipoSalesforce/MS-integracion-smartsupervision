@@ -427,18 +427,31 @@ async def despachar_queja_crm(
         intervalo_heartbeat=45
     )
 
-    if not await despacho_lock.acquire():
-        error_origen_titulo, error_detalle, categoria_error = _motivo_lock_no_adquirido(despacho_lock, payload.Smart_Code__c)
-
-        respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
-            payload, raw_payload, idempotency_service,
-            error_origen_titulo=error_origen_titulo,
-            error_detalle=error_detalle
-        )
-        _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error=categoria_error)
-        return respuesta
-
     try:
+        # 🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): este chequeo
+        # vivía ANTES del try/finally de abajo -- el `return respuesta` de la rama
+        # de lock ocupado salía sin pasar por el `finally` que libera la llave
+        # PROCESSING de idempotencia (creada arriba, en verificar_o_iniciar_
+        # operacion, TTL 180s). El 409 quedaba con el registro PROCESSING vivo: un
+        # reintento del CRM dentro de esos 180s encontraba "processing" y recibía
+        # un 202 diciendo que la operación seguía en curso -- cuando en realidad
+        # fue rechazada y no está en ningún lado. Un CRM que interprete ese 202
+        # como "ya quedó encolado" deja de reintentar, y la obligación regulatoria
+        # se pierde -- exactamente el desenlace que el 409 buscaba evitar. Se
+        # mueve el chequeo dentro del try para que el `finally` compartido libere
+        # la idempotencia en esta rama también (release() del lock, nunca
+        # adquirido, ya es no-op por diseño).
+        if not await despacho_lock.acquire():
+            error_origen_titulo, error_detalle, categoria_error = _motivo_lock_no_adquirido(despacho_lock, payload.Smart_Code__c)
+
+            respuesta, operacion_exitosa_o_encolada = await _encolar_despacho_por_contingencia(
+                payload, raw_payload, idempotency_service,
+                error_origen_titulo=error_origen_titulo,
+                error_detalle=error_detalle
+            )
+            _emitir_metrica_despacho(operacion_inferida, resultado="queued", categoria_error=categoria_error)
+            return respuesta
+
         orquestador = DespachoQuejaOrquestador(sfc_client=sfc_client, s3_client=s3_client)
         # 🟢 FIX P1-13: el candado PROCESSING de idempotencia tenía un TTL fijo de 3
         # minutos sin renovación; si el despacho real tardaba más, un reintento del

@@ -196,6 +196,41 @@ procesarse) generaría un item de cola independiente — y como cada item se rei
 eso multiplicaría innecesariamente el tráfico hacia la SFC por el mismo caso, sin ningún beneficio: la SFC
 de todas formas solo necesita ver el estado *final* del caso, no cada estado intermedio transitorio.
 
+### ¿Por qué rechazar con 409 en vez de un slot por operación? (decisión de contrato, no cerrada)
+
+**Código:** `QueueService.encolar_despacho` (`QUEUE_OPERATION_CONFLICT`), `app/api/routes_quejas.py`.
+
+El punto 1 de arriba ("un `smart_code` = un slot") es correcto y seguro cuando las dos escrituras en
+competencia son la **misma** obligación regulatoria (dos versiones sucesivas de un trámite, por
+ejemplo). Pero cuando son obligaciones **distintas** (ej. un fraude y un cierre concurrentes para el
+mismo caso), sobrescribir perdería una de las dos en silencio — por eso `ENQUEUE_LUA_SCRIPT` rechaza
+esa sobrescritura con `QUEUE_OPERATION_CONFLICT` (409) en vez de pisarla (hallazgo W1/V1, ya
+corregido).
+
+**El 409 no resuelve el problema, sólo lo hace visible.** Con la SFC caída y dos obligaciones
+pendientes para el mismo caso, el orden de llegada decide cuál entra a la cola y cuál recibe 409 — y
+el rechazado puede ser el que tiene plazo regulatorio (el cierre). Mientras el primero no drene (hasta
+`QUEUE_MAX_RETRIES` reintentos), cada intento del segundo vuelve a recibir 409. Si el CRM no tiene
+lógica para reintentar persistentemente ante un `QUEUE_OPERATION_CONFLICT` específicamente (distinto
+de un reintento genérico ante 5xx/503), el resultado neto sigue siendo una obligación no transmitida
+— mejor registrada y visible en logs/métricas que con la sobrescritura silenciosa de antes, pero
+igual de pendiente.
+
+**La alternativa evaluada:** un slot de cola **por operación**, no por `smart_code`
+(`index:{smart_code}:{operacion}` en vez de `index:{smart_code}`) — preservaría ambas obligaciones sin
+pedirle nada al CRM, y el `RedisLock` por caso (ver más abajo) ya garantiza que no salgan las dos a la
+vez hacia la SFC aunque compartan cola. La invariante pasaría de "un `smart_code` = un slot" a "una
+obligación pendiente = un slot".
+
+**Por qué no se implementó todavía:** es un cambio de esquema de cola (impacta `ENQUEUE_LUA_SCRIPT`,
+los índices de listado/purga, y el contrato de `ColaItemRedis`), no un fix de una función — más
+cercano en alcance a los cambios de diseño de esta sección que a una corrección puntual. Queda como
+decisión de contrato pendiente de evaluar, no como bug: el 409 actual es estrictamente mejor que la
+sobrescritura silenciosa que reemplazó, y el riesgo que deja abierto (obligación distinta bloqueada
+por reintentos de otra) es el mismo tipo de brecha que W5/V9 más abajo — depende de un comportamiento
+del CRM (reintento persistente, o un endpoint que reciba "esto falló definitivamente") que este
+repositorio no controla.
+
 ---
 
 ## ¿Por qué "caso ya cerrado" se trata como éxito?
@@ -210,10 +245,25 @@ como una falla:
   omite esa falla intermedia y se procede igual con el cierre (el caso ya está donde tiene que estar).
 - Si el propio paso de **cierre** recibe ese error, se marca la operación como **éxito** directamente
   (`{"status": "success", "message": "...ya se encuentra cerrado en la SFC (Estado 4)."}`).
+- Si el paso es un **trámite simple** (no cierre, no fraude) el que recibe ese error, se marca como
+  **`noop`**, no `success` — ver la corrección de abajo.
 
 Es el mismo principio que la sobrescritura de cola: si dos eventos del mismo caso terminan intentando
 cerrarlo dos veces (uno ya lo logró, el segundo llega después), el segundo no debe fallar — el resultado
 que le importa al CRM (el caso está cerrado en la SFC) ya se cumplió.
+
+**`success` para el trámite era engañoso (hallazgo de revisión externa, 2026-08-26, ronda 4 —
+W5/V7/X7):** `_ejecutar_paso_o_exito_si_ya_cerrado` es compartida por el paso de cierre y el de
+trámite (ver "Lock por caso en el despacho síncrono" más abajo), y devolvía el mismo
+`{"status": "success", ...}` para ambos. Para el cierre eso es correcto — el estado final deseado
+(caso cerrado) ya se cumplió, sea porque este request lo cerró o porque otro lo hizo antes. Para un
+**trámite** (actualización de gestor, novedades, etc.) sobre un caso que ya está cerrado, la SFC
+rechaza la actualización por completo — nada se aplicó — y reportar `success` le afirma al CRM que
+esos campos quedaron sincronizados cuando en realidad no se tocó nada. **Corregido:**
+`_ejecutar_paso_o_exito_si_ya_cerrado` ahora recibe `es_cierre: bool` y devuelve `status: "noop"`
+para el trámite (`status: "success"` sin cambios para el cierre) — `"noop"` no es un error (nada
+que reintentar, el caso seguirá cerrado en el próximo intento) pero tampoco fue una escritura
+exitosa. Ver `app/services/despacho_queja_orchestrator.py::_resultado_por_cierre_confirmado`.
 
 ---
 
@@ -483,6 +533,14 @@ caída del todo), la cola de contingencia puede vaciarse y volver a llenarse en 
 `_notificar_autorrecuperacion_si_aplica` (scheduler.py, cada `QUEUE_RETRY_INTERVAL_MINUTES`),
 reenviando el correo de "recuperación" repetidamente mientras la situación sigue inestable -- justo
 el escenario que menos necesita ruido. Se agregó `clave_dedup="recuperacion_sfc"`.
+
+**Nota (hallazgo de revisión externa, 2026-08-26, ronda 4 — X8):** `notificar_conflicto_operacion_cola`
+(clave `conflicto_operacion_cola:{smart_code}`, granularidad correcta) tiene la misma limitación de
+`2 × N` por ventana ya descrita arriba -- pero a diferencia de las demás alertas de esta sección, su
+disparador no es un incidente de infraestructura sino tráfico normal del CRM (dos operaciones
+distintas para el mismo caso llegando en la misma ventana de reintento). Vale la pena tenerlo
+presente: un caso con tráfico conflictivo sostenido puede generar más correos de este tipo que los
+de infraestructura, sin que eso implique una caída real de nada.
 
 ---
 
@@ -979,3 +1037,9 @@ especulativo sin evidencia que lo justifique.
 | Firma HMAC no byte-exacta sobre el body real (confirmado, no es un bug)                                   | `app/core/security/signatures.py::PayloadSignatureStrategy`, `docs/SignatureGenerator_comment (1).txt`, `tests/test_auth_flow_interceptor.py::test_firma_no_es_byte_exacta_sobre_el_body_realmente_enviado` |
 | Dedup de quejas repetidas entre páginas (Momento 1)                                                      | `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja`                                                                                                                                          |
 | Reclamo de item no deja claim huérfano ante un item con JSON corrupto (orden decode-antes-de-escribir)   | `app/services/queue_service.py::CLAIM_ITEM_LUA_SCRIPT`, `tests/test_queue_resiliencia_datos_corruptos.py`                                                                                                     |
+| `_extraer_informacion_error` lee `messages` (plural, el envoltorio estándar real) además de `message` (corregido) | `app/core/exceptions.py::SfcErrorTranslator._extraer_informacion_error`, `tests/test_sfc_error_translator.py::TestExtraerInformacionError`                                                                    |
+| Anclaje de `_coincide` cubre el alfabeto real de `Smart_Code__c` (`_`/`-` incluidos, corregido)          | `app/core/exceptions.py::SfcErrorTranslator._coincide`, `tests/test_sfc_error_translator.py::TestCoincide`                                                                                                    |
+| `_manejar_duplicado_o_cerrado` ya no reimplementa la clasificación por texto (una sola fuente de verdad, corregido) | `app/services/s3_service.py::S3StorageService._manejar_duplicado_o_cerrado`, `tests/test_s3_service.py`                                                                                                       |
+| El lock ocupado libera la idempotencia PROCESSING antes del 409 (corregido)                              | `app/api/routes_quejas.py::despachar_queja_crm`, `tests/test_routes_quejas_despacho.py::TestDespachoLockPorCaso`                                                                                              |
+| Conflicto de cola (409) no se loguea como falla de infraestructura (corregido)                            | `app/services/queue_service.py::encolar_despacho`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py::test_conflicto_no_se_loguea_como_error_de_infraestructura`                                    |
+| Trámite sobre caso ya cerrado reporta `noop`, no `success` (corregido)                                     | `app/services/despacho_queja_orchestrator.py::_resultado_por_cierre_confirmado`, `tests/test_despacho_orquestador.py::test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_noop`                            |

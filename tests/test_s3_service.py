@@ -232,12 +232,11 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
         """
         Nivel 2: contraprueba deliberada de la fragilidad del mecanismo -- si la SFC
         rechaza el reenvío con un mensaje que en la práctica significa lo mismo
-        ("duplicado"/"ya procesado") pero con una redacción que NO coincide con
-        ninguna de las subcadenas ya mapeadas (ni DUPLICATE_FILE, ni 'ya existe',
-        ni '556240', ni 'ya cuenta con un documento'), el código NO lo reconoce
-        como éxito idempotente y propaga la excepción. Documenta el riesgo real:
-        esta protección depende de que la SFC siga fraseando sus rechazos
-        exactamente como hoy están mapeados.
+        ("duplicado"/"ya procesado") pero SfcErrorTranslator no lo clasifica como
+        DUPLICATE_FILE (error_type="CONFLICT" en este caso), el código ya NO tiene
+        un fallback de texto propio (ronda 4) -- no lo reconoce como éxito
+        idempotente y propaga la excepción. Documenta el riesgo real: esta
+        protección depende por completo de la clasificación de SfcErrorTranslator.
         """
         sfc_client = MagicMock()
         sfc_client.post_adjunto_queja = AsyncMock(
@@ -323,7 +322,9 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
     async def test_frases_reales_de_archivo_duplicado_de_errores_sfc_json_si_se_absorben(self):
         """Control: las dos frases que errores_sfc.json realmente mapea a
         DUPLICATE_FILE ('El anexo ya existe', 'El documento ya existe') deben seguir
-        absorbiéndose como éxito idempotente."""
+        absorbiéndose como éxito idempotente -- con error_type=DUPLICATE_FILE, tal
+        como lo produce SfcErrorTranslator en la práctica (ver nota de la ronda 4
+        más abajo: la función ya NO reimplementa esta clasificación por texto)."""
         casos = [
             ("El anexo ya existe para esta queja", "caso-u1"),
             ("El documento ya existe en el sistema", "caso-u2"),
@@ -333,7 +334,7 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
                 self.stub_redis.hashes = {}
                 sfc_client = MagicMock()
                 sfc_client.post_adjunto_queja = AsyncMock(
-                    side_effect=SfcIntegrationException(400, "ALGO", None, frase, "...")
+                    side_effect=SfcIntegrationException(400, "DUPLICATE_FILE", None, frase, "...")
                 )
                 archivo = [{"nombre_archivo": "doc.pdf", "s3_key": f"caso/U/{sufijo}/doc.pdf", "bytes": b"x"}]
 
@@ -342,6 +343,56 @@ class TestS3ServiceCheckpointArchivos(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertEqual(resultado[0]["status"], "DUPLICATE_OMITTED")
+
+    async def test_texto_de_duplicado_sin_error_type_correcto_ya_no_se_absorbe(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): antes,
+        `_manejar_duplicado_o_cerrado` reimplementaba su propia clasificación por
+        texto en paralelo a SfcErrorTranslator (subcadenas '556240', 'el anexo ya
+        existe', etc.), independiente de `error_type`. Ahora la única señal es
+        `error_type == "DUPLICATE_FILE"` -- un mensaje que MENCIONA la frase pero
+        con un error_type distinto (como lo produciría un error real no
+        clasificado como duplicado) ya no se absorbe aquí."""
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "UNKNOWN_SFC_ERROR", None, "El anexo ya existe para esta queja", "..."
+            )
+        )
+        archivo = [{"nombre_archivo": "doc.pdf", "s3_key": "caso/U2/doc.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-U2", adjuntos_crm=archivo
+            )
+
+    async def test_caso_ya_cuenta_con_documento_respuesta_final_no_se_confunde_con_duplicado(self):
+        """
+        🔴 FIX (hallazgo de revisión externa, 2026-08-26, ronda 4): "ya cuenta con
+        un documento" (sin ancla) coincidía por substring con "ya cuenta con un
+        documento de respuesta final" -- la frase real de errores_sfc.json que
+        mapea a BUSINESS_RULE_ERROR (el caso ya está cerrado), NO a DUPLICATE_FILE.
+        Ese match contradecía el fix de 2026-08-25 de esta misma función: "el caso
+        está cerrado" NO debe absorberse aquí (el archivo nunca fue recibido), debe
+        propagarse para que despacho_queja_orchestrator._es_error_caso_ya_cerrado
+        lo reconozca como éxito idempotente SIN tocar este checkpoint."""
+        sfc_client = MagicMock()
+        sfc_client.post_adjunto_queja = AsyncMock(
+            side_effect=SfcIntegrationException(
+                400, "BUSINESS_RULE_ERROR", None,
+                "La queja ya cuenta con un documento de respuesta final",
+                "No hacer nada porque ya esta cerrada en SSV."
+            )
+        )
+        archivo = [{"nombre_archivo": "informe.pdf", "s3_key": "caso/U3/informe.pdf", "bytes": b"x"}]
+
+        with self.assertRaises(SfcIntegrationException):
+            await self.service.transferir_lote_s3_a_sfc(
+                sfc_client=sfc_client, sfc_codigo_queja="CASO-U3", adjuntos_crm=archivo
+            )
+
+        completados = await self.stub_redis.hkeys("{sfc:idempotency}:file_checkpoint:CASO-U3")
+        self.assertEqual(completados, [])
 
 
 class TestS3ServiceMetricaEmf(unittest.IsolatedAsyncioTestCase):
