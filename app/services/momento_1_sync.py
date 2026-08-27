@@ -167,11 +167,25 @@ class SincronizacionService:
         return queja_traducida
 
     async def confirmar_recepcion_ack(self, ids_quejas: List[str]) -> Dict[str, Any]:
-        if not ids_quejas:
+        # 🔴 FIX (hallazgo propio, 2026-08-27): mismo patrón que HALLAZGO 50, que ya
+        # deduplica en momento_4_sync.py::confirmar_recepcion_ack_usuarios -- este
+        # método (el ACK equivalente de Momento 1) nunca recibió el mismo fix. Sin
+        # deduplicar, un ID repetido en ids_quejas (ej. un reintento del CRM que
+        # reenvía la lista completa con algún ID ya incluido antes) se cuenta dos
+        # veces en 'confirmados'/'ids_procesados' -- inflando el conteo devuelto al
+        # CRM sin que haya un segundo caso real detrás.
+        ids_unicos = list(dict.fromkeys(str(x).strip() for x in ids_quejas if str(x).strip()))
+        if len(ids_unicos) < len(ids_quejas):
+            logger.info(
+                f"🧹 [Momento 1 ACK] Se deduplicaron {len(ids_quejas) - len(ids_unicos)} IDs repetidos/vacíos "
+                f"en la solicitud. Procesando {len(ids_unicos)} elementos únicos."
+            )
+
+        if not ids_unicos:
             return {"status": "warning", "confirmados": 0, "ids_procesados": [], "ids_error": []}
 
         TAMANO_LOTE = 100
-        lotes = [ids_quejas[i:i + TAMANO_LOTE] for i in range(0, len(ids_quejas), TAMANO_LOTE)]
+        lotes = [ids_unicos[i:i + TAMANO_LOTE] for i in range(0, len(ids_unicos), TAMANO_LOTE)]
         ids_exitosos, ids_con_error = [], []
 
         for lote in lotes:

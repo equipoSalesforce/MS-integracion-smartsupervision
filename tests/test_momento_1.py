@@ -149,6 +149,35 @@ class TestMomento1Pipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(respuesta["status"], "warning")
         self.assertEqual(respuesta["confirmados"], 0)
 
+    async def test_confirmar_recepcion_ack_deduplica_ids_repetidos_y_vacios(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): mismo patrón que HALLAZGO 50, que ya
+        deduplica en momento_4_sync.py::confirmar_recepcion_ack_usuarios -- este
+        método (el ACK de Momento 1) nunca lo tuvo. Un ID repetido en la solicitud
+        se contaba dos veces en 'confirmados', inflando el conteo devuelto al CRM.
+        """
+        self.sfc_client_mock.send_ack_batch = AsyncMock(return_value={"Response": {"pqrs_error": []}})
+        service = SincronizacionService(sfc_client=self.sfc_client_mock)
+
+        respuesta = await service.confirmar_recepcion_ack(
+            ids_quejas=["142316551509974606", "142316551509974606", "  ", "", "142316551509974607"]
+        )
+
+        self.assertEqual(respuesta["confirmados"], 2)
+        self.sfc_client_mock.send_ack_batch.assert_called_once_with(
+            ["142316551509974606", "142316551509974607"]
+        )
+
+    async def test_confirmar_recepcion_ack_todos_vacios_tras_limpieza(self):
+        """Si tras deduplicar/limpiar no queda ningún ID válido, debe devolver
+        'warning' sin llegar a llamar a la SFC -- no un lote vacío."""
+        service = SincronizacionService(sfc_client=self.sfc_client_mock)
+
+        respuesta = await service.confirmar_recepcion_ack(ids_quejas=["", "   ", ""])
+
+        self.assertEqual(respuesta["status"], "warning")
+        self.sfc_client_mock.send_ack_batch.assert_not_called()
+
     async def test_confirmar_recepcion_ack_parcial_algunos_ids_con_error(self):
         """La SFC puede aceptar unos IDs y rechazar otros en el mismo lote
         (pqrs_error) -- status debe reflejar 'partial', no 'success'."""

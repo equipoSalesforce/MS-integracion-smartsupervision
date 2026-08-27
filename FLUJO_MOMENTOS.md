@@ -893,6 +893,21 @@ veces. No deduplica códigos ausentes/vacíos entre sí (un registro malformado 
 `test_duplicado_dentro_de_la_misma_pagina_tambien_se_deduplica`,
 `test_codigo_queja_ausente_no_se_deduplica_contra_otro_ausente`.
 
+**El mismo hallazgo 50 tampoco había llegado a la confirmación de ACK de Momento 1
+(hallazgo propio, 2026-08-27):** `momento_4_sync.py::confirmar_recepcion_ack_usuarios`
+deduplica/limpia `numeros_id_cf` antes de enviarlo a la SFC (`dict.fromkeys`,
+preservando orden, filtrando vacíos). `momento_1_sync.py::confirmar_recepcion_ack` --
+la misma operación (confirmar ACK en lotes hacia la SFC), simétrica a la anterior --
+nunca recibió ese mismo tratamiento: un `codigo_queja` repetido en `ids_quejas`
+(ej. un reintento del CRM que reenvía la lista completa incluyendo un ID ya
+presente) se contaba dos veces en `confirmados`/`ids_procesados`, inflando el
+conteo devuelto al CRM sin que hubiera un segundo caso real detrás. El schema
+(`ConfirmacionAckInput`) ya filtraba vacíos, pero no duplicados -- la mitad de la
+protección de Momento 4 vivía en el schema para Momento 1, la otra mitad
+(deduplicación) no vivía en ningún lado. **Corregido** reutilizando el mismo
+patrón de Momento 4 directamente en el servicio. Ver
+`tests/test_momento_1.py::test_confirmar_recepcion_ack_deduplica_ids_repetidos_y_vacios`.
+
 ## El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)
 
 **Código:** `app/utils/email_parser.py::_clasificar_autor_bloque` (Caso C — bloque superior),
