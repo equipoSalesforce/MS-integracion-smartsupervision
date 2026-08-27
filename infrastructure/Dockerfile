@@ -69,7 +69,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # 330s -- SFC_SYNC_MAX_SEGUNDOS (config.py) da a Momento 1 hasta 300s de presupuesto
 # propio de paginación contra la SFC, pero gunicorn mataba el worker a los 120s,
 # muy por debajo de ese presupuesto: bajo un backlog real, Momento 1 no podía
-# completarse nunca. 330s = 300s del presupuesto + 50s de margen para que la
+# completarse nunca. 330s = 300s del presupuesto + 30s de margen para que la
 # respuesta termine de serializarse/enviarse. Mismo valor en
 # scripts/render_task_def.py -- ECS usa el `command` del task definition, que
 # sobreescribe este CMD; deben mantenerse sincronizados.

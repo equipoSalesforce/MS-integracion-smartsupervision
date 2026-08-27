@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, BotoCoreError
 import httpx
 
 from app.core.config import settings
@@ -310,6 +310,25 @@ class S3StorageService:
                 raw_message=f"Fallo de infraestructura en S3 ({error_code}): {str(e)}",
                 crm_action="Revisar conectividad y estado del servicio de AWS S3."
             ) from e
+        except BotoCoreError as e:
+            # 🔴 FIX (hallazgo propio, 2026-08-27): ClientError es SÓLO para respuestas de
+            # error del SERVICIO S3 (403/404/500, con `.response`) -- una caída de
+            # conectividad real (S3/VPC endpoint inalcanzable, DNS, timeout de conexión)
+            # no llega como ClientError, sino como BotoCoreError (ej.
+            # EndpointConnectionError), que no tiene `.response` y no era capturado acá.
+            # Sin este catch, esa excepción cruda escapaba de s3_service.py sin envolver,
+            # saltándose la clasificación de es_transitoria y por lo tanto la cola de
+            # contingencia en routes_quejas.py/scheduler.py -- una caída de S3 durante el
+            # despacho terminaba en un 500 genérico sin encolar para reintento automático,
+            # a diferencia de una caída de la SFC o de Redis (ver FLUJO_MOMENTOS.md).
+            logger.error(f"❌ [S3 Error] Fallo de conectividad con S3 obteniendo metadata de '{file_name}': {e}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="S3_INFRASTRUCTURE_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"Fallo de conectividad con S3: {str(e)}",
+                crm_action="Revisar conectividad y estado del servicio de AWS S3."
+            ) from e
 
     @staticmethod
     def _validar_tamano_archivo(file_size: int, file_name: str, max_size_mb: int) -> None:
@@ -349,7 +368,22 @@ class S3StorageService:
                     # si falla, el archivo queda vacío y validar_integridad_archivo lo detecta.
                     pass
 
-        await asyncio.to_thread(_descargar)
+        # 🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de _obtener_metadata_o_fallar
+        # (llamado justo antes, en el mismo flujo), esta descarga no tenía NINGÚN try/except
+        # -- ni siquiera ClientError. Un fallo de S3 (respuesta de error del servicio o
+        # caída de conectividad genuina) durante la descarga real del archivo escapaba sin
+        # envolver, saltándose la clasificación de es_transitoria y la cola de contingencia.
+        try:
+            await asyncio.to_thread(_descargar)
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"❌ [S3 Error] Fallo descargando '{s3_key_clean}' desde S3: {e}")
+            raise SfcIntegrationException(
+                status_code=500,
+                error_type="S3_INFRASTRUCTURE_ERROR",
+                sfc_field="archivos_s3",
+                raw_message=f"Fallo de infraestructura en S3 al descargar el archivo: {str(e)}",
+                crm_action="Revisar conectividad y estado del servicio de AWS S3."
+            ) from e
 
     async def obtener_stream_archivo(
         self,

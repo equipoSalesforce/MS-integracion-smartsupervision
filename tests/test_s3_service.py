@@ -1,7 +1,7 @@
 # tests/test_s3_service.py
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from app.services.s3_service import S3StorageService
 from app.core.exceptions import SfcIntegrationException
 
@@ -102,6 +102,44 @@ class TestS3ServiceErrorHandling(unittest.IsolatedAsyncioTestCase):
         exc = ctx.exception
         self.assertEqual(exc.status_code, 500)
         self.assertEqual(exc.error_type, "S3_INFRASTRUCTURE_ERROR")
+
+    async def test_obtener_stream_endpoint_inalcanzable_en_head_object_se_clasifica_como_infraestructura(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): ClientError sólo cubre respuestas de ERROR
+        del servicio S3 (403/404/500 con `.response`) -- una caída de conectividad real
+        (VPC endpoint inalcanzable, DNS, timeout de conexión) llega como BotoCoreError
+        (ej. EndpointConnectionError), que _obtener_metadata_o_fallar no capturaba. Sin
+        envolver en SfcIntegrationException, es_transitoria nunca se evalúa y el caso no
+        se encola para reintento automático -- a diferencia de una caída de la SFC o de
+        Redis, que sí quedan cubiertas.
+        """
+        self.mock_boto_client.head_object.side_effect = EndpointConnectionError(
+            endpoint_url="https://s3.amazonaws.com"
+        )
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.service.obtener_stream_archivo(s3_key="quejas/123/doc.pdf")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 500)
+        self.assertEqual(exc.error_type, "S3_INFRASTRUCTURE_ERROR")
+        self.assertTrue(exc.es_transitoria, "Una caída de conectividad de S3 debe encolarse para reintento, no perderse.")
+
+    async def test_obtener_stream_endpoint_inalcanzable_en_descarga_se_clasifica_como_infraestructura(self):
+        """Mismo hallazgo que el anterior, pero en _descargar_a_tmp_file (download_fileobj),
+        que no tenía absolutamente ningún try/except -- ni siquiera para ClientError."""
+        self.mock_boto_client.head_object.return_value = {"ContentLength": 1024}
+        self.mock_boto_client.download_fileobj.side_effect = EndpointConnectionError(
+            endpoint_url="https://s3.amazonaws.com"
+        )
+
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.service.obtener_stream_archivo(s3_key="quejas/123/doc.pdf")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 500)
+        self.assertEqual(exc.error_type, "S3_INFRASTRUCTURE_ERROR")
+        self.assertTrue(exc.es_transitoria)
 
     async def test_s3_key_de_otro_caso_es_rechazada(self):
         """

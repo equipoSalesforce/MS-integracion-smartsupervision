@@ -1286,6 +1286,66 @@ primer paso fallara.
 que `main.py`), logueando el error sin interrumpir los siguientes. Ver
 `tests/test_worker_process.py::test_fallo_en_un_paso_del_apagado_no_impide_el_resto`.
 
+## Una caída real de S3 (no un error del servicio) no se encolaba para reintento (corregido)
+
+**Código:** `app/services/s3_service.py::_obtener_metadata_o_fallar`, `_descargar_a_tmp_file`.
+
+**Contexto (verificación final de resiliencia, 2026-08-27):** este microservicio depende de
+cuatro sistemas externos -- SFC, Redis, S3, y el webhook del CRM -- y el diseño garantiza
+que una caída de CUALQUIERA de ellos se encole/reintente automáticamente sin perder la
+obligación regulatoria, distinguiendo siempre una falla transitoria (`SfcIntegrationException.
+es_transitoria`) de un rechazo de negocio real. Al revisar sistemáticamente cada uno de los
+cuatro, S3 resultó ser la única excepción real a esa garantía.
+
+**El hallazgo:** `botocore` tiene dos familias de excepción completamente distintas.
+`ClientError` es la respuesta del SERVICIO S3 a un request que sí llegó (403, 404, 500,
+throttling -- trae `.response` con un código de error). `BotoCoreError` es la familia de
+errores del LADO DEL CLIENTE -- una caída de conectividad genuina (`EndpointConnectionError`:
+VPC endpoint inalcanzable, DNS, timeout de conexión) que nunca llega a tener una respuesta
+del servicio. `_obtener_metadata_o_fallar` sólo capturaba `ClientError`; `_descargar_a_tmp_file`
+no capturaba absolutamente nada. Una caída de conectividad real de S3 durante el despacho
+escapaba como una excepción cruda de botocore, sin pasar nunca por `SfcIntegrationException` --
+y por lo tanto sin que `es_transitoria` se evaluara. El resultado: en vez de encolarse para
+reintento automático (como sí ocurre con una caída de la SFC, de Redis, o del webhook al CRM),
+la petición terminaba en un 500 genérico devuelto al CRM, con la idempotencia liberada -- el
+caso se perdía silenciosamente del lado de la cola de contingencia, dependiendo enteramente de
+que el CRM decidiera reintentar por su cuenta.
+
+Un test ya existente (`test_s3_file_descriptor_leak.py`, escrito para verificar que no hubiera
+fuga de descriptores de archivo) reproducía exactamente este escenario -- simulaba un
+`BotoCoreError` durante la descarga -- pero aceptaba la excepción cruda propagándose como el
+comportamiento esperado (`assertRaises(BotoCoreError)`), sin que nadie notara que eso implicaba
+saltarse la clasificación de transitoriedad.
+
+**Corregido:** ambos puntos ahora capturan también `BotoCoreError` y lo envuelven en
+`SfcIntegrationException(status_code=500, error_type="S3_INFRASTRUCTURE_ERROR", ...)` -- el
+mismo tipo que ya usa el resto de `s3_service.py` para fallos de infraestructura de S3
+(`status_code >= 500` hace que `es_transitoria` sea `True` automáticamente, sin necesitar un
+`error_type` nuevo en `ERROR_TYPES_TRANSITORIOS`). El cierre del `tmp_file` (para el que se
+había escrito el test original) sigue garantizado igual, sin cambios: ocurre en el `except
+Exception` de `obtener_stream_archivo`, que envuelve a ambos métodos y ya capturaba cualquier
+excepción independientemente de su tipo. Ver
+`tests/test_s3_service.py::TestS3ServiceErrorHandling::test_obtener_stream_endpoint_inalcanzable_en_head_object_se_clasifica_como_infraestructura`
+y `test_obtener_stream_endpoint_inalcanzable_en_descarga_se_clasifica_como_infraestructura`.
+
+**Las subidas a S3 (`subir_bytes_archivo`, `subir_archivo_stream`) y el listado de
+directorios (`listar_archivos_en_directorio`) ya estaban cubiertos** -- ambos usan un
+`except Exception` genérico de por sí, así que ya envolvían `BotoCoreError` correctamente
+antes de esta ronda. El hueco estaba acotado a las dos únicas funciones de LECTURA que
+capturaban excepciones de forma más estrecha.
+
+### Resumen de la verificación de resiliencia (2026-08-27)
+
+| Falla adversa | Se encola/reintenta automáticamente | Mecanismo |
+|---|---|---|
+| SFC caída (5xx/timeout/429) | ✅ | `SfcIntegrationException.es_transitoria` → cola de contingencia (`routes_quejas.py`) + reintentos del scheduler, con el umbral de fallas consecutivas para no martillar una SFC genuinamente caída |
+| Redis caído (idempotencia) | ✅ (fail-closed) | `IdempotencyService` bloquea la operación mutativa con 503 en vez de arriesgar un duplicado -- ver la política FAIL-CLOSED documentada en ese servicio |
+| SFC y Redis caídos a la vez | ✅ (honesto) | 503 explícito indicando que ni la SFC ni la cola están disponibles -- nunca se afirma falsamente que el caso quedó encolado; alerta crítica a ops |
+| S3 caído -- respuesta de error (`ClientError`) | ✅ | Ya clasificado como `S3_INFRASTRUCTURE_ERROR`/`es_transitoria` desde antes de esta ronda |
+| S3 caído -- conectividad (`BotoCoreError`) | ✅ (corregido en esta ronda) | Antes escapaba sin clasificar -- ver arriba |
+| Webhook al CRM caído (infra) | ✅ | `_es_falla_infraestructura` (con ancla, ver hallazgo de la ronda anterior) → `consumir_intento=False`, reintenta indefinidamente sin gastar presupuesto ni llegar a DLQ; el éxito ante la SFC (`sfc_completado`) ya quedó persistido de forma durable ANTES del intento de notificación, así que un reintento del webhook nunca reenvía a la SFC |
+| Webhook al CRM rechaza (negocio) | ✅ | Consume intento normalmente, eventualmente DLQ con alerta -- no reintenta indefinidamente un rechazo que no va a cambiar |
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
