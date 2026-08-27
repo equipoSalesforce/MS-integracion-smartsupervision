@@ -173,15 +173,50 @@ async def run_worker_process():
         except asyncio.CancelledError:
             pass
 
-        await SfcSalesforceMapper.detener_refresco_periodico()
-        await detener_scheduler()
-        # 🟢 FIX P1-07: el worker no esperaba las alertas de correo en vuelo antes de
-        # cerrar — a diferencia de app/main.py, que sí lo hace en su lifespan. Un
-        # SIGTERM de ECS (deploy/scale-in) podía perder alertas ya programadas.
-        await EmailAlertService.shutdown(timeout_segundos=3.0)
-        await close_redis()
-        await close_crm_webhook_client()
-        await _auth_manager_instance.close()
+        # 🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de app/main.py::
+        # _detener_recursos_globales (donde cada paso vive en su propio try/except,
+        # con tests dedicados por paso -- ver test_main_lifespan_recursos.py), estos
+        # pasos corrían sin aislar. Un fallo en CUALQUIER paso (ej.
+        # detener_refresco_periodico) abortaba el resto del `finally` -- ni
+        # detener_scheduler, ni el flush de alertas en vuelo (el fix P1-07 de abajo,
+        # anulado por esto mismo si un paso anterior lanzaba), ni close_redis, ni
+        # close_crm_webhook_client, ni el cierre de _auth_manager_instance llegaban a
+        # ejecutarse. Mismo patrón de aislamiento que main.py, para que un SIGTERM de
+        # ECS (deploy/scale-in) libere todos los recursos aunque uno de los pasos
+        # falle.
+        try:
+            await SfcSalesforceMapper.detener_refresco_periodico()
+        except Exception as e:
+            logger.error(f"Error al detener el refresco periódico de catálogos: {e}")
+
+        try:
+            await detener_scheduler()
+        except Exception as e:
+            logger.error(f"Error al detener scheduler: {e}")
+
+        try:
+            # 🟢 FIX P1-07: el worker no esperaba las alertas de correo en vuelo antes de
+            # cerrar — a diferencia de app/main.py, que sí lo hace en su lifespan. Un
+            # SIGTERM de ECS (deploy/scale-in) podía perder alertas ya programadas.
+            await EmailAlertService.shutdown(timeout_segundos=3.0)
+        except Exception as e:
+            logger.error(f"Error al esperar alertas de correo en vuelo: {e}")
+
+        try:
+            await close_redis()
+        except Exception as e:
+            logger.error(f"Error al cerrar Redis: {e}")
+
+        try:
+            await close_crm_webhook_client()
+        except Exception as e:
+            logger.error(f"Error al cerrar CRM Webhook Client: {e}")
+
+        try:
+            await _auth_manager_instance.close()
+        except Exception as e:
+            logger.error(f"Error al cerrar SfcAuthManager: {e}")
+
         logger.info("👋 Worker detenido completamente de forma segura.")
 
 

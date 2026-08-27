@@ -174,6 +174,46 @@ class TestRunWorkerProcess(unittest.IsolatedAsyncioTestCase):
         finally:
             settings.RUN_SCHEDULER = run_scheduler_original
 
+    async def test_fallo_en_un_paso_del_apagado_no_impide_el_resto(self):
+        """
+        🔴 FIX (hallazgo propio, 2026-08-27): a diferencia de app/main.py::
+        _detener_recursos_globales (cada paso aislado en su propio try/except), el
+        `finally` de run_worker_process corría sus pasos de limpieza sin aislar --
+        un fallo en el PRIMER paso (detener_refresco_periodico) abortaba el resto:
+        ni detener_scheduler, ni el flush de alertas en vuelo, ni close_redis, ni
+        close_crm_webhook_client, ni el cierre de _auth_manager_instance llegaban a
+        ejecutarse durante un SIGTERM real.
+        """
+        run_scheduler_original = settings.RUN_SCHEDULER
+        try:
+            with patch("app.worker.init_redis", new_callable=AsyncMock), \
+                 patch("app.worker.SfcErrorTranslator.obtener_matriz_errores", new_callable=AsyncMock), \
+                 patch("app.worker.SfcSalesforceMapper.obtener_catalogos_y_mapeos", new_callable=AsyncMock), \
+                 patch("app.worker.SfcSalesforceMapper.detener_refresco_periodico", new_callable=AsyncMock, side_effect=RuntimeError("boom")), \
+                 patch("app.worker.iniciar_scheduler"), \
+                 patch("app.worker.detener_scheduler", new_callable=AsyncMock) as mock_detener_sched, \
+                 patch("app.worker.close_redis", new_callable=AsyncMock) as mock_close_redis, \
+                 patch("app.worker.close_crm_webhook_client", new_callable=AsyncMock) as mock_close_crm, \
+                 patch("app.worker.EmailAlertService.shutdown", new_callable=AsyncMock) as mock_email_shutdown, \
+                 patch("app.worker._auth_manager_instance") as mock_auth_mgr, \
+                 patch("app.worker._heartbeat_loop", new_callable=AsyncMock), \
+                 patch("app.worker._touch_heartbeat"):
+                mock_auth_mgr.close = AsyncMock()
+
+                task = asyncio.create_task(worker_module.run_worker_process())
+                await asyncio.sleep(0.05)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+                mock_detener_sched.assert_awaited_once()
+                mock_email_shutdown.assert_awaited_once()
+                mock_close_redis.assert_awaited_once()
+                mock_close_crm.assert_awaited_once()
+                mock_auth_mgr.close.assert_awaited_once()
+        finally:
+            settings.RUN_SCHEDULER = run_scheduler_original
+
     async def test_fallo_precargando_catalogos_cierra_redis_y_relanza(self):
         with patch("app.worker.init_redis", new_callable=AsyncMock), \
              patch("app.worker.SfcErrorTranslator.obtener_matriz_errores", new_callable=AsyncMock, side_effect=RuntimeError("Google Sheets caído")), \

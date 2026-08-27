@@ -1257,6 +1257,35 @@ vía el `type: choice` de `deploy-aws.yml`). Cualquier otro ambiente, incluido
 `"development"`, requiere `ENABLE_DOCS=True` explícito como cualquiera otro. Ver
 `tests/test_swagger_dissabled.py::test_docs_deshabilitados_en_ambiente_development_por_defecto`.
 
+## El apagado del Worker no aislaba sus pasos de limpieza (corregido)
+
+**Código:** `app/worker.py::run_worker_process` (bloque `finally`).
+
+`app/main.py::_detener_recursos_globales` aísla cada paso del apagado en su propio
+`try/except` -- un fallo deteniendo el scheduler, por ejemplo, no debe impedir que
+Redis, el cliente del webhook al CRM o las alertas de correo en vuelo también se
+cierren/vacíen correctamente. Hay tests dedicados por paso
+(`test_main_lifespan_recursos.py::TestDetenerRecursosGlobales`) que verifican
+exactamente esto.
+
+El `finally` de `run_worker_process` -- el apagado equivalente para el proceso
+worker, disparado por el mismo tipo de evento (SIGTERM de ECS en un deploy/scale-in)
+-- nunca recibió el mismo tratamiento: sus seis pasos de limpieza
+(`detener_refresco_periodico`, `detener_scheduler`, `EmailAlertService.shutdown`,
+`close_redis`, `close_crm_webhook_client`, `_auth_manager_instance.close`) corrían
+uno tras otro SIN aislar. Un fallo en el **primero** de esos pasos abortaba
+inmediatamente el resto del bloque `finally` -- ninguno de los siguientes llegaba
+a ejecutarse. Esto neutralizaba en silencio el propio FIX P1-07 documentado un
+par de líneas más abajo en el mismo archivo (esperar las alertas de correo en
+vuelo antes de cerrar, para no perderlas en un SIGTERM) cada vez que un paso
+anterior fallaba -- y dejaba además a Redis y al cliente HTTP del webhook sin
+cerrar, filtrando sus pools de conexión en cada reinicio/despliegue donde ese
+primer paso fallara.
+
+**Corregido:** cada paso se envuelve ahora en su propio `try/except` (mismo patrón
+que `main.py`), logueando el error sin interrumpir los siguientes. Ver
+`tests/test_worker_process.py::test_fallo_en_un_paso_del_apagado_no_impide_el_resto`.
+
 ## Referencias en el código
 
 | Concepto                                                                                                  | Archivo                                                                                                                                                                                                           |
