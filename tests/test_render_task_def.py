@@ -25,6 +25,9 @@ class TestRenderTaskDefinition(unittest.TestCase):
         os.environ["AWS_S3_BUCKET"] = "prod-global66-smartsupervision-attachments"
         os.environ["GOOGLE_SPREADSHEET_ID"] = "1a2b3c4d5e6f7g8h9i0j"
         os.environ["GOOGLE_CATALOGS_SPREADSHEET_ID"] = "0j9i8h7g6f5e4d3c2b1a"
+        # 🟢 FIX (revisión despliegue AWS): el Execution Role ya no está hardcodeado
+        # en la plantilla -- ahora lo entrega el IaC central como esta variable.
+        os.environ["ECS_EXECUTION_ROLE_ARN"] = "arn:aws:iam::999888777666:role/ecsTaskExecutionRole"
 
         self.env_vars = {
             "AWS_ACCOUNT_ID": "112233445566",
@@ -37,6 +40,7 @@ class TestRenderTaskDefinition(unittest.TestCase):
             "AWS_S3_BUCKET": "prod-global66-smartsupervision-attachments",
             "GOOGLE_SPREADSHEET_ID": "1a2b3c4d5e6f7g8h9i0j",
             "GOOGLE_CATALOGS_SPREADSHEET_ID": "0j9i8h7g6f5e4d3c2b1a",
+            "ECS_EXECUTION_ROLE_ARN": "arn:aws:iam::112233445566:role/ecsTaskExecutionRole",
         }
 
     def tearDown(self):
@@ -218,6 +222,23 @@ class TestRenderTaskDefinition(unittest.TestCase):
                 render_task_definition("api", "prod")
 
             self.assertIn("SFC_URL_BASE", str(ctx.exception))
+
+    def test_missing_ecs_execution_role_arn_fails_fast(self):
+        """
+        El Execution Role ya no se hardcodea en la plantilla (antes
+        'ecsTaskExecutionRole' fijo) -- debe llegar como Variable de GitHub por
+        ambiente. Sin ella, el render debe fallar en vez de dejar el placeholder
+        sin resolver (RENDER ERROR genérico) o, peor, resolver a un nombre fijo.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["ECS_EXECUTION_ROLE_ARN"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("ECS_EXECUTION_ROLE_ARN", str(ctx.exception))
 
     def test_infra_critica_faltante_falla_tambien_fuera_de_prod(self):
         """

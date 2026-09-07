@@ -18,11 +18,12 @@
 #      elasticache:DescribeReplicationGroups ni
 #      elasticloadbalancing:DescribeLoadBalancers -- ECS_CLUSTER_NAME y
 #      SSV_SMOKE_BASE_URL llegan ya resueltos como Variables de GitHub (ver punto 2).
-#   1b. Crear el Execution Role (`ecsTaskExecutionRole`, fijo, sin sufijo de
-#      ambiente) y el Task Role (`msSmartsupervisionTaskRole-${ENVIRONMENT}`, uno
-#      por ambiente) que referencia infrastructure/ecs-task-def.json.tpl. Cada uno
-#      tiene una responsabilidad distinta -- NO intercambiar los permisos entre
-#      ellos:
+#   1b. Crear el Execution Role y el Task Role (`msSmartsupervisionTaskRole-${ENVIRONMENT}`,
+#      uno por ambiente) que referencia infrastructure/ecs-task-def.json.tpl. El
+#      ARN del Execution Role lo entrega el IaC central como la Variable de GitHub
+#      ECS_EXECUTION_ROLE_ARN (ver job `deploy` más abajo) -- este repo no asume su
+#      nombre ni que sea el mismo en todos los ambientes. Cada rol tiene una
+#      responsabilidad distinta -- NO intercambiar los permisos entre ellos:
 #        - Execution Role: lo usa el agente de ECS ANTES de que la app corra (pull
 #          de imagen en ECR + resolver los `secrets` del task def contra Secrets
 #          Manager +, vía el driver `awslogs`, enviar logs a CloudWatch). Ver
@@ -316,6 +317,23 @@ jobs:
       REDIS_HOST: ${{ vars.REDIS_HOST }}
       REDIS_CLUSTER_MODE: ${{ vars.REDIS_CLUSTER_MODE }}
       AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      # El Execution Role lo crea el IaC central por ambiente -- este repo ya no
+      # asume el nombre fijo "ecsTaskExecutionRole" (ver infrastructure/
+      # ms-smartsupervision-execution-role-policy.json.tpl para los permisos que
+      # ese rol necesita).
+      ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+      # Reintentos de cola/mini-retry de la SFC: opcionales por ambiente -- si el
+      # Environment de GitHub no define la Variable, render_task_def.py cae a los
+      # mismos defaults que Settings (app/core/config.py).
+      QUEUE_RETRY_INTERVAL_MINUTES: ${{ vars.QUEUE_RETRY_INTERVAL_MINUTES }}
+      QUEUE_MAX_RETRIES: ${{ vars.QUEUE_MAX_RETRIES }}
+      SFC_MINI_RETRY_ATTEMPTS: ${{ vars.SFC_MINI_RETRY_ATTEMPTS }}
+      SFC_MINI_RETRY_DELAY_SECONDS: ${{ vars.SFC_MINI_RETRY_DELAY_SECONDS }}
+      # SMTP/alertas: opcionales por ambiente -- sin override caen al mismo
+      # endpoint SES que antes estaba hardcodeado en la plantilla.
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT }}
+      ALERT_EMAILS_ENABLED: ${{ vars.ALERT_EMAILS_ENABLED }}
       SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
       GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
       GOOGLE_CATALOGS_SPREADSHEET_ID: ${{ vars.GOOGLE_CATALOGS_SPREADSHEET_ID }}

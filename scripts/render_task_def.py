@@ -91,16 +91,20 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # se resuelve dinámicamente contra ElastiCache (ver commit que revierte esa
     # resolución) porque SSV pasó a correr dentro del cluster/ALB compartidos de CRM
     # Global66, provistos como Variables de GitHub por el IaC central.
+    # 🟢 FIX (revisión despliegue AWS): ECS_EXECUTION_ROLE_ARN se suma a esta lista --
+    # el Execution Role lo crea el IaC central (ver infrastructure/
+    # ms-smartsupervision-execution-role-policy.json.tpl), este repo no debe asumir
+    # su nombre/cuenta con un ARN hardcodeado en la plantilla.
     _campos_criticos_infra = [
         "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
-        "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID",
+        "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID", "ECS_EXECUTION_ROLE_ARN",
     ]
     _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
     if _faltantes_infra:
         raise ValueError(
             f"🚨 [FAIL-FAST] Son obligatorias las variables de entorno: "
-            f"{', '.join(_faltantes_infra)}. No se permite depender de sus valores por "
-            f"defecto (apuntan a infraestructura de QA/ejemplo)."
+            f"{', '.join(_faltantes_infra)}. No se permite depender de valores "
+            f"hardcodeados o de ejemplo (QA/ejemplo)."
         )
 
     smtp_from_email = os.getenv("SMTP_FROM_EMAIL")
@@ -110,6 +114,9 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "despliegue en AWS — debe ser una identidad de remitente verificada en SES, "
             "distinta de la credencial SMTP_USER."
         )
+
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+    ecs_execution_role_arn = os.getenv("ECS_EXECUTION_ROLE_ARN")
 
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
@@ -162,7 +169,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${RUN_SCHEDULER}": run_scheduler,
         "${HEALTHCHECK_CMD}": healthcheck_cmd,
         "${AWS_ACCOUNT_ID}": aws_account_id.strip(),
-        "${AWS_REGION}": os.getenv("AWS_REGION", "us-east-1"),
+        "${AWS_REGION}": aws_region,
         "${IMAGE_TAG}": image_tag.strip(),
         "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", "global66-crm-b2c-ci-files-766452279030"),
         "${SFC_URL_BASE}": os.getenv("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co"),
@@ -176,7 +183,28 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${REDIS_CLUSTER_MODE}": "True" if redis_cluster_mode else "False",
         "${SFC_SYNC_MAX_PAGINAS}": os.getenv("SFC_SYNC_MAX_PAGINAS", "1000"),
         "${SFC_SYNC_MAX_SEGUNDOS}": os.getenv("SFC_SYNC_MAX_SEGUNDOS", "300"),
-        "${SMTP_FROM_EMAIL}": smtp_from_email.strip()
+        "${SMTP_FROM_EMAIL}": smtp_from_email.strip(),
+        # 🟢 FIX (revisión despliegue AWS): antes ECS pasaba estos 4 valores
+        # hardcodeados en la plantilla (QUEUE_RETRY_INTERVAL_MINUTES=5,
+        # QUEUE_MAX_RETRIES=10) o directamente los omitía (SFC_MINI_RETRY_*, que
+        # ECS nunca inyectaba, cayendo siempre al default de Settings sin poder
+        # ajustarse por ambiente). Los defaults de abajo igualan los defaults de
+        # Settings (app/core/config.py) -- ambientes sin override se comportan
+        # igual que antes; los que necesiten otro valor lo declaran como Variable
+        # de GitHub por ambiente.
+        "${QUEUE_RETRY_INTERVAL_MINUTES}": os.getenv("QUEUE_RETRY_INTERVAL_MINUTES", "5"),
+        "${QUEUE_MAX_RETRIES}": os.getenv("QUEUE_MAX_RETRIES", "10"),
+        "${SFC_MINI_RETRY_ATTEMPTS}": os.getenv("SFC_MINI_RETRY_ATTEMPTS", "2"),
+        "${SFC_MINI_RETRY_DELAY_SECONDS}": os.getenv("SFC_MINI_RETRY_DELAY_SECONDS", "5.5"),
+        # 🟢 FIX (revisión despliegue AWS): SMTP_HOST/PORT y ALERT_EMAILS_ENABLED
+        # estaban hardcodeados a un endpoint SES (email-smtp.<region>.amazonaws.com:587)
+        # -- un ambiente con otro proveedor SMTP (o que quiera desactivar las alertas)
+        # no tenía forma de anularlo salvo editando la plantilla. El default de
+        # SMTP_HOST preserva el comportamiento SES actual cuando no se declara override.
+        "${SMTP_HOST}": os.getenv("SMTP_HOST", f"email-smtp.{aws_region}.amazonaws.com"),
+        "${SMTP_PORT}": os.getenv("SMTP_PORT", "587"),
+        "${ALERT_EMAILS_ENABLED}": os.getenv("ALERT_EMAILS_ENABLED", "True"),
+        "${ECS_EXECUTION_ROLE_ARN}": ecs_execution_role_arn.strip(),
     }
 
     # ${CONTAINER_COMMAND} y ${PORT_MAPPINGS} ya son fragmentos JSON completos (arrays) y
