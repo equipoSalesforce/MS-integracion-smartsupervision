@@ -180,6 +180,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a"),
         "${SFC_TIPO_ENTIDAD}": os.getenv("SFC_TIPO_ENTIDAD", "128"),
         "${SFC_ENTIDAD_COD}": os.getenv("SFC_ENTIDAD_COD", "6"),
+        "${GOOGLE_SHEET_RANGE}": os.getenv("GOOGLE_SHEET_RANGE", "Hoja 1!A:C"),
         "${REDIS_CLUSTER_MODE}": "True" if redis_cluster_mode else "False",
         "${SFC_SYNC_MAX_PAGINAS}": os.getenv("SFC_SYNC_MAX_PAGINAS", "1000"),
         "${SFC_SYNC_MAX_SEGUNDOS}": os.getenv("SFC_SYNC_MAX_SEGUNDOS", "300"),

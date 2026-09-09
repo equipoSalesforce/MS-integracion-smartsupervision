@@ -44,7 +44,7 @@
         { "name": "SMTP_PORT", "value": "${SMTP_PORT}" },
         { "name": "SMTP_FROM_EMAIL", "value": "${SMTP_FROM_EMAIL}" },
         { "name": "GOOGLE_SPREADSHEET_ID", "value": "${GOOGLE_SPREADSHEET_ID}" },
-        { "name": "GOOGLE_SHEET_RANGE", "value": "MatrizErrores!A:C" },
+        { "name": "GOOGLE_SHEET_RANGE", "value": "${GOOGLE_SHEET_RANGE}" },
         { "name": "GOOGLE_CATALOGS_SPREADSHEET_ID", "value": "${GOOGLE_CATALOGS_SPREADSHEET_ID}" }
       ],
       "secrets": [
