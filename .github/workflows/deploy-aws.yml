@@ -329,13 +329,16 @@ jobs:
       QUEUE_MAX_RETRIES: ${{ vars.QUEUE_MAX_RETRIES }}
       SFC_MINI_RETRY_ATTEMPTS: ${{ vars.SFC_MINI_RETRY_ATTEMPTS }}
       SFC_MINI_RETRY_DELAY_SECONDS: ${{ vars.SFC_MINI_RETRY_DELAY_SECONDS }}
-      # SMTP/alertas: opcionales por ambiente -- sin override caen al mismo
-      # endpoint SES que antes estaba hardcodeado en la plantilla.
+      # SMTP_HOST/SMTP_PORT/ALERT_EMAILS_ENABLED: opcionales por ambiente -- sin
+      # override caen al mismo endpoint SES que antes estaba hardcodeado en la
+      # plantilla. SMTP_FROM_EMAIL NO es opcional -- render_task_def.py aborta con
+      # ValueError si falta (ver P1-08 ahí); se declara aquí igual, sin default.
       SMTP_HOST: ${{ vars.SMTP_HOST }}
       SMTP_PORT: ${{ vars.SMTP_PORT }}
       ALERT_EMAILS_ENABLED: ${{ vars.ALERT_EMAILS_ENABLED }}
       SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
       GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
+      GOOGLE_SHEET_RANGE: ${{vars.GOOGLE_SHEET_RANGE}}
       GOOGLE_CATALOGS_SPREADSHEET_ID: ${{ vars.GOOGLE_CATALOGS_SPREADSHEET_ID }}
       # Subnets/SG privados para la task efímera del smoke post-deploy -- arrays
       # JSON de strings, ej. '["subnet-0123...", "subnet-0abc..."]' (ver cabecera).
