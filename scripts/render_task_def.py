@@ -3,6 +3,18 @@ import os
 import re
 import sys
 
+# 🟢 FIX (auditoría nombres de recursos AWS): módulo-level para que
+# tests/test_deploy_workflow_env_consistency.py pueda importarla directamente en
+# vez de duplicarla -- una sola fuente de verdad evita que el workflow y el
+# render_task_def.py se desalineen sin que ningún test lo note (ya pasó una vez
+# con GOOGLE_SPREADSHEET_ID, ver commit 1fdbbaf).
+CAMPOS_CRITICOS_INFRA = [
+    "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
+    "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID", "ECS_EXECUTION_ROLE_ARN",
+    "ECS_TASK_ROLE_ARN", "ECR_REPOSITORY_NAME", "ECS_LOG_GROUP_API", "ECS_LOG_GROUP_WORKER",
+    "SECRETS_MANAGER_SECRET_NAME",
+]
+
 
 def _resolver_secret_suffix(secret_name: str) -> str:
     """
@@ -107,13 +119,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # fallando al arrancar), no en el render. Los cuatro pasan a ser obligatorios,
     # igual que ECS_EXECUTION_ROLE_ARN -- ninguna convención de nombre de recursos
     # AWS que otro equipo (IaC central) provisiona debe quedar asumida en este repo.
-    _campos_criticos_infra = [
-        "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
-        "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID", "ECS_EXECUTION_ROLE_ARN",
-        "ECS_TASK_ROLE_ARN", "ECR_REPOSITORY_NAME", "ECS_LOG_GROUP_API", "ECS_LOG_GROUP_WORKER",
-        "SECRETS_MANAGER_SECRET_NAME",
-    ]
-    _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
+    _faltantes_infra = [c for c in CAMPOS_CRITICOS_INFRA if not (os.getenv(c) or "").strip()]
     if _faltantes_infra:
         raise ValueError(
             f"🚨 [FAIL-FAST] Son obligatorias las variables de entorno: "
