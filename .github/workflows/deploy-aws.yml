@@ -34,8 +34,9 @@
 #          permisos adicionales sobre la política administrada estándar
 #          AmazonECSTaskExecutionRolePolicy (que ya cubre ECR + logs:CreateLogStream/
 #          PutLogEvents; el añadido real es secretsmanager:GetSecretValue). El log
-#          group en sí NO lo crea este rol ni la app (`awslogs-create-group: false`
-#          en el task def) -- debe existir de antemano, creado por Terraform.
+#          group en sí NO lo crea este rol ni la app: cuando no se desea crearlo,
+#          `awslogs-create-group` se omite del task def -- debe existir de antemano,
+#          creado por Terraform.
 #        - Task Role: lo asume la app ya corriendo, para lo que ella misma llama
 #          por SDK -- hoy sólo S3 (confirmado: la app nunca llama a Secrets Manager
 #          ni a la API de CloudWatch Logs directamente). Ver

@@ -120,8 +120,7 @@
         "options": {
           "awslogs-group": "${ECS_LOG_GROUP}",
           "awslogs-region": "${AWS_REGION}",
-          "awslogs-stream-prefix": "${SERVICE_TYPE}",
-          "awslogs-create-group": "false"
+          "awslogs-stream-prefix": "${SERVICE_TYPE}"
         }
       }
     }
