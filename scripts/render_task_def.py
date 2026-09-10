@@ -4,7 +4,7 @@ import re
 import sys
 
 
-def _resolver_secret_suffix(environment: str) -> str:
+def _resolver_secret_suffix(secret_name: str) -> str:
     """
     🟢 FIX: antes SECRET_SUFFIX era una variable obligatoria que
     un humano tenía que copiar a mano desde la consola de AWS (el sufijo aleatorio de
@@ -15,12 +15,16 @@ def _resolver_secret_suffix(environment: str) -> str:
     SECRET_SUFFIX se conserva como override opcional (no obligatorio) sólo para
     testing local/offline sin credenciales AWS reales -- si no se define, se resuelve
     contra el servicio real.
+
+    🟢 FIX (auditoría nombres de recursos AWS): `secret_name` ya no se reconstruye
+    aquí a partir de `{environment}/smartsupervision/app-secrets` -- esa convención
+    la decide quien crea el secreto (el plan de Terraform), no este repo. Llega ya
+    resuelta desde SECRETS_MANAGER_SECRET_NAME (ver render_task_definition).
     """
     override = os.getenv("SECRET_SUFFIX")
     if override and override.strip() and override.strip() != "??????":
         return override.strip()
 
-    secret_name = f"{environment.lower()}/smartsupervision/app-secrets"
     try:
         import boto3
         client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
@@ -54,11 +58,6 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "🚨 [FAIL-FAST] La variable de entorno 'AWS_ACCOUNT_ID' es obligatoria y no puede "
             "estar vacía ni usar valores por defecto ficticios (123456789012)."
         )
-
-    # 🟢 FIX HALLAZGO 11 (revisado): el sufijo ya no se exige como variable manual --
-    # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
-    # siendo imposible continuar con un sufijo vacío o sin resolver.
-    secret_suffix = _resolver_secret_suffix(environment)
 
     redis_cluster_mode = os.getenv("REDIS_CLUSTER_MODE", "False").strip().lower() == "true"
 
@@ -95,9 +94,24 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # el Execution Role lo crea el IaC central (ver infrastructure/
     # ms-smartsupervision-execution-role-policy.json.tpl), este repo no debe asumir
     # su nombre/cuenta con un ARN hardcodeado en la plantilla.
+    # 🟢 FIX (auditoría nombres de recursos AWS): ECS_TASK_ROLE_ARN, ECR_REPOSITORY_NAME,
+    # ECS_LOG_GROUP_API/WORKER y SECRETS_MANAGER_SECRET_NAME tenían el mismo problema
+    # que ECS_EXECUTION_ROLE_ARN antes de su fix -- el Task Role
+    # ("msSmartsupervisionTaskRole-${ENVIRONMENT}"), el repo de ECR
+    # ("ms-integracion-smartsupervision"), el log group
+    # ("/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}") y el secreto
+    # compuesto ("{ENVIRONMENT}/smartsupervision/app-secrets") estaban hardcodeados
+    # en la plantilla/script asumiendo que el IaC central los provisionaría con ese
+    # nombre exacto, sin ninguna variable que permitiera confirmarlo o corregirlo --
+    # un desalineamiento sólo se descubría a mitad del despliegue (la tarea ECS
+    # fallando al arrancar), no en el render. Los cuatro pasan a ser obligatorios,
+    # igual que ECS_EXECUTION_ROLE_ARN -- ninguna convención de nombre de recursos
+    # AWS que otro equipo (IaC central) provisiona debe quedar asumida en este repo.
     _campos_criticos_infra = [
         "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
         "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID", "ECS_EXECUTION_ROLE_ARN",
+        "ECS_TASK_ROLE_ARN", "ECR_REPOSITORY_NAME", "ECS_LOG_GROUP_API", "ECS_LOG_GROUP_WORKER",
+        "SECRETS_MANAGER_SECRET_NAME",
     ]
     _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
     if _faltantes_infra:
@@ -106,6 +120,12 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             f"{', '.join(_faltantes_infra)}. No se permite depender de valores "
             f"hardcodeados o de ejemplo (QA/ejemplo)."
         )
+
+    # 🟢 FIX HALLAZGO 11 (revisado): el sufijo ya no se exige como variable manual --
+    # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
+    # siendo imposible continuar con un sufijo vacío o sin resolver.
+    secrets_manager_secret_name = os.getenv("SECRETS_MANAGER_SECRET_NAME")
+    secret_suffix = _resolver_secret_suffix(secrets_manager_secret_name)
 
     smtp_from_email = os.getenv("SMTP_FROM_EMAIL")
     if not smtp_from_email or not smtp_from_email.strip():
@@ -117,6 +137,8 @@ def render_task_definition(service_type: str, environment: str) -> dict:
 
     aws_region = os.getenv("AWS_REGION", "us-east-1")
     ecs_execution_role_arn = os.getenv("ECS_EXECUTION_ROLE_ARN")
+    ecs_task_role_arn = os.getenv("ECS_TASK_ROLE_ARN")
+    ecr_repository_name = os.getenv("ECR_REPOSITORY_NAME")
 
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
@@ -145,6 +167,11 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         healthcheck_cmd = "python /code/infrastructure/healthcheck_worker.py || exit 1"
     else:
         raise ValueError(f"SERVICE_TYPE inválido: '{service_type}'. Debe ser 'api' o 'worker'.")
+
+    # El log group es un recurso por servicio (api/worker tienen cada uno el suyo) que
+    # crea Terraform de antemano -- se exige uno por servicio (ver _campos_criticos_infra)
+    # y aquí se elige el que corresponde al service_type ya validado arriba.
+    ecs_log_group = os.getenv("ECS_LOG_GROUP_API") if service_type.lower() == "api" else os.getenv("ECS_LOG_GROUP_WORKER")
 
     # 3. Leer plantilla base
     template_path = os.path.join(os.path.dirname(__file__), "../infrastructure/ecs-task-def.json.tpl")
@@ -206,6 +233,10 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${SMTP_PORT}": os.getenv("SMTP_PORT", "587"),
         "${ALERT_EMAILS_ENABLED}": os.getenv("ALERT_EMAILS_ENABLED", "True"),
         "${ECS_EXECUTION_ROLE_ARN}": ecs_execution_role_arn.strip(),
+        "${ECS_TASK_ROLE_ARN}": ecs_task_role_arn.strip(),
+        "${ECR_REPOSITORY_NAME}": ecr_repository_name.strip(),
+        "${ECS_LOG_GROUP}": ecs_log_group.strip(),
+        "${SECRETS_MANAGER_SECRET_NAME}": secrets_manager_secret_name.strip(),
     }
 
     # ${CONTAINER_COMMAND} y ${PORT_MAPPINGS} ya son fragmentos JSON completos (arrays) y

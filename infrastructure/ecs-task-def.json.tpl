@@ -7,11 +7,11 @@
   "cpu": "${TASK_CPU}",
   "memory": "${TASK_MEMORY}",
   "executionRoleArn": "${ECS_EXECUTION_ROLE_ARN}",
-  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/msSmartsupervisionTaskRole-${ENVIRONMENT}",
+  "taskRoleArn": "${ECS_TASK_ROLE_ARN}",
   "containerDefinitions": [
     {
       "name": "${SERVICE_TYPE}-service",
-      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ms-integracion-smartsupervision:${IMAGE_TAG}",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}",
       "essential": true,
       "stopTimeout": 120,
       "command": ${CONTAINER_COMMAND},
@@ -50,59 +50,59 @@
       "secrets": [
         {
           "name": "CRM_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:CRM_API_KEY::"
         },
         {
           "name": "ADMIN_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:ADMIN_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:ADMIN_API_KEY::"
         },
         {
           "name": "SFC_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_USERNAME::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:SFC_USERNAME::"
         },
         {
           "name": "SFC_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:SFC_PASSWORD::"
         },
         {
           "name": "SFC_SECRET_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SFC_SECRET_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:SFC_SECRET_KEY::"
         },
         {
           "name": "REDIS_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:REDIS_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:REDIS_PASSWORD::"
         },
         {
           "name": "SMTP_USER",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SMTP_USER::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:SMTP_USER::"
         },
         {
           "name": "SMTP_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:SMTP_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:SMTP_PASSWORD::"
         },
         {
           "name": "ALERT_NOTIFY_EMAILS",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:ALERT_NOTIFY_EMAILS::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:ALERT_NOTIFY_EMAILS::"
         },
         {
           "name": "CRM_WEBHOOK_URL",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_WEBHOOK_URL::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:CRM_WEBHOOK_URL::"
         },
         {
           "name": "CRM_WEBHOOK_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:CRM_WEBHOOK_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:CRM_WEBHOOK_API_KEY::"
         },
         {
           "name": "GOOGLE_CLIENT_ID",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_CLIENT_ID::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:GOOGLE_CLIENT_ID::"
         },
         {
           "name": "GOOGLE_CLIENT_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_CLIENT_SECRET::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:GOOGLE_CLIENT_SECRET::"
         },
         {
           "name": "GOOGLE_REFRESH_TOKEN",
-          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${ENVIRONMENT}/smartsupervision/app-secrets-??????:GOOGLE_REFRESH_TOKEN::"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${SECRETS_MANAGER_SECRET_NAME}-??????:GOOGLE_REFRESH_TOKEN::"
         }
       ],
       "healthCheck": {
@@ -118,7 +118,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}",
+          "awslogs-group": "${ECS_LOG_GROUP}",
           "awslogs-region": "${AWS_REGION}",
           "awslogs-stream-prefix": "${SERVICE_TYPE}",
           "awslogs-create-group": "false"
