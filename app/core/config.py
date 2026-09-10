@@ -199,7 +199,6 @@ class Settings(BaseSettings):
     ALERT_EMAILS_ENABLED: bool = Field(default=True)
 
     # --- Configuración de Matriz en Sheets ---
-    GOOGLE_SHEETS_MATRIX_URL: Optional[str] = None
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_REFRESH_TOKEN: Optional[str] = None

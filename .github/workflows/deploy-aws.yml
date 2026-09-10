@@ -5,10 +5,10 @@
 # Antes de usarlo hay que:
 #
 #   1. Crear el rol de IAM para OIDC de GitHub (`AWS_DEPLOY_ROLE_ARN`). Debe incluir
-#      secretsmanager:DescribeSecret sobre
-#      arn:aws:secretsmanager:*:*:secret:*/smartsupervision/app-secrets-* para que
-#      el render pueda resolver el sufijo real del secreto (ya no se pasa
-#      manualmente por SECRET_SUFFIX), ecs:RunTask + ecs:DescribeTasks (scopeados
+#      secretsmanager:DescribeSecret sobre el ARN real del secreto que entrega la
+#      Variable SECRETS_MANAGER_SECRET_NAME (ver punto 2) para que el render pueda
+#      resolver el sufijo real del secreto (ya no se pasa manualmente por
+#      SECRET_SUFFIX ni se asume su nombre), ecs:RunTask + ecs:DescribeTasks (scopeados
 #      al cluster compartido) para el smoke funcional post-deploy (ver sección
 #      "Smoke post-deploy" más abajo), además de los permisos ECR/ECS habituales
 #      para build-and-push/deploy (ecr:*, ecs:RegisterTaskDefinition,
@@ -18,11 +18,15 @@
 #      elasticache:DescribeReplicationGroups ni
 #      elasticloadbalancing:DescribeLoadBalancers -- ECS_CLUSTER_NAME y
 #      SSV_SMOKE_BASE_URL llegan ya resueltos como Variables de GitHub (ver punto 2).
-#   1b. Crear el Execution Role (`ecsTaskExecutionRole`, fijo, sin sufijo de
-#      ambiente) y el Task Role (`msSmartsupervisionTaskRole-${ENVIRONMENT}`, uno
-#      por ambiente) que referencia infrastructure/ecs-task-def.json.tpl. Cada uno
-#      tiene una responsabilidad distinta -- NO intercambiar los permisos entre
-#      ellos:
+#   1b. Crear el Execution Role y el Task Role (uno por ambiente) que referencia
+#      infrastructure/ecs-task-def.json.tpl. Los ARN de ambos los entrega el IaC
+#      central como las Variables de GitHub ECS_EXECUTION_ROLE_ARN y
+#      ECS_TASK_ROLE_ARN (ver job `deploy` más abajo) -- este repo no asume su
+#      nombre ni que sea el mismo en todos los ambientes (el Task Role SÍ lo asumía
+#      antes, hardcodeado como "msSmartsupervisionTaskRole-${ENVIRONMENT}" en la
+#      plantilla -- el mismo problema que ya se había corregido para el Execution
+#      Role). Cada rol tiene una responsabilidad distinta -- NO intercambiar los
+#      permisos entre ellos:
 #        - Execution Role: lo usa el agente de ECS ANTES de que la app corra (pull
 #          de imagen en ECR + resolver los `secrets` del task def contra Secrets
 #          Manager +, vía el driver `awslogs`, enviar logs a CloudWatch). Ver
@@ -47,24 +51,27 @@
 #      El repo central de infraestructura (NO este repo) debe tener ya
 #      provisionados: ECR, el cluster ECS compartido, los servicios ECS
 #      "api"/"worker" de SSV dentro de ese cluster, ElastiCache, Secrets Manager
-#      (incluyendo el secreto compuesto "{environment}/smartsupervision/app-secrets"),
-#      el log group /ecs/ms-smartsupervision-${ENVIRONMENT}-{api,worker}, las
-#      reglas de routing del ALB compartido hacia el target group de SSV, SG y
-#      networking. El nombre real del cluster (`ECS_CLUSTER_NAME`) y la URL base
-#      del ALB para el smoke (`SSV_SMOKE_BASE_URL`) los entrega el IaC central
-#      como Variables de GitHub -- este repo no asume ningún patrón de nombre
-#      propio para ellos. El Security Group del ALB debe permitir entrada 443
-#      desde el SG que se use en ECS_SECURITY_GROUP_IDS (abajo), para que la task
-#      efímera del smoke pueda alcanzarlo. Este workflow NO crea infraestructura
-#      — sólo construye, publica y despliega la aplicación sobre infraestructura
-#      que ya existe.
+#      (el secreto compuesto con las credenciales de la app), los log groups de
+#      api/worker, las reglas de routing del ALB compartido hacia el target group
+#      de SSV, SG y networking. Ninguno de esos nombres lo asume este repo -- todos
+#      llegan como Variables de GitHub que entrega el IaC central: ECS_CLUSTER_NAME,
+#      SSV_SMOKE_BASE_URL, ECR_REPOSITORY_NAME, ECS_SERVICE_NAME_API,
+#      ECS_SERVICE_NAME_WORKER, ECS_LOG_GROUP_API, ECS_LOG_GROUP_WORKER y
+#      SECRETS_MANAGER_SECRET_NAME (antes varios de éstos estaban hardcodeados en la
+#      plantilla/workflow asumiendo la convención de nombres del IaC central; un
+#      desalineamiento sólo se descubría a mitad de un despliegue real). El
+#      Security Group del ALB debe permitir entrada 443 desde el SG que se use en
+#      ECS_SECURITY_GROUP_IDS (abajo), para que la task efímera del smoke pueda
+#      alcanzarlo. Este workflow NO crea infraestructura — sólo construye, publica
+#      y despliega la aplicación sobre infraestructura que ya existe.
 #   3. Configurar los secrets/variables listados en cada job (Settings →
 #      Secrets and variables → Actions), incluyendo ECS_CLUSTER_NAME,
-#      SSV_SMOKE_BASE_URL, REDIS_HOST y dos Variables para el smoke post-deploy:
+#      SSV_SMOKE_BASE_URL, REDIS_HOST, ECR_REPOSITORY_NAME, ECS_TASK_ROLE_ARN,
+#      ECS_SERVICE_NAME_API, ECS_SERVICE_NAME_WORKER, ECS_LOG_GROUP_API,
+#      ECS_LOG_GROUP_WORKER, SECRETS_MANAGER_SECRET_NAME, y dos Variables para el smoke post-deploy:
 #      ECS_SUBNET_IDS y ECS_SECURITY_GROUP_IDS, cada una como un array JSON de
 #      strings (ej. '["subnet-0123...", "subnet-0abc..."]'), subnets/SG privados
 #      de la misma VPC donde corren los servicios api/worker.
-#   4. Ajustar nombres de servicio/repo ECR a los reales del equipo.
 #
 # Smoke post-deploy (auditoría adversarial v10, P1-03/P1-05):
 #   `aws ecs wait services-stable` sólo prueba que ECS cree que las tasks están
@@ -264,7 +271,7 @@ jobs:
           docker build \
             --target final-api \
             -f infrastructure/Dockerfile \
-            -t "${{ steps.ecr-login.outputs.registry }}/ms-integracion-smartsupervision:${{ steps.vars.outputs.image_tag }}" \
+            -t "${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_REPOSITORY_NAME }}:${{ steps.vars.outputs.image_tag }}" \
             .
 
       # Gate de seguridad: la auditoría exige "scan on push" y cero críticas
@@ -272,15 +279,15 @@ jobs:
       # consulta el resultado y falla el build si hay CRITICAL sin aceptar.
       - name: Push a ECR
         run: |
-          docker push "${{ steps.ecr-login.outputs.registry }}/ms-integracion-smartsupervision:${{ steps.vars.outputs.image_tag }}"
+          docker push "${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_REPOSITORY_NAME }}:${{ steps.vars.outputs.image_tag }}"
 
       - name: Verificar hallazgos críticos del scan de ECR
         run: |
           aws ecr wait image-scan-complete \
-            --repository-name ms-integracion-smartsupervision \
+            --repository-name ${{ vars.ECR_REPOSITORY_NAME }} \
             --image-id imageTag=${{ steps.vars.outputs.image_tag }}
           CRITICOS=$(aws ecr describe-image-scan-findings \
-            --repository-name ms-integracion-smartsupervision \
+            --repository-name ${{ vars.ECR_REPOSITORY_NAME }} \
             --image-id imageTag=${{ steps.vars.outputs.image_tag }} \
             --query "imageScanFindings.findingSeverityCounts.CRITICAL || \`0\`" \
             --output text)
@@ -316,8 +323,44 @@ jobs:
       REDIS_HOST: ${{ vars.REDIS_HOST }}
       REDIS_CLUSTER_MODE: ${{ vars.REDIS_CLUSTER_MODE }}
       AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      # El Execution Role lo crea el IaC central por ambiente -- este repo ya no
+      # asume el nombre fijo "ecsTaskExecutionRole" (ver infrastructure/
+      # ms-smartsupervision-execution-role-policy.json.tpl para los permisos que
+      # ese rol necesita).
+      ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+      # 🟢 FIX (auditoría nombres de recursos AWS): mismo problema del Execution Role
+      # aplicaba al Task Role, al repo ECR y a los log groups -- estaban hardcodeados
+      # en la plantilla/workflow asumiendo un nombre que el IaC central debía adivinar.
+      # Los cuatro pasan a ser Variables de GitHub, sin ninguna convención de nombre
+      # asumida por este repo.
+      ECS_TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
+      ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
+      ECS_LOG_GROUP_API: ${{ vars.ECS_LOG_GROUP_API }}
+      ECS_LOG_GROUP_WORKER: ${{ vars.ECS_LOG_GROUP_WORKER }}
+      ECS_SERVICE_NAME_API: ${{ vars.ECS_SERVICE_NAME_API }}
+      ECS_SERVICE_NAME_WORKER: ${{ vars.ECS_SERVICE_NAME_WORKER }}
+      # El nombre del secreto compuesto ("{environment}/smartsupervision/app-secrets")
+      # también estaba hardcodeado -- esa convención la decide quien crea el secreto
+      # (el plan de Terraform), no este repo. render_task_def.py ya no la reconstruye,
+      # sólo consulta el sufijo real contra el nombre exacto que llega aquí.
+      SECRETS_MANAGER_SECRET_NAME: ${{ vars.SECRETS_MANAGER_SECRET_NAME }}
+      # Reintentos de cola/mini-retry de la SFC: opcionales por ambiente -- si el
+      # Environment de GitHub no define la Variable, render_task_def.py cae a los
+      # mismos defaults que Settings (app/core/config.py).
+      QUEUE_RETRY_INTERVAL_MINUTES: ${{ vars.QUEUE_RETRY_INTERVAL_MINUTES }}
+      QUEUE_MAX_RETRIES: ${{ vars.QUEUE_MAX_RETRIES }}
+      SFC_MINI_RETRY_ATTEMPTS: ${{ vars.SFC_MINI_RETRY_ATTEMPTS }}
+      SFC_MINI_RETRY_DELAY_SECONDS: ${{ vars.SFC_MINI_RETRY_DELAY_SECONDS }}
+      # SMTP_HOST/SMTP_PORT/ALERT_EMAILS_ENABLED: opcionales por ambiente -- sin
+      # override caen al mismo endpoint SES que antes estaba hardcodeado en la
+      # plantilla. SMTP_FROM_EMAIL NO es opcional -- render_task_def.py aborta con
+      # ValueError si falta (ver P1-08 ahí); se declara aquí igual, sin default.
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT }}
+      ALERT_EMAILS_ENABLED: ${{ vars.ALERT_EMAILS_ENABLED }}
       SMTP_FROM_EMAIL: ${{ vars.SMTP_FROM_EMAIL }}
       GOOGLE_SPREADSHEET_ID: ${{ vars.GOOGLE_SPREADSHEET_ID }}
+      GOOGLE_SHEET_RANGE: ${{vars.GOOGLE_SHEET_RANGE}}
       GOOGLE_CATALOGS_SPREADSHEET_ID: ${{ vars.GOOGLE_CATALOGS_SPREADSHEET_ID }}
       # Subnets/SG privados para la task efímera del smoke post-deploy -- arrays
       # JSON de strings, ej. '["subnet-0123...", "subnet-0abc..."]' (ver cabecera).
@@ -368,11 +411,11 @@ jobs:
         run: |
           PREV_API_TD=$(aws ecs describe-services \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }} \
+            --services $ECS_SERVICE_NAME_API \
             --query "services[0].taskDefinition" --output text)
           PREV_WORKER_TD=$(aws ecs describe-services \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-worker-${{ inputs.environment }} \
+            --services $ECS_SERVICE_NAME_WORKER \
             --query "services[0].taskDefinition" --output text)
           echo "Revisión previa de api: $PREV_API_TD"
           echo "Revisión previa de worker: $PREV_WORKER_TD"
@@ -398,15 +441,15 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_API \
             --task-definition "${{ steps.register.outputs.api }}" \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }}
+            --services $ECS_SERVICE_NAME_API
           DEPLOYED_TD=$(aws ecs describe-services \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }} \
+            --services $ECS_SERVICE_NAME_API \
             --query "services[0].taskDefinition" --output text)
           if [ "$DEPLOYED_TD" != "${{ steps.register.outputs.api }}" ]; then
             echo "❌ api quedó estable en $DEPLOYED_TD, no en la revisión pedida ${{ steps.register.outputs.api }} -- probable rollback automático del circuit breaker."
@@ -419,12 +462,12 @@ jobs:
           echo "Revirtiendo api a la revisión previa: ${{ steps.prev.outputs.api }}"
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_API \
             --task-definition "${{ steps.prev.outputs.api }}" \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }}
+            --services $ECS_SERVICE_NAME_API
           echo "api revertido -- worker nunca se tocó, ambos siguen en la release anterior."
           exit 1
 
@@ -433,15 +476,15 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_WORKER \
             --task-definition "${{ steps.register.outputs.worker }}" \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-worker-${{ inputs.environment }}
+            --services $ECS_SERVICE_NAME_WORKER
           DEPLOYED_TD=$(aws ecs describe-services \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-worker-${{ inputs.environment }} \
+            --services $ECS_SERVICE_NAME_WORKER \
             --query "services[0].taskDefinition" --output text)
           if [ "$DEPLOYED_TD" != "${{ steps.register.outputs.worker }}" ]; then
             echo "❌ worker quedó estable en $DEPLOYED_TD, no en la revisión pedida ${{ steps.register.outputs.worker }} -- probable rollback automático del circuit breaker."
@@ -454,17 +497,17 @@ jobs:
           echo "worker falló después de que api ya avanzó -- revirtiendo AMBOS servicios a sus revisiones previas para no dejar versiones mixtas."
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_API \
             --task-definition "${{ steps.prev.outputs.api }}" \
             --force-new-deployment
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_WORKER \
             --task-definition "${{ steps.prev.outputs.worker }}" \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }} ms-smartsupervision-worker-${{ inputs.environment }}
+            --services $ECS_SERVICE_NAME_API $ECS_SERVICE_NAME_WORKER
           echo "Ambos servicios revertidos a la release anterior."
           exit 1
 
@@ -488,17 +531,17 @@ jobs:
           echo "El smoke funcional post-deploy falló -- revirtiendo AMBOS servicios a sus revisiones previas."
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-api-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_API \
             --task-definition "${{ steps.prev.outputs.api }}" \
             --force-new-deployment
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --service ms-smartsupervision-worker-${{ inputs.environment }} \
+            --service $ECS_SERVICE_NAME_WORKER \
             --task-definition "${{ steps.prev.outputs.worker }}" \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
-            --services ms-smartsupervision-api-${{ inputs.environment }} ms-smartsupervision-worker-${{ inputs.environment }}
+            --services $ECS_SERVICE_NAME_API $ECS_SERVICE_NAME_WORKER
           echo "Ambos servicios revertidos a la release anterior."
           exit 1
 

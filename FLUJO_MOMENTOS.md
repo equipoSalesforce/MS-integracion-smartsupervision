@@ -30,6 +30,7 @@
 - [Dos brechas más encontradas en la misma revisión de concurrencia (2026-08-26)](#dos-brechas-más-encontradas-en-la-misma-revisión-de-concurrencia-2026-08-26)
 - [¿Por qué la firma HMAC no es byte-exacta sobre el body real? (confirmado, no es un bug)](#por-qué-la-firma-hmac-no-es-byte-exacta-sobre-el-body-real-confirmado-no-es-un-bug)
 - [El healthcheck del contenedor no depende de Redis (confirmado, no es un bug)](#el-healthcheck-del-contenedor-no-depende-de-redis-confirmado-no-es-un-bug)
+- [La Task Definition de ECS hardcodeaba valores que debían ser por ambiente (corregido)](#la-task-definition-de-ecs-hardcodeaba-valores-que-debían-ser-por-ambiente-corregido)
 - [Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)](#momento-1-no-deduplicaba-quejas-repetidas-entre-páginas-corregido)
 - [El parser de hilos de correo podía atribuirle al soporte una respuesta del cliente (corregido)](#el-parser-de-hilos-de-correo-podía-atribuirle-al-soporte-una-respuesta-del-cliente-corregido)
 - [`SfcErrorTranslator` clasificaba "la queja no existe" como si ya existiera (corregido)](#sfcerrortranslator-clasificaba-la-queja-no-existe-como-si-ya-existiera-corregido)
@@ -871,6 +872,56 @@ group del ALB (si existiera un healthcheck de balanceador apuntando a
 `/health/ready`) vive fuera de este repositorio, gestionada centralmente, y
 no se pudo verificar desde acá.
 
+## La Task Definition de ECS hardcodeaba valores que debían ser por ambiente (corregido)
+
+**Código:** `infrastructure/ecs-task-def.json.tpl`, `scripts/render_task_def.py`,
+`.github/workflows/deploy-aws.yml`.
+
+Una revisión previa al despliegue a AWS encontró cuatro brechas en el contrato de
+configuración entre este repo y ECS -- ninguna en `app/core/config.py` (que ya
+leía todo esto desde variables de entorno con defaults sanos), todas en la
+plantilla de la Task Definition y su renderer, que no exponían esos valores como
+configurables por ambiente:
+
+- **Reintentos de cola/mini-retry hardcodeados o ausentes por completo.**
+  `QUEUE_RETRY_INTERVAL_MINUTES`/`QUEUE_MAX_RETRIES` estaban fijos como literales
+  (`"5"`/`"10"`) en la plantilla -- ningún ambiente podía anularlos sin editar el
+  `.tpl` a mano. `SFC_MINI_RETRY_ATTEMPTS`/`SFC_MINI_RETRY_DELAY_SECONDS` ni
+  siquiera se pasaban a ECS: el proceso corría siempre con el default de
+  `Settings` (2 intentos, 5.5s), sin ninguna forma de ajustarlo en un ambiente
+  real. **Corregido:** los cuatro son ahora placeholders `${...}` resueltos por
+  `render_task_def.py` vía `os.getenv(...)`, con el mismo valor que ya tenían
+  como default -- ningún ambiente cambia de comportamiento si no declara un
+  override explícito como Variable de GitHub.
+- **SMTP/alertas asumían SES sin forma de anularlo.** `SMTP_HOST`/`SMTP_PORT`
+  estaban fijos a `email-smtp.${AWS_REGION}.amazonaws.com:587` y
+  `ALERT_EMAILS_ENABLED` a `"True"`, directamente en la plantilla. Un ambiente
+  que quisiera usar otro proveedor SMTP (o desactivar las alertas por completo)
+  no tenía forma de hacerlo sin editar el `.tpl`. **Corregido:** mismo patrón --
+  ahora son placeholders con default igual al valor SES anterior.
+- **`executionRoleArn` hardcodeaba `ecsTaskExecutionRole` (sin sufijo de
+  ambiente), rompiendo la convención propia de este repo de nunca asumir
+  nombres de recursos AWS** (ver `taskRoleArn`, que sí recibe
+  `${ENVIRONMENT}`, o `SFC_URL_BASE`/`REDIS_HOST`/etc., que ya eran
+  obligatorios desde IaC). **Corregido:** ahora es `${ECS_EXECUTION_ROLE_ARN}`,
+  agregado a la misma lista de variables obligatorias (`_campos_criticos_infra`
+  en `render_task_def.py`) que ya exigía `SFC_URL_BASE`/`REDIS_HOST` -- el
+  render falla explícitamente si el ambiente no lo provee, en vez de asumir un
+  nombre fijo.
+- **`.env.example` estaba desalineado con el contrato real de `Settings`** --
+  faltaban ~15 campos reales (`ENABLE_DOCS`, `CRM_RATE_LIMIT_*`,
+  `SFC_MINI_RETRY_*`, `SMTP_HOST`/`SMTP_PORT`, `REDIS_CLUSTER_MODE`, etc.),
+  verificado programáticamente diffeando los campos de `Settings` contra el
+  archivo, no a ojo. De paso, ese barrido encontró `GOOGLE_SHEETS_MATRIX_URL`
+  (declarada en `Settings`, nunca leída por ningún otro archivo del repo, sin
+  referencia en ningún test) -- se retiró de `app/core/config.py` en vez de
+  documentarla, al no haber nada real que documentar sobre un campo que nadie
+  consume.
+
+**Verificación:** `tests/test_render_task_def.py` (16 tests, incluye uno nuevo
+para el fail-fast de `ECS_EXECUTION_ROLE_ARN`) y la suite completa (1044 tests)
+en verde.
+
 ## Momento 1 no deduplicaba quejas repetidas entre páginas (corregido)
 
 **Código:** `app/services/momento_1_sync.py::_filtrar_duplicados_por_codigo_queja`.
@@ -1678,3 +1729,6 @@ completa.
 | Conflicto de cola (409) no se loguea como falla de infraestructura (superado por X5/Y4 -- el conflicto ya no puede ocurrir) | `app/services/queue_service.py::encolar_despacho`                                                                                                                                                              |
 | Trámite sobre caso ya cerrado reporta `noop`, no `success` (corregido)                                     | `app/services/despacho_queja_orchestrator.py::_resultado_por_cierre_confirmado`, `tests/test_despacho_orquestador.py::test_12b_tramite_sobre_caso_ya_cerrado_se_absorbe_como_noop`                            |
 | Slot de cola por operación, no por smart_code (elimina QUEUE_OPERATION_CONFLICT, corregido)                | `app/services/queue_service.py::encolar_despacho`, `ENQUEUE_LUA_SCRIPT`, `tests/test_queue_encolar_respeta_categoria_de_operacion.py`                                                                         |
+| Cola/mini-retry/SMTP/alertas parametrizables por ambiente en ECS (ya no hardcodeados en la plantilla, corregido) | `infrastructure/ecs-task-def.json.tpl`, `scripts/render_task_def.py`                                                                                                                                          |
+| Execution Role de ECS recibido desde IaC, ya no `ecsTaskExecutionRole` hardcodeado (corregido)             | `infrastructure/ecs-task-def.json.tpl`, `scripts/render_task_def.py::_campos_criticos_infra`, `.github/workflows/deploy-aws.yml`, `tests/test_render_task_def.py::test_missing_ecs_execution_role_arn_fails_fast` |
+| `.env.example` sincronizado con el contrato real de `Settings`; `GOOGLE_SHEETS_MATRIX_URL` retirado por no usarse (corregido) | `.env.example`, `app/core/config.py`                                                                                                                                                                          |

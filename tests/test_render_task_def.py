@@ -25,6 +25,20 @@ class TestRenderTaskDefinition(unittest.TestCase):
         os.environ["AWS_S3_BUCKET"] = "prod-global66-smartsupervision-attachments"
         os.environ["GOOGLE_SPREADSHEET_ID"] = "1a2b3c4d5e6f7g8h9i0j"
         os.environ["GOOGLE_CATALOGS_SPREADSHEET_ID"] = "0j9i8h7g6f5e4d3c2b1a"
+        # 🟢 FIX (revisión despliegue AWS): el Execution Role ya no está hardcodeado
+        # en la plantilla -- ahora lo entrega el IaC central como esta variable.
+        os.environ["ECS_EXECUTION_ROLE_ARN"] = "arn:aws:iam::999888777666:role/ecsTaskExecutionRole"
+        # 🟢 FIX (auditoría nombres de recursos AWS): mismo tratamiento para el Task
+        # Role, el repo ECR y los log groups de api/worker -- ya no se asume ningún
+        # nombre fijo, todos llegan como Variable de GitHub.
+        os.environ["ECS_TASK_ROLE_ARN"] = "arn:aws:iam::999888777666:role/msSmartsupervisionTaskRole-dev"
+        os.environ["ECR_REPOSITORY_NAME"] = "ms-integracion-smartsupervision"
+        os.environ["ECS_LOG_GROUP_API"] = "/ecs/ms-smartsupervision-dev-api"
+        os.environ["ECS_LOG_GROUP_WORKER"] = "/ecs/ms-smartsupervision-dev-worker"
+        # 🟢 FIX (auditoría nombres de recursos AWS): el nombre del secreto compuesto
+        # ("{environment}/smartsupervision/app-secrets") también se reconstruía a
+        # partir de una convención asumida por este repo -- ahora llega ya resuelto.
+        os.environ["SECRETS_MANAGER_SECRET_NAME"] = "dev/smartsupervision/app-secrets"
 
         self.env_vars = {
             "AWS_ACCOUNT_ID": "112233445566",
@@ -37,6 +51,12 @@ class TestRenderTaskDefinition(unittest.TestCase):
             "AWS_S3_BUCKET": "prod-global66-smartsupervision-attachments",
             "GOOGLE_SPREADSHEET_ID": "1a2b3c4d5e6f7g8h9i0j",
             "GOOGLE_CATALOGS_SPREADSHEET_ID": "0j9i8h7g6f5e4d3c2b1a",
+            "ECS_EXECUTION_ROLE_ARN": "arn:aws:iam::112233445566:role/ecsTaskExecutionRole",
+            "ECS_TASK_ROLE_ARN": "arn:aws:iam::112233445566:role/msSmartsupervisionTaskRole-dev",
+            "ECR_REPOSITORY_NAME": "ms-integracion-smartsupervision",
+            "ECS_LOG_GROUP_API": "/ecs/ms-smartsupervision-dev-api",
+            "ECS_LOG_GROUP_WORKER": "/ecs/ms-smartsupervision-dev-worker",
+            "SECRETS_MANAGER_SECRET_NAME": "dev/smartsupervision/app-secrets",
         }
 
     def tearDown(self):
@@ -85,11 +105,58 @@ class TestRenderTaskDefinition(unittest.TestCase):
                 with self.subTest(service_type=service_type, environment=environment):
                     result = render_task_definition(service_type, environment)
                     self.assertIsInstance(result, dict)
-                    
+
                     # Aserta que el ARN del secreto haya sido renderizado limpiamente con el sufijo real
                     crm_secret = result["containerDefinitions"][0]["secrets"][0]["valueFrom"]
                     self.assertNotIn("??????", crm_secret)
                     self.assertIn("a1b2c3", crm_secret)
+
+    def test_recursos_aws_llegan_100_por_ciento_de_variables_externas(self):
+        """
+        🟢 FIX (auditoría nombres de recursos AWS): taskRoleArn, el repo ECR, el log
+        group y el secreto compuesto de Secrets Manager estaban hardcodeados en la
+        plantilla/script asumiendo la convención de nombres del IaC central
+        ("msSmartsupervisionTaskRole-${ENVIRONMENT}", "ms-integracion-
+        smartsupervision", "/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}",
+        "{ENVIRONMENT}/smartsupervision/app-secrets") -- un desalineamiento con el
+        nombre real sólo se descubría a mitad de un despliegue. Verifica que el
+        valor renderizado sea EXACTAMENTE el que trae la Variable de entorno (no un
+        patrón reconstruido por este repo), y que el log group correcto se elija
+        según el service_type.
+        """
+        os.environ["ECS_TASK_ROLE_ARN"] = "arn:aws:iam::999888777666:role/nombre-real-que-decide-terraform"
+        os.environ["ECR_REPOSITORY_NAME"] = "repo-ecr-real-del-equipo"
+        os.environ["ECS_LOG_GROUP_API"] = "/log-group-real-api"
+        os.environ["ECS_LOG_GROUP_WORKER"] = "/log-group-real-worker"
+        os.environ["SECRETS_MANAGER_SECRET_NAME"] = "nombre-real-de-secreto-que-decide-terraform"
+        del os.environ["SECRET_SUFFIX"]
+
+        with patch("boto3.client") as mock_boto_client:
+            mock_boto_client.return_value.describe_secret.return_value = {
+                "ARN": "arn:aws:secretsmanager:us-east-1:999888777666:secret:nombre-real-de-secreto-que-decide-terraform-XyZ123"
+            }
+            result_api = render_task_definition("api", "dev")
+            mock_boto_client.return_value.describe_secret.assert_called_once_with(
+                SecretId="nombre-real-de-secreto-que-decide-terraform"
+            )
+            result_worker = render_task_definition("worker", "dev")
+
+        self.assertEqual(
+            result_api["taskRoleArn"],
+            "arn:aws:iam::999888777666:role/nombre-real-que-decide-terraform",
+        )
+        self.assertIn("repo-ecr-real-del-equipo", result_api["containerDefinitions"][0]["image"])
+        self.assertEqual(
+            result_api["containerDefinitions"][0]["logConfiguration"]["options"]["awslogs-group"],
+            "/log-group-real-api",
+        )
+        crm_secret = result_api["containerDefinitions"][0]["secrets"][0]["valueFrom"]
+        self.assertIn("nombre-real-de-secreto-que-decide-terraform-XyZ123", crm_secret)
+
+        self.assertEqual(
+            result_worker["containerDefinitions"][0]["logConfiguration"]["options"]["awslogs-group"],
+            "/log-group-real-worker",
+        )
 
     def test_crm_cors_origins_formato_lista_json_real_no_rompe_el_render(self):
         """
@@ -218,6 +285,95 @@ class TestRenderTaskDefinition(unittest.TestCase):
                 render_task_definition("api", "prod")
 
             self.assertIn("SFC_URL_BASE", str(ctx.exception))
+
+    def test_missing_ecs_execution_role_arn_fails_fast(self):
+        """
+        El Execution Role ya no se hardcodea en la plantilla (antes
+        'ecsTaskExecutionRole' fijo) -- debe llegar como Variable de GitHub por
+        ambiente. Sin ella, el render debe fallar en vez de dejar el placeholder
+        sin resolver (RENDER ERROR genérico) o, peor, resolver a un nombre fijo.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["ECS_EXECUTION_ROLE_ARN"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("ECS_EXECUTION_ROLE_ARN", str(ctx.exception))
+
+    def test_missing_ecs_task_role_arn_fails_fast(self):
+        """
+        El Task Role tenía el mismo problema que ya se corrigió para el Execution
+        Role: estaba hardcodeado en la plantilla asumiendo un nombre
+        ("msSmartsupervisionTaskRole-${ENVIRONMENT}") que el IaC central debía
+        adivinar. Ahora es una Variable obligatoria -- sin ella, el render debe
+        fallar en vez de resolver a un nombre fijo.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["ECS_TASK_ROLE_ARN"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("ECS_TASK_ROLE_ARN", str(ctx.exception))
+
+    def test_missing_ecr_repository_name_fails_fast(self):
+        """
+        El nombre del repositorio ECR estaba hardcodeado ("ms-integracion-
+        smartsupervision") tanto en la plantilla como en el workflow -- sin la
+        Variable, el render debe fallar en vez de asumir ese nombre.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["ECR_REPOSITORY_NAME"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("ECR_REPOSITORY_NAME", str(ctx.exception))
+
+    def test_missing_ecs_log_group_fails_fast(self):
+        """
+        Los log groups de api/worker estaban hardcodeados en la plantilla
+        ("/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}") asumiendo que
+        Terraform los crearía con ese nombre exacto -- sin verificación previa, sólo
+        se descubría un desalineamiento cuando la tarea fallaba al arrancar. Ambas
+        Variables (API y WORKER) son obligatorias para cualquier render, sin
+        importar qué service_type se esté renderizando.
+        """
+        for var_faltante in ["ECS_LOG_GROUP_API", "ECS_LOG_GROUP_WORKER"]:
+            with self.subTest(var_faltante=var_faltante):
+                env_test = self.env_vars.copy()
+                env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+                del env_test[var_faltante]
+
+                with patch.dict(os.environ, env_test, clear=True):
+                    with self.assertRaises(ValueError) as ctx:
+                        render_task_definition("api", "dev")
+
+                self.assertIn(var_faltante, str(ctx.exception))
+
+    def test_missing_secrets_manager_secret_name_fails_fast(self):
+        """
+        El nombre del secreto compuesto de Secrets Manager
+        ("{environment}/smartsupervision/app-secrets") se reconstruía dentro de
+        _resolver_secret_suffix a partir de esa convención asumida por este repo --
+        ahora es una Variable obligatoria y ya no se reconstruye en ningún lado.
+        """
+        env_test = self.env_vars.copy()
+        env_test["IMAGE_TAG"] = "git-commit-a1b2c3d4e5f6"
+        del env_test["SECRETS_MANAGER_SECRET_NAME"]
+
+        with patch.dict(os.environ, env_test, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                render_task_definition("api", "dev")
+
+        self.assertIn("SECRETS_MANAGER_SECRET_NAME", str(ctx.exception))
 
     def test_infra_critica_faltante_falla_tambien_fuera_de_prod(self):
         """

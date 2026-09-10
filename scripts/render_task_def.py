@@ -3,8 +3,20 @@ import os
 import re
 import sys
 
+# 🟢 FIX (auditoría nombres de recursos AWS): módulo-level para que
+# tests/test_deploy_workflow_env_consistency.py pueda importarla directamente en
+# vez de duplicarla -- una sola fuente de verdad evita que el workflow y el
+# render_task_def.py se desalineen sin que ningún test lo note (ya pasó una vez
+# con GOOGLE_SPREADSHEET_ID, ver commit 1fdbbaf).
+CAMPOS_CRITICOS_INFRA = [
+    "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
+    "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID", "ECS_EXECUTION_ROLE_ARN",
+    "ECS_TASK_ROLE_ARN", "ECR_REPOSITORY_NAME", "ECS_LOG_GROUP_API", "ECS_LOG_GROUP_WORKER",
+    "SECRETS_MANAGER_SECRET_NAME",
+]
 
-def _resolver_secret_suffix(environment: str) -> str:
+
+def _resolver_secret_suffix(secret_name: str) -> str:
     """
     🟢 FIX: antes SECRET_SUFFIX era una variable obligatoria que
     un humano tenía que copiar a mano desde la consola de AWS (el sufijo aleatorio de
@@ -15,12 +27,16 @@ def _resolver_secret_suffix(environment: str) -> str:
     SECRET_SUFFIX se conserva como override opcional (no obligatorio) sólo para
     testing local/offline sin credenciales AWS reales -- si no se define, se resuelve
     contra el servicio real.
+
+    🟢 FIX (auditoría nombres de recursos AWS): `secret_name` ya no se reconstruye
+    aquí a partir de `{environment}/smartsupervision/app-secrets` -- esa convención
+    la decide quien crea el secreto (el plan de Terraform), no este repo. Llega ya
+    resuelta desde SECRETS_MANAGER_SECRET_NAME (ver render_task_definition).
     """
     override = os.getenv("SECRET_SUFFIX")
     if override and override.strip() and override.strip() != "??????":
         return override.strip()
 
-    secret_name = f"{environment.lower()}/smartsupervision/app-secrets"
     try:
         import boto3
         client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
@@ -55,11 +71,6 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "estar vacía ni usar valores por defecto ficticios (123456789012)."
         )
 
-    # 🟢 FIX HALLAZGO 11 (revisado): el sufijo ya no se exige como variable manual --
-    # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
-    # siendo imposible continuar con un sufijo vacío o sin resolver.
-    secret_suffix = _resolver_secret_suffix(environment)
-
     redis_cluster_mode = os.getenv("REDIS_CLUSTER_MODE", "False").strip().lower() == "true"
 
     # 🟢 FIX HALLAZGO 45: Validación Fail-Fast para IMAGE_TAG inmutable (Sin fallback a 'latest')
@@ -91,17 +102,36 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     # se resuelve dinámicamente contra ElastiCache (ver commit que revierte esa
     # resolución) porque SSV pasó a correr dentro del cluster/ALB compartidos de CRM
     # Global66, provistos como Variables de GitHub por el IaC central.
-    _campos_criticos_infra = [
-        "SFC_URL_BASE", "CRM_CORS_ORIGINS", "AWS_S3_BUCKET", "REDIS_HOST",
-        "GOOGLE_SPREADSHEET_ID", "GOOGLE_CATALOGS_SPREADSHEET_ID",
-    ]
-    _faltantes_infra = [c for c in _campos_criticos_infra if not (os.getenv(c) or "").strip()]
+    # 🟢 FIX (revisión despliegue AWS): ECS_EXECUTION_ROLE_ARN se suma a esta lista --
+    # el Execution Role lo crea el IaC central (ver infrastructure/
+    # ms-smartsupervision-execution-role-policy.json.tpl), este repo no debe asumir
+    # su nombre/cuenta con un ARN hardcodeado en la plantilla.
+    # 🟢 FIX (auditoría nombres de recursos AWS): ECS_TASK_ROLE_ARN, ECR_REPOSITORY_NAME,
+    # ECS_LOG_GROUP_API/WORKER y SECRETS_MANAGER_SECRET_NAME tenían el mismo problema
+    # que ECS_EXECUTION_ROLE_ARN antes de su fix -- el Task Role
+    # ("msSmartsupervisionTaskRole-${ENVIRONMENT}"), el repo de ECR
+    # ("ms-integracion-smartsupervision"), el log group
+    # ("/ecs/ms-smartsupervision-${ENVIRONMENT}-${SERVICE_TYPE}") y el secreto
+    # compuesto ("{ENVIRONMENT}/smartsupervision/app-secrets") estaban hardcodeados
+    # en la plantilla/script asumiendo que el IaC central los provisionaría con ese
+    # nombre exacto, sin ninguna variable que permitiera confirmarlo o corregirlo --
+    # un desalineamiento sólo se descubría a mitad del despliegue (la tarea ECS
+    # fallando al arrancar), no en el render. Los cuatro pasan a ser obligatorios,
+    # igual que ECS_EXECUTION_ROLE_ARN -- ninguna convención de nombre de recursos
+    # AWS que otro equipo (IaC central) provisiona debe quedar asumida en este repo.
+    _faltantes_infra = [c for c in CAMPOS_CRITICOS_INFRA if not (os.getenv(c) or "").strip()]
     if _faltantes_infra:
         raise ValueError(
             f"🚨 [FAIL-FAST] Son obligatorias las variables de entorno: "
-            f"{', '.join(_faltantes_infra)}. No se permite depender de sus valores por "
-            f"defecto (apuntan a infraestructura de QA/ejemplo)."
+            f"{', '.join(_faltantes_infra)}. No se permite depender de valores "
+            f"hardcodeados o de ejemplo (QA/ejemplo)."
         )
+
+    # 🟢 FIX HALLAZGO 11 (revisado): el sufijo ya no se exige como variable manual --
+    # se resuelve solo contra Secrets Manager (ver _resolver_secret_suffix). Sigue
+    # siendo imposible continuar con un sufijo vacío o sin resolver.
+    secrets_manager_secret_name = os.getenv("SECRETS_MANAGER_SECRET_NAME")
+    secret_suffix = _resolver_secret_suffix(secrets_manager_secret_name)
 
     smtp_from_email = os.getenv("SMTP_FROM_EMAIL")
     if not smtp_from_email or not smtp_from_email.strip():
@@ -110,6 +140,11 @@ def render_task_definition(service_type: str, environment: str) -> dict:
             "despliegue en AWS — debe ser una identidad de remitente verificada en SES, "
             "distinta de la credencial SMTP_USER."
         )
+
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+    ecs_execution_role_arn = os.getenv("ECS_EXECUTION_ROLE_ARN")
+    ecs_task_role_arn = os.getenv("ECS_TASK_ROLE_ARN")
+    ecr_repository_name = os.getenv("ECR_REPOSITORY_NAME")
 
     # 2. Configuración específica según tipo de servicio
     if service_type.lower() == "api":
@@ -139,6 +174,11 @@ def render_task_definition(service_type: str, environment: str) -> dict:
     else:
         raise ValueError(f"SERVICE_TYPE inválido: '{service_type}'. Debe ser 'api' o 'worker'.")
 
+    # El log group es un recurso por servicio (api/worker tienen cada uno el suyo) que
+    # crea Terraform de antemano -- se exige uno por servicio (ver _campos_criticos_infra)
+    # y aquí se elige el que corresponde al service_type ya validado arriba.
+    ecs_log_group = os.getenv("ECS_LOG_GROUP_API") if service_type.lower() == "api" else os.getenv("ECS_LOG_GROUP_WORKER")
+
     # 3. Leer plantilla base
     template_path = os.path.join(os.path.dirname(__file__), "../infrastructure/ecs-task-def.json.tpl")
     with open(template_path, "r", encoding="utf-8") as f:
@@ -162,7 +202,7 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${RUN_SCHEDULER}": run_scheduler,
         "${HEALTHCHECK_CMD}": healthcheck_cmd,
         "${AWS_ACCOUNT_ID}": aws_account_id.strip(),
-        "${AWS_REGION}": os.getenv("AWS_REGION", "us-east-1"),
+        "${AWS_REGION}": aws_region,
         "${IMAGE_TAG}": image_tag.strip(),
         "${AWS_S3_BUCKET}": os.getenv("AWS_S3_BUCKET", "global66-crm-b2c-ci-files-766452279030"),
         "${SFC_URL_BASE}": os.getenv("SFC_URL_BASE", "https://qasmart.superfinanciera.gov.co"),
@@ -173,10 +213,36 @@ def render_task_definition(service_type: str, environment: str) -> dict:
         "${GOOGLE_CATALOGS_SPREADSHEET_ID}": os.getenv("GOOGLE_CATALOGS_SPREADSHEET_ID", "0j9i8h7g6f5e4d3c2b1a"),
         "${SFC_TIPO_ENTIDAD}": os.getenv("SFC_TIPO_ENTIDAD", "128"),
         "${SFC_ENTIDAD_COD}": os.getenv("SFC_ENTIDAD_COD", "6"),
+        "${GOOGLE_SHEET_RANGE}": os.getenv("GOOGLE_SHEET_RANGE", "Hoja 1!A:C"),
         "${REDIS_CLUSTER_MODE}": "True" if redis_cluster_mode else "False",
         "${SFC_SYNC_MAX_PAGINAS}": os.getenv("SFC_SYNC_MAX_PAGINAS", "1000"),
         "${SFC_SYNC_MAX_SEGUNDOS}": os.getenv("SFC_SYNC_MAX_SEGUNDOS", "300"),
-        "${SMTP_FROM_EMAIL}": smtp_from_email.strip()
+        "${SMTP_FROM_EMAIL}": smtp_from_email.strip(),
+        # 🟢 FIX (revisión despliegue AWS): antes ECS pasaba estos 4 valores
+        # hardcodeados en la plantilla (QUEUE_RETRY_INTERVAL_MINUTES=5,
+        # QUEUE_MAX_RETRIES=10) o directamente los omitía (SFC_MINI_RETRY_*, que
+        # ECS nunca inyectaba, cayendo siempre al default de Settings sin poder
+        # ajustarse por ambiente). Los defaults de abajo igualan los defaults de
+        # Settings (app/core/config.py) -- ambientes sin override se comportan
+        # igual que antes; los que necesiten otro valor lo declaran como Variable
+        # de GitHub por ambiente.
+        "${QUEUE_RETRY_INTERVAL_MINUTES}": os.getenv("QUEUE_RETRY_INTERVAL_MINUTES", "5"),
+        "${QUEUE_MAX_RETRIES}": os.getenv("QUEUE_MAX_RETRIES", "10"),
+        "${SFC_MINI_RETRY_ATTEMPTS}": os.getenv("SFC_MINI_RETRY_ATTEMPTS", "2"),
+        "${SFC_MINI_RETRY_DELAY_SECONDS}": os.getenv("SFC_MINI_RETRY_DELAY_SECONDS", "5.5"),
+        # 🟢 FIX (revisión despliegue AWS): SMTP_HOST/PORT y ALERT_EMAILS_ENABLED
+        # estaban hardcodeados a un endpoint SES (email-smtp.<region>.amazonaws.com:587)
+        # -- un ambiente con otro proveedor SMTP (o que quiera desactivar las alertas)
+        # no tenía forma de anularlo salvo editando la plantilla. El default de
+        # SMTP_HOST preserva el comportamiento SES actual cuando no se declara override.
+        "${SMTP_HOST}": os.getenv("SMTP_HOST", f"email-smtp.{aws_region}.amazonaws.com"),
+        "${SMTP_PORT}": os.getenv("SMTP_PORT", "587"),
+        "${ALERT_EMAILS_ENABLED}": os.getenv("ALERT_EMAILS_ENABLED", "True"),
+        "${ECS_EXECUTION_ROLE_ARN}": ecs_execution_role_arn.strip(),
+        "${ECS_TASK_ROLE_ARN}": ecs_task_role_arn.strip(),
+        "${ECR_REPOSITORY_NAME}": ecr_repository_name.strip(),
+        "${ECS_LOG_GROUP}": ecs_log_group.strip(),
+        "${SECRETS_MANAGER_SECRET_NAME}": secrets_manager_secret_name.strip(),
     }
 
     # ${CONTAINER_COMMAND} y ${PORT_MAPPINGS} ya son fragmentos JSON completos (arrays) y
