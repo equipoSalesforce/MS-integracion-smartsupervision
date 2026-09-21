@@ -1,3 +1,5 @@
+from app.services.crm_storage_contract import normalize_crm_storage
+from app.core.dispatch_observability import capture_prepared
 # app/services/momento_3_sync.py
 import asyncio
 import logging
@@ -163,6 +165,14 @@ class Momento3SincronizacionService:
     ) -> Dict[str, Any]:
         inicio_monotonic = time.monotonic()
         crm_dict, smart_code, case_id_crm, archivos_s3_raw, cuerpo_correo, cliente_nombre = self._extraer_datos_payload(payload)
+        storage_kwargs = {}
+        if crm_dict.get("crm_case_uuid") is not None:
+            storage_kwargs = {"crm_case_uuid": crm_dict["crm_case_uuid"]}
+            directory, archivos_s3_raw = normalize_crm_storage(
+                crm_dict["crm_case_uuid"], crm_dict.get("directorio_s3"), archivos_s3_raw
+            )
+            crm_dict = {**crm_dict, "directorio_s3": directory, "archivos_s3": archivos_s3_raw}
+
         sub_operacion = self._determinar_sub_operacion(generar_pdf_cierre, afijo_regulatorio)
 
         sfc_id_largo = smart_code
@@ -170,6 +180,7 @@ class Momento3SincronizacionService:
 
         self._aplicar_estado_inicial_sfc(sfc_raw_payload, generar_pdf_cierre)
         estado_cod = sfc_raw_payload.get("estado_cod", 2)
+        capture_prepared(sfc_raw_payload, "M3_MAPPED_BEFORE_ATTACHMENTS")
 
         try:
             pdf_generado_exito = False
@@ -191,7 +202,8 @@ class Momento3SincronizacionService:
                     target_file_name=target_file_name,
                     afijo_regulatorio=afijo_regulatorio,
                     afijo_masivo=afijo_masivo,
-                    case_id=case_id_crm  # 🟢 FIX P1-10: sólo para validar ownership del s3_key
+                    case_id=case_id_crm,
+                    **storage_kwargs
                 )
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo

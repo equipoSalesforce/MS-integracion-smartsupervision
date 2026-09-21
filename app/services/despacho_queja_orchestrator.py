@@ -187,7 +187,8 @@ class DespachoQuejaOrquestador:
             s3_service = self.m3_service.s3_service
             case_id_esperado = payload.Case_id or smart_code
             archivos_remotos = await s3_service.listar_archivos_en_directorio(
-                prefix=payload.directorio_s3, case_id_esperado=case_id_esperado
+                prefix=payload.directorio_s3, case_id_esperado=case_id_esperado,
+                **({"crm_case_uuid": payload.crm_case_uuid} if payload.crm_case_uuid is not None else {})
             )
             
             if archivos_remotos:

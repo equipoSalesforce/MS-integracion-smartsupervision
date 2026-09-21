@@ -7,6 +7,7 @@ import httpx
 import json
 import logging
 from typing import Dict, Any, Optional
+from app.core.dispatch_observability import capture_prepared, capture_sfc_response
 from app.core.config import settings
 from app.core.exceptions import SfcErrorTranslator, SfcIntegrationException
 from app.core.auth import SfcAuthManager
@@ -65,6 +66,7 @@ async def log_request(request: httpx.Request):
 
 async def log_response(response: httpx.Response):
     """Hook para registrar respuestas HTTP entrantes desde la SFC en formato JSON estructurado."""
+    await capture_sfc_response(response)
     content_type = response.headers.get("content-type", "").lower()
     url_str = str(response.url).lower()
     
@@ -285,6 +287,7 @@ class SfcClient:
         logger.info(f"[SfcClient] Enviando metadatos de queja a: {url}")
         
         try:
+            capture_prepared(payload_mapeado, "SFC_CREATE_REQUEST")
             response = await self.client.post(url, json=payload_mapeado, auth=self.interceptor)
             if response.status_code not in (200, 201):
                 logger.error(f"SFC rechazó la queja. Código: {response.status_code} (detalle sanitizado disponible en AUDIT_HTTP_INCOMING_RESPONSE)")
@@ -348,6 +351,7 @@ class SfcClient:
             # refresh-and-retry automático ante 401. Los campos a firmar (codigo_queja/type)
             # se pasan vía `extensions`, ya que SfcAuthManager no puede releer un body
             # multipart ya construido.
+            capture_prepared({**data, "nombre_archivo": file_name}, "SFC_ATTACHMENT_REQUEST")
             response = await self.client.post(
                 url,
                 data=data,
@@ -372,6 +376,7 @@ class SfcClient:
         logger.info(f"[SfcClient] Enviando actualización de estado M3 a: {url}")
         
         try:
+            capture_prepared(payload, "SFC_UPDATE_REQUEST")
             response = await self.client.patch(url, json=payload, auth=self.interceptor)
             if response.status_code not in (200, 201):
                 logger.error(f"SFC rechazó la actualización del caso. Código: {response.status_code} (detalle sanitizado disponible en AUDIT_HTTP_INCOMING_RESPONSE)")

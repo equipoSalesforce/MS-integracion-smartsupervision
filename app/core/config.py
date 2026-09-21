@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     )
 
     # --- Configuración AWS S3 ---
+    CRM_S3_BUCKET: Optional[str] = Field(None, description="Allowed bucket for CRM UUID storage; legacy bucket remains unchanged")
     AWS_S3_BUCKET: str = Field(..., description="Nombre del bucket S3 para adjuntos")
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)

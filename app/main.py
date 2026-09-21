@@ -172,7 +172,10 @@ def _construir_app_fastapi(cfg=None) -> FastAPI:
     )
 
 
+from app.core.dispatch_observability import CrmDispatchEvidenceMiddleware
+
 app = _construir_app_fastapi()
+app.add_middleware(CrmDispatchEvidenceMiddleware)
 
 # 🌐 Registramos Middleware de Correlation ID y AWS Trace ID
 app.add_middleware(CorrelationIdMiddleware)

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from botocore.exceptions import ClientError, BotoCoreError
 import httpx
 
+from app.services.crm_storage_contract import normalize_crm_storage, normalize_reference
 from app.core.config import settings
 from app.core.exceptions import SfcIntegrationException
 from app.db.redis import get_redis_client
@@ -38,6 +39,7 @@ class _ContextoEnvioAdjunto:
     afijo_masivo: bool
     case_id: Optional[str]
     sem: asyncio.Semaphore
+    crm_case_uuid: Optional[str] = None
 
 
 class S3StorageService:
@@ -390,13 +392,18 @@ class S3StorageService:
         s3_key: str,
         bucket: Optional[str] = None,
         max_size_mb: int = 30,
-        case_id_esperado: Optional[str] = None
+        case_id_esperado: Optional[str] = None,
+        crm_case_uuid: Optional[str] = None
     ) -> tempfile.SpooledTemporaryFile:
         s3_key_clean = self._limpiar_key(s3_key)
         target_bucket = self.default_bucket #Retirado bucket opcional para evitar inyecciones
         file_name = s3_key_clean.split("/")[-1] if "/" in s3_key_clean else s3_key_clean
 
-        self._validar_ownership_key(s3_key_clean, case_id_esperado)
+        if crm_case_uuid is not None:
+            target_bucket, s3_key_clean = normalize_reference(s3_key, crm_case_uuid, bucket=bucket)
+            file_name = s3_key_clean.rsplit("/", 1)[-1]
+        else:
+            self._validar_ownership_key(s3_key_clean, case_id_esperado)
 
         tmp_file = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
 
@@ -537,7 +544,8 @@ class S3StorageService:
         self,
         prefix: str,
         bucket: Optional[str] = None,
-        case_id_esperado: Optional[str] = None
+        case_id_esperado: Optional[str] = None,
+        crm_case_uuid: Optional[str] = None
     ) -> List[Dict[str, str]]:
         target_bucket = bucket or self.default_bucket
         prefix_clean = self._limpiar_key(prefix)
@@ -564,7 +572,10 @@ class S3StorageService:
 
         # Misma protección que ya validaba ownership al transferir cada archivo
         # individual (_validar_ownership_key), aplicada aquí ANTES de listar.
-        self._validar_prefijo_pertenece_al_caso(prefix_clean, case_id_esperado)
+        if crm_case_uuid is not None:
+            target_bucket, prefix_clean = normalize_reference(prefix, crm_case_uuid, bucket=bucket, directory=True)
+        else:
+            self._validar_prefijo_pertenece_al_caso(prefix_clean, case_id_esperado)
 
         if prefix_clean and not prefix_clean.endswith("/"):
             prefix_clean += "/"
@@ -605,6 +616,8 @@ class S3StorageService:
                         "s3_key": key,
                         "bucket": target_bucket
                     })
+            if crm_case_uuid is not None:
+                return normalize_crm_storage(crm_case_uuid, prefix_clean, archivos)[1]
             return archivos
 
         try:
@@ -755,13 +768,14 @@ class S3StorageService:
         return s3_key, bucket, original_name
 
     async def _obtener_contenido_adjunto(
-        self, item: Any, s3_key: Optional[str], bucket: Optional[str], case_id: Optional[str], original_name: str
+        self, item: Any, s3_key: Optional[str], bucket: Optional[str], case_id: Optional[str], original_name: str, crm_case_uuid: Optional[str] = None
     ) -> Tuple[Any, Optional[tempfile.SpooledTemporaryFile]]:
         raw_bytes_input = item.get("bytes") if isinstance(item, dict) and item.get("bytes") else None
 
         if not raw_bytes_input:
             tmp_stream = await self.obtener_stream_archivo(
-                s3_key=s3_key, bucket=bucket or self.default_bucket, case_id_esperado=case_id
+                s3_key=s3_key, bucket=bucket or self.default_bucket, case_id_esperado=case_id,
+                **({"crm_case_uuid": crm_case_uuid} if crm_case_uuid is not None else {})
             )
             file_obj_or_bytes = tmp_stream
         else:
@@ -932,7 +946,8 @@ class S3StorageService:
 
             try:
                 file_obj_or_bytes, tmp_stream = await self._obtener_contenido_adjunto(
-                    item, s3_key, bucket, ctx.case_id, original_name
+                    item, s3_key, bucket, ctx.case_id, original_name,
+                    **({"crm_case_uuid": ctx.crm_case_uuid} if ctx.crm_case_uuid is not None else {})
                 )
                 final_send_name = self._resolver_nombre_final_envio(
                     original_name, ctx.target_file_name, ctx.afijo_regulatorio, ctx.afijo_masivo, file_type
@@ -970,8 +985,11 @@ class S3StorageService:
         target_file_name: Optional[str] = None,
         afijo_regulatorio: Optional[str] = None,
         afijo_masivo: bool = False,
-        case_id: Optional[str] = None
+        case_id: Optional[str] = None,
+        crm_case_uuid: Optional[str] = None
     ) -> List[Dict[str, Any]]:
+        if crm_case_uuid is not None:
+            adjuntos_crm = normalize_crm_storage(crm_case_uuid, None, adjuntos_crm)[1]
         if not adjuntos_crm:
             return []
 
@@ -991,7 +1009,8 @@ class S3StorageService:
             afijo_regulatorio=afijo_regulatorio,
             afijo_masivo=afijo_masivo,
             case_id=case_id,
-            sem=asyncio.Semaphore(5)
+            sem=asyncio.Semaphore(5),
+            crm_case_uuid=crm_case_uuid
         )
 
         tasks = [self._procesar_envio_s3_a_sfc(item, ctx) for item in adjuntos_crm]

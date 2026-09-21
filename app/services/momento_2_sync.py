@@ -1,3 +1,4 @@
+from app.services.crm_storage_contract import normalize_crm_storage
 # app/services/momento_2_sync.py
 import logging
 from typing import Dict, Any, List, Union, Optional, Tuple
@@ -94,6 +95,14 @@ class Momento2SincronizacionService:
         payload: Union[QuejaUnificadaCrmInput, Momento2QuejaCrmInput, Dict[str, Any]]
     ) -> Dict[str, Any]:
         crm_dict, smart_code, case_id_crm, archivos_s3_raw = self._extraer_datos_payload_m2(payload)
+        storage_kwargs = {}
+        if crm_dict.get("crm_case_uuid") is not None:
+            storage_kwargs = {"crm_case_uuid": crm_dict["crm_case_uuid"]}
+            directory, archivos_s3_raw = normalize_crm_storage(
+                crm_dict["crm_case_uuid"], crm_dict.get("directorio_s3"), archivos_s3_raw
+            )
+            crm_dict = {**crm_dict, "directorio_s3": directory, "archivos_s3": archivos_s3_raw}
+
 
         # 🟢 FIX HALLAZGO 40: Lanza SfcIntegrationException (400) para errores de validación de entrada
         if not smart_code:
@@ -114,7 +123,7 @@ class Momento2SincronizacionService:
             directorio_s3 = getattr(payload, "directorio_s3", None) or crm_dict.get("directorio_s3")
             if not archivos_s3_raw and directorio_s3:
                 archivos_s3_raw = await self.s3_service.listar_archivos_en_directorio(
-                    prefix=directorio_s3, case_id_esperado=case_id_crm
+                    prefix=directorio_s3, case_id_esperado=case_id_crm, **storage_kwargs
                 )
 
             payload_validado = SfcNuevaQuejaPayload(**sfc_raw_payload)
@@ -127,7 +136,8 @@ class Momento2SincronizacionService:
                     sfc_client=self.sfc_client,
                     sfc_codigo_queja=smart_code,
                     adjuntos_crm=archivos_s3_raw,
-                    case_id=case_id_crm  # 🟢 FIX P1-10
+                    case_id=case_id_crm,
+                    **storage_kwargs
                 )
 
             return {

@@ -12,6 +12,8 @@ from pydantic import (
     ValidationInfo,
 )
 
+from app.core.dispatch_observability import enable_crm_evidence
+from app.services.crm_storage_contract import normalize_crm_storage, validate_crm_case_uuid
 from app.core.mapping import SfcSalesforceMapper
 from app.core.config import settings
 from app.core.clasificacion_operacion import es_estado_cierre as _es_estado_cierre
@@ -75,6 +77,26 @@ class QuejaMapeadaCrmResponse(BaseModel):
 
 class Momento2QuejaCrmInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    crm_case_uuid: Optional[str] = Field(None, exclude_if=lambda value: value is None, max_length=36,
+                                         description="Technical CRM storage owner; never mapped to SFC")
+
+    @field_validator("crm_case_uuid")
+    @classmethod
+    def validate_storage_owner(cls, value):
+        return validate_crm_case_uuid(value) if value is not None else value
+
+    @model_validator(mode="after")
+    def validate_crm_storage_references(self):
+        if self.crm_case_uuid is not None:
+            directory, files = normalize_crm_storage(
+                self.crm_case_uuid, getattr(self, "directorio_s3", None), self.archivos_s3
+            )
+            enable_crm_evidence()
+            self.archivos_s3 = [ArchivoS3Schema(**item) for item in files]
+            if hasattr(self, "directorio_s3"):
+                self.directorio_s3 = directory
+        return self
 
     Case_id: Optional[str] = Field(None, description="Código original único de la base de datos de Salesforce", max_length=30)
     Smart_Code__c: Optional[str] = Field(None, description="Código único de la queja en SmartSupervision", max_length=30)
