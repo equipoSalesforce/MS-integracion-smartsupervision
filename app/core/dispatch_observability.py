@@ -24,6 +24,8 @@ def capture_prepared(payload: dict, stage: str) -> None:
 
 
 async def capture_sfc_response(response) -> None:
+    from app.core.reopen_diagnostic import capture_reopen_http_status
+    capture_reopen_http_status(response)
     value = _evidence.get()
     if value is None or not value.get("enabled") or len(value["responses"]) >= 60:
         return

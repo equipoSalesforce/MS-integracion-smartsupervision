@@ -1,5 +1,6 @@
 from app.services.crm_storage_contract import normalize_crm_storage
 from app.core.dispatch_observability import capture_prepared
+from app.core.reopen_diagnostic import capture_reopen_payload
 # app/services/momento_3_sync.py
 import asyncio
 import logging
@@ -221,6 +222,7 @@ class Momento3SincronizacionService:
             # All other optional nulls and all legacy requests keep their contract.
             if crm_dict.get("crm_operation") == "REOPEN":
                 payload_sfc["fecha_cierre"] = None
+                capture_reopen_payload(payload_sfc)
 
             await self.sfc_client.put_actualizar_queja(
                 sfc_codigo_queja=sfc_id_largo, 

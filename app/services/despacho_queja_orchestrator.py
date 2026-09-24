@@ -11,6 +11,7 @@ from app.services.idempotency_service import IdempotencyService
 from app.db.redis import get_redis_client
 from app.core.exceptions import SfcIntegrationException, resumir_validation_error_sin_pii
 from app.core.clasificacion_operacion import es_estado_cierre
+from app.core.reopen_diagnostic import reopen_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,13 @@ class DespachoQuejaOrquestador:
     ) -> Dict[str, Any]:
         smart_code = payload.Smart_Code__c
         status_raw = (payload.Status or "").strip().lower()
+
+        # REOPEN always targets the existing complaint. It must never enter
+        # CREATE/self-healing, nor turn an UPDATE rejection into a closed noop.
+        # Preserve the original provider exception for the API/queue machinery.
+        if payload.crm_operation == "REOPEN":
+            with reopen_diagnostic(smart_code):
+                return await self.m3_service.ejecutar_actualizacion_tramite(payload=payload)
 
         # Inspección y listado dinámico desde S3 si viene solo la ruta del directorio
         if payload.directorio_s3 and not payload.archivos_s3:
