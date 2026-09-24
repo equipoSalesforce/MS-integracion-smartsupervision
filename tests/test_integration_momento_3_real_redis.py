@@ -90,9 +90,14 @@ class TestMomento3IntegracionRealRedis(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.redis = redis_asyncio.from_url(TEST_REDIS_URL, decode_responses=True)
         await self.redis.flushdb()
+        final_checkpoint_patch = patch('app.services.momento_3_sync.get_redis_client', return_value=self.redis)
+        final_checkpoint_patch.start()
+        self.addCleanup(final_checkpoint_patch.stop)
 
         self.sfc_client_mock = MagicMock()
         self.s3_client_mock = MagicMock()
+        from botocore.exceptions import ClientError
+        self.s3_client_mock.head_object.side_effect = ClientError({'Error':{'Code':'404'}},'HeadObject')
 
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
         app.dependency_overrides[get_s3_client] = lambda: self.s3_client_mock

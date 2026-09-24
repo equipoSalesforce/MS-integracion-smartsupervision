@@ -12,6 +12,7 @@ from app.api.dependencies import get_sfc_client, get_s3_client
 from app.services.momento_3_sync import Momento3SincronizacionService
 from app.core.exceptions import SfcIntegrationException
 from app.schemas.crm_payloads import QuejaUnificadaCrmInput
+from botocore.exceptions import ClientError
 
 
 class _StubRedisHash:
@@ -20,6 +21,13 @@ class _StubRedisHash:
 
     def __init__(self):
         self.hashes = {}
+        self.values = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def set(self, key, value, **kwargs):
+        self.values[key] = value
 
     async def hset(self, key, field, value):
         self.hashes.setdefault(key, {})[field] = value
@@ -37,9 +45,17 @@ class _StubRedisHash:
 class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
+        final_checkpoint_patch = patch('app.services.momento_3_sync.get_redis_client', return_value=_StubRedisHash())
+        final_checkpoint_patch.start()
+        self.addCleanup(final_checkpoint_patch.stop)
         # 🪐 Mocks de Infraestructura Externa
         self.sfc_client_mock = MagicMock()
         self.s3_client_mock = MagicMock()
+        def head(**kwargs):
+            if 'RESP_FINAL_SFC' in kwargs['Key']:
+                raise ClientError({'Error':{'Code':'404'}},'HeadObject')
+            return self.s3_client_mock.head_object.return_value
+        self.s3_client_mock.head_object.side_effect = head
         
         # Inyección de Dependencias nativa para los tests de Integración
         app.dependency_overrides[get_sfc_client] = lambda: self.sfc_client_mock
@@ -285,7 +301,8 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         })
         input_pydantic = QuejaUnificadaCrmInput(**payload_dict)
 
-        with patch("app.services.s3_service.get_redis_client", return_value=checkpoint_compartido):
+        with patch("app.services.s3_service.get_redis_client", return_value=checkpoint_compartido), \
+             patch('app.services.momento_3_sync.get_redis_client', return_value=checkpoint_compartido):
             # Intento 1: el PDF se sube con éxito a la SFC, pero el PATCH de cierre falla.
             self.sfc_client_mock.put_actualizar_queja = AsyncMock(
                 side_effect=SfcIntegrationException(

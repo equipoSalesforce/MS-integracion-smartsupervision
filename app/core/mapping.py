@@ -734,7 +734,7 @@ class SfcSalesforceMapper:
     @classmethod
     def sfc_payload_to_db_dict(cls, sfc_data: Dict[str, Any]) -> Dict[str, Any]:
         crm_data = {}
-        mapping_m1 = cls.MAPPING_MOMENTO_1_SFC_TO_CRM or cls.DEFAULT_MAPPING_M1
+        mapping_m1 = {**cls.DEFAULT_MAPPING_M1, **cls.MAPPING_MOMENTO_1_SFC_TO_CRM}
 
         for sfc_key, value in sfc_data.items():
             if sfc_key in mapping_m1:
@@ -745,9 +745,12 @@ class SfcSalesforceMapper:
                     except ValueError: 
                         crm_data[crm_key] = value
                 elif sfc_key == "producto_cod":
-                    sfc_prod_nombre = sfc_data.get("producto_nombre", "")
+                    sfc_prod_nombre = sfc_data.get("producto_nombre") or ""
                     normalized_prod = cls._normalize_text(str(sfc_prod_nombre))
-                    crm_data[crm_key] = cls.PRODUCTO_SFC_TEXTO_TO_SF.get(normalized_prod, "Cuenta perfil")
+                    product_match = next((label for label in cls.CATALOGOS.get("producto", {}).values()
+                                          if normalized_prod and cls._normalize_text(label) == normalized_prod), None)
+                    crm_data[crm_key] = product_match or cls.PRODUCTO_SFC_TEXTO_TO_SF.get(
+                        normalized_prod, sfc_prod_nombre or "Cuenta perfil")
                 else:
                     crm_data[crm_key] = cls._translate_value_to_crm(sfc_key, value)
         

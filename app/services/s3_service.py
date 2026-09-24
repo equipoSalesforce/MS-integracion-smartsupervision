@@ -986,7 +986,8 @@ class S3StorageService:
         afijo_regulatorio: Optional[str] = None,
         afijo_masivo: bool = False,
         case_id: Optional[str] = None,
-        crm_case_uuid: Optional[str] = None
+        crm_case_uuid: Optional[str] = None,
+        ordered: bool = False
     ) -> List[Dict[str, Any]]:
         if crm_case_uuid is not None:
             adjuntos_crm = normalize_crm_storage(crm_case_uuid, None, adjuntos_crm)[1]
@@ -1013,8 +1014,14 @@ class S3StorageService:
             crm_case_uuid=crm_case_uuid
         )
 
-        tasks = [self._procesar_envio_s3_a_sfc(item, ctx) for item in adjuntos_crm]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        if ordered:
+            # CLOSE requires actual completion order, not just a sorted gather().
+            results = []
+            for item in adjuntos_crm:
+                results.append(await self._procesar_envio_s3_a_sfc(item, ctx))
+        else:
+            tasks = [self._procesar_envio_s3_a_sfc(item, ctx) for item in adjuntos_crm]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
         envios_exitosos = []
         for res in results:

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import httpx
+from botocore.exceptions import ClientError
 
 from app.services.momento_3_sync import Momento3SincronizacionService
 
@@ -26,6 +27,13 @@ class _StubRedisHash:
 
     def __init__(self):
         self.hashes = {}
+        self.values = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def set(self, key, value, **kwargs):
+        self.values[key] = value
 
     async def hset(self, key, field, value):
         self.hashes.setdefault(key, {})[field] = value
@@ -43,8 +51,12 @@ class _StubRedisHash:
 class TestMomento3EdgeCases(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
+        final_checkpoint_patch = patch('app.services.momento_3_sync.get_redis_client', return_value=_StubRedisHash())
+        final_checkpoint_patch.start()
+        self.addCleanup(final_checkpoint_patch.stop)
         self.sfc_client_mock = MagicMock()
         self.s3_client_mock = MagicMock()
+        self.s3_client_mock.head_object.side_effect = ClientError({'Error':{'Code':'404'}},'HeadObject')
         self.servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
 
         fecha_reciente = (datetime.now(ZoneInfo("America/Bogota")) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S")

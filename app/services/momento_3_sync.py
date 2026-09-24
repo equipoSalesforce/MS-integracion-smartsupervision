@@ -22,6 +22,9 @@ from app.utils.pdf_generator import generar_pdf_respuesta_final
 from app.services.email_service import EmailAlertService
 from app.core.metrics import emit_emf_metric
 from app.core.config import settings
+from app.db.redis import get_redis_client
+from app.services.idempotency_service import IdempotencyService
+from app.services.final_response_contract import closure_identity, is_final_response, order_close_attachments
 
 logger = logging.getLogger(__name__)
 
@@ -185,14 +188,20 @@ class Momento3SincronizacionService:
 
         try:
             pdf_generado_exito = False
-            if generar_pdf_cierre and cuerpo_correo:
-                await self._generar_y_enviar_pdf_respuesta_final(
-                    case_id=case_id_crm,
-                    sfc_code=sfc_id_largo,
-                    cuerpo_correo_html=cuerpo_correo,
-                    cliente_nombre=cliente_nombre
-                )
-                pdf_generado_exito = True
+            close_checkpoint = None
+            close_receipt = None
+            close_id = None
+            existing_final = False
+            if generar_pdf_cierre:
+                archivos_s3_raw = order_close_attachments(archivos_s3_raw)
+                existing_final = any(is_final_response(item) for item in archivos_s3_raw)
+                if existing_final or cuerpo_correo:
+                    close_checkpoint = IdempotencyService(get_redis_client())
+                    close_id = closure_identity(crm_dict)
+                    close_receipt = await close_checkpoint.obtener_respuesta_final(close_id)
+                    if close_receipt and close_receipt.get('sent'):
+                        archivos_s3_raw = [item for item in archivos_s3_raw if not is_final_response(item)]
+                        pdf_generado_exito = True
 
             # DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS Y AFIJOS DE M3
             if archivos_s3_raw:
@@ -204,8 +213,24 @@ class Momento3SincronizacionService:
                     afijo_regulatorio=afijo_regulatorio,
                     afijo_masivo=afijo_masivo,
                     case_id=case_id_crm,
+                    **({'ordered': True} if generar_pdf_cierre else {}),
                     **storage_kwargs
                 )
+
+            # Only after every ordinary attachment succeeded may the final response
+            # be sent. Reuse a supplied file; otherwise reuse/generate via the one
+            # existing generator, with a durable receipt for this closing cycle.
+            if generar_pdf_cierre and close_checkpoint and not pdf_generado_exito:
+                if existing_final:
+                    pdf_generado_exito = True
+                elif cuerpo_correo:
+                    await self._generar_y_enviar_pdf_respuesta_final(
+                        case_id=case_id_crm, sfc_code=sfc_id_largo,
+                        cuerpo_correo_html=cuerpo_correo, cliente_nombre=cliente_nombre,
+                        close_id=close_id, checkpoint=close_checkpoint, receipt=close_receipt)
+                    pdf_generado_exito = True
+                if pdf_generado_exito:
+                    await close_checkpoint.guardar_respuesta_final(close_id, {'sent': True})
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = pdf_generado_exito or len(archivos_s3_raw) > 0
@@ -276,7 +301,10 @@ class Momento3SincronizacionService:
         case_id: str,
         sfc_code: str,
         cuerpo_correo_html: str,
-        cliente_nombre: str
+        cliente_nombre: str,
+        close_id: Optional[str] = None,
+        checkpoint: Optional[IdempotencyService] = None,
+        receipt: Optional[dict] = None
     ):
         def _job_parsing_y_renderizado() -> bytes:
             texto_limpio = extraer_texto_limpio_de_html(cuerpo_correo_html)
@@ -288,17 +316,39 @@ class Momento3SincronizacionService:
                 texto_crm=texto_limpio
             )
 
-        file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
-        
         final_pdf_name = f"Respuesta_Final_{case_id}_RESP_FINAL_SFC.pdf"
-        s3_key = f"caso/{case_id}/{final_pdf_name}"
+        # Keep the existing legacy ownership rule (Case is the direct parent).
+        s3_key = f"caso/{close_id}/{case_id}/{final_pdf_name}" if close_id else f"caso/{case_id}/{final_pdf_name}"
+        if checkpoint and not receipt:
+            completed = await checkpoint.obtener_archivos_completados(sfc_code, strict=True)
+            legacy_key = f'caso/{case_id}/{final_pdf_name}'
+            if any(key == legacy_key or key.startswith(legacy_key + ':') for key in completed):
+                return  # Accepted by an older worker in this still-open closing cycle.
+        if receipt and receipt.get('s3_key'):
+            if receipt['s3_key'] != s3_key:
+                raise ValueError('Final response checkpoint identity mismatch')
+        stream = None
+        if close_id:
+            try:
+                stream = await self.s3_service.obtener_stream_archivo(s3_key=s3_key,case_id_esperado=case_id)
+            except SfcIntegrationException as error:
+                if receipt or error.error_type != 'S3_FILE_NOT_FOUND':
+                    raise
+        if stream is not None:
+            try:
+                file_bytes = stream.read()
+            finally:
+                stream.close()
+            receipt = {'s3_key':s3_key,'sent':False}
+        else:
+            file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
 
         try:
-            await self.s3_service.subir_bytes_archivo(
-                s3_key=s3_key,
-                file_bytes=file_bytes,
-                content_type="application/pdf"
-            )
+            if not receipt:
+                await self.s3_service.subir_bytes_archivo(
+                    s3_key=s3_key, file_bytes=file_bytes, content_type="application/pdf")
+                if checkpoint and close_id:
+                    await checkpoint.guardar_respuesta_final(close_id, {'s3_key':s3_key,'sent':False})
         except Exception as s3_err:
             logger.error(f"⚠️ [Momento 3] No se pudo guardar la copia del PDF en S3: {s3_err}")
 

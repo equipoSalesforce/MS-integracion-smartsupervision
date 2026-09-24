@@ -648,16 +648,33 @@ class IdempotencyService:
     def _get_checkpoint_key(self, sfc_codigo_queja: str) -> str:
         return f"{IDEMPOTENCY_PREFIX}:file_checkpoint:{sfc_codigo_queja}"
 
-    async def obtener_archivos_completados(self, sfc_codigo_queja: str) -> Set[str]:
+    async def obtener_respuesta_final(self, cierre_id: str) -> Optional[dict]:
+        # Deliberately fail closed: losing this receipt must not generate a second PDF.
+        if self.redis is None:
+            raise RuntimeError('Final response checkpoint unavailable')
+        raw = await self.redis.get(f'{IDEMPOTENCY_PREFIX}:final_response:{cierre_id}')
+        return json.loads(raw) if raw else None
+
+    async def guardar_respuesta_final(self, cierre_id: str, receipt: dict):
+        if self.redis is None:
+            raise RuntimeError('Final response checkpoint unavailable')
+        await self.redis.set(f'{IDEMPOTENCY_PREFIX}:final_response:{cierre_id}',
+                             json.dumps(receipt), ex=self.ttl_seconds)
+
+    async def obtener_archivos_completados(self, sfc_codigo_queja: str, *, strict: bool = False) -> Set[str]:
         """Devuelve el conjunto de identificadores de archivo (s3_key) ya confirmados
         como transmitidos exitosamente a la SFC para este caso."""
         if not self.redis:
+            if strict:
+                raise RuntimeError('File checkpoint unavailable')
             return set()
         key = self._get_checkpoint_key(sfc_codigo_queja)
         try:
             raw_keys = await self.redis.hkeys(key)
             return {k if isinstance(k, str) else k.decode("utf-8") for k in raw_keys}
         except Exception as e:
+            if strict:
+                raise
             # Fail-open deliberado: en el peor caso se reintenta un archivo que ya había
             # tenido éxito (el comportamiento previo a este fix), no se pierde ni duplica
             # nada nuevo — la protección de fondo sigue siendo la deduplicación de la SFC.
