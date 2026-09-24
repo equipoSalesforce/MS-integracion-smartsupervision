@@ -1,7 +1,7 @@
 # app/schemas/crm_payloads.py
 import re
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List, Literal, Optional
 from zoneinfo import ZoneInfo
 from pydantic import (
     BaseModel,
@@ -434,6 +434,13 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
                 "directorio_s3": "caso/TEST-ALL-FIELDS-SSV-999/"
             }
         }
+    )
+
+    # Internal CRM metadata, never part of the SFC DTO. Omitting None also keeps
+    # legacy queue payloads and their idempotency hashes byte-for-byte compatible.
+    crm_operation: Optional[Literal["REOPEN"]] = Field(
+        None, exclude_if=lambda value: value is None,
+        description="Technical CRM operation; present only for a real reopening",
     )
 
     producto_digital__c: Optional[str] = Field(None, description="Producto digital (Si/No)")

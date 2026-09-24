@@ -216,10 +216,15 @@ class Momento3SincronizacionService:
             self._aplicar_defaults_finales_sfc(sfc_raw_payload, afijo_regulatorio, crm_dict)
 
             payload_validado = SfcActualizarQuejaPayload(**sfc_raw_payload)
+            payload_sfc = payload_validado.model_dump(exclude_none=True)
+            # Only an explicit CRM operation clears the historical closing date.
+            # All other optional nulls and all legacy requests keep their contract.
+            if crm_dict.get("crm_operation") == "REOPEN":
+                payload_sfc["fecha_cierre"] = None
 
             await self.sfc_client.put_actualizar_queja(
                 sfc_codigo_queja=sfc_id_largo, 
-                payload=payload_validado.model_dump(exclude_none=True)
+                payload=payload_sfc
             )
 
             self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="success")
