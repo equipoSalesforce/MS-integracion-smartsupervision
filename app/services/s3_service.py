@@ -40,6 +40,7 @@ class _ContextoEnvioAdjunto:
     case_id: Optional[str]
     sem: asyncio.Semaphore
     crm_case_uuid: Optional[str] = None
+    require_accepted: bool = False
 
 
 class S3StorageService:
@@ -825,7 +826,7 @@ class S3StorageService:
     @staticmethod
     async def _enviar_adjunto_y_marcar_checkpoint(
         sfc_client, checkpoint_service: IdempotencyService, sfc_codigo_queja: str, identificador_archivo: str,
-        file_obj_or_bytes: Any, file_type: str, final_send_name: str
+        file_obj_or_bytes: Any, file_type: str, final_send_name: str, *, require_accepted: bool = False
     ) -> Dict[str, Any]:
         res_sfc = await sfc_client.post_adjunto_queja(
             sfc_codigo_queja=sfc_codigo_queja,
@@ -839,7 +840,8 @@ class S3StorageService:
         # espera a que termine el lote completo, para no perder el progreso ya
         # confirmado si otro archivo del mismo lote falla después.
         await checkpoint_service.marcar_archivo_completado(
-            sfc_codigo_queja, identificador_archivo, metadata={"file_name": final_send_name}
+            sfc_codigo_queja, identificador_archivo,
+            metadata={"file_name": final_send_name, **({"accepted_by_sfc": True} if require_accepted else {})}
         )
 
         return {"file_name": final_send_name, "status": "OK", "sfc_response": res_sfc}
@@ -933,7 +935,13 @@ class S3StorageService:
             else:
                 identificador_archivo = s3_key or original_name
 
-            if identificador_archivo in ctx.archivos_ya_completados:
+            confirmed = identificador_archivo in ctx.archivos_ya_completados
+            if confirmed and ctx.require_accepted:
+                # Old per-file receipts also marked DUPLICATE_FILE as delivered.
+                # Only a real HTTP success for THIS file may satisfy RECLOSE.
+                confirmed = await ctx.checkpoint_service.archivo_aceptado_por_sfc(
+                    ctx.sfc_codigo_queja, identificador_archivo, original_name)
+            if confirmed:
                 logger.info(
                     f"⏭️ [S3 Storage] Archivo '{original_name}' ya estaba confirmado por checkpoint "
                     f"previo para {ctx.sfc_codigo_queja}; se omite el reenvío."
@@ -955,12 +963,17 @@ class S3StorageService:
 
                 resultado_envio = await self._enviar_adjunto_y_marcar_checkpoint(
                     ctx.sfc_client, ctx.checkpoint_service, ctx.sfc_codigo_queja,
-                    identificador_archivo, file_obj_or_bytes, file_type, final_send_name
+                    identificador_archivo, file_obj_or_bytes, file_type, final_send_name,
+                    **({'require_accepted': True} if ctx.require_accepted else {}),
                 )
                 self._emitir_metrica_adjunto(resultado="success")
                 return resultado_envio
 
             except SfcIntegrationException as exc:
+                if ctx.require_accepted:
+                    # A duplicate can refer to the original closing document. It
+                    # is not proof that SFC accepted a final response for this cycle.
+                    raise
                 resultado = await self._manejar_duplicado_o_cerrado(
                     exc, ctx.checkpoint_service, ctx.sfc_codigo_queja, identificador_archivo, original_name
                 )
@@ -987,7 +1000,8 @@ class S3StorageService:
         afijo_masivo: bool = False,
         case_id: Optional[str] = None,
         crm_case_uuid: Optional[str] = None,
-        ordered: bool = False
+        ordered: bool = False,
+        require_accepted: bool = False,
     ) -> List[Dict[str, Any]]:
         if crm_case_uuid is not None:
             adjuntos_crm = normalize_crm_storage(crm_case_uuid, None, adjuntos_crm)[1]
@@ -1011,7 +1025,8 @@ class S3StorageService:
             afijo_masivo=afijo_masivo,
             case_id=case_id,
             sem=asyncio.Semaphore(5),
-            crm_case_uuid=crm_case_uuid
+            crm_case_uuid=crm_case_uuid,
+            require_accepted=require_accepted,
         )
 
         if ordered:

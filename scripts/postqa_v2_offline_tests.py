@@ -37,7 +37,8 @@ def guarded_connect_ex(sock,address):
 socket.socket.connect=guarded_connect
 socket.socket.connect_ex=guarded_connect_ex
 with contextlib.redirect_stdout(io.StringIO()):
-    suite=unittest.defaultTestLoader.discover(str(root/'tests'),top_level_dir=str(root))
+    suite=(unittest.defaultTestLoader.loadTestsFromNames(sys.argv[1:]) if len(sys.argv)>1
+           else unittest.defaultTestLoader.discover(str(root/'tests'),top_level_dir=str(root)))
     logging.getLogger().handlers=[logging.NullHandler()]
     result=unittest.TextTestRunner(verbosity=1,stream=io.StringIO()).run(suite)
 print('SSV_OFFLINE_TESTS',result.testsRun,'FAILURES',len(result.failures),'ERRORS',len(result.errors),'SKIPPED',len(result.skipped))

@@ -55,6 +55,7 @@ class TestMomento3EdgeCases(unittest.IsolatedAsyncioTestCase):
         final_checkpoint_patch.start()
         self.addCleanup(final_checkpoint_patch.stop)
         self.sfc_client_mock = MagicMock()
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 123})
         self.s3_client_mock = MagicMock()
         self.s3_client_mock.head_object.side_effect = ClientError({'Error':{'Code':'404'}},'HeadObject')
         self.servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)

@@ -9,6 +9,27 @@ from pypdf.generic import NameObject, NumberObject
 
 logger = logging.getLogger(__name__)
 
+def vincular_pdf_a_ciclo(pdf_bytes: bytes, document_identity: str) -> bytes:
+    """Bind the existing PDF to its replica cycle without changing template/body.
+
+    A filename alone does not make a default PDF a new document: its bytes are
+    otherwise identical to the original close. Persist this deterministic
+    metadata once and reuse the same bytes on retries. This also upgrades an
+    already-created, unconfirmed replica from the old pipeline.
+    """
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    identity = (reader.metadata or {}).get('/SSVFinalResponseIdentity')
+    if identity == document_identity:
+        return pdf_bytes
+    if identity:
+        raise ValueError('Final response PDF belongs to a different cycle')
+    writer = PdfWriter(clone_from=reader)
+    writer.add_metadata({'/SSVFinalResponseIdentity': document_identity})
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 def ajustar_ancho_texto(texto: str, max_caracteres_por_linea: int = 90) -> str:
     """Aplica word-wrapping automático a cada párrafo del texto."""
     if not texto:

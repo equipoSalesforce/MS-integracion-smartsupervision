@@ -661,6 +661,14 @@ class IdempotencyService:
         await self.redis.set(f'{IDEMPOTENCY_PREFIX}:final_response:{cierre_id}',
                              json.dumps(receipt), ex=self.ttl_seconds)
 
+    async def archivo_aceptado_por_sfc(self, smart_code: str, file_id: str, file_name: str) -> bool:
+        """Strict RECLOSE receipt: old/duplicate-only file checkpoints are not proof."""
+        if self.redis is None:
+            raise RuntimeError('File checkpoint unavailable')
+        raw = await self.redis.hget(self._get_checkpoint_key(smart_code), file_id)
+        value = json.loads(raw) if raw else {}
+        return value.get('accepted_by_sfc') is True and value.get('file_name') == file_name
+
     async def obtener_archivos_completados(self, sfc_codigo_queja: str, *, strict: bool = False) -> Set[str]:
         """Devuelve el conjunto de identificadores de archivo (s3_key) ya confirmados
         como transmitidos exitosamente a la SFC para este caso."""

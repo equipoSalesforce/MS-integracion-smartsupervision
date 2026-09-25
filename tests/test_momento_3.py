@@ -35,6 +35,9 @@ class _StubRedisHash:
     async def hkeys(self, key):
         return list(self.hashes.get(key, {}).keys())
 
+    async def hget(self, key, field):
+        return self.hashes.get(key, {}).get(field)
+
     async def expire(self, key, ttl):
         pass
 
@@ -225,25 +228,15 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload_formulario_sfc["anexo_queja"])
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")
-    async def test_cierre_sin_cuerpo_correo_no_reporta_documentacion_rta_final_true(self, mock_mapper):
-        """
-        🔴 FIX (hallazgo de revisión externa, 2026-08-25): antes, `documentacion_rta_final`
-        se fijaba en True apenas se entraba a la rama de cierre (`_aplicar_estado_inicial_sfc`),
-        ANTES de intentar generar el PDF -- si `cuerpo_respuesta_final` llegaba vacío, el PDF
-        nunca se generaba (`_orquestar_pipeline_momento_3` sólo lo genera `if generar_pdf_cierre
-        and cuerpo_correo`), pero el campo seguía reportando True a la SFC.
-
-        Por la vía pública real (QuejaUnificadaCrmInput) esto no es alcanzable -- el
-        model_validator ya autorrellena cuerpo_respuesta_final -- así que se prueba pasando un
-        dict crudo directo al servicio (mismo camino que soporta _extraer_datos_payload),
-        como defensa en profundidad para cualquier caller que no pase por ese schema.
-        """
+    async def test_cierre_sin_cuerpo_correo_genera_default_antes_de_reportar_documentacion(self, mock_mapper):
+        """Also use the CLOSE default for raw-dict callers without a response body."""
         sfc_mock = self.mock_mapper_response.copy()
         sfc_mock["estado_cod"] = 4
         sfc_mock["fecha_cierre"] = "2026-07-16"
         mock_mapper.return_value = sfc_mock
 
         self.sfc_client_mock.put_actualizar_queja = AsyncMock(return_value={"Status": "closed"})
+        self.sfc_client_mock.post_adjunto_queja = AsyncMock(return_value={"id": 123})
 
         servicio = Momento3SincronizacionService(sfc_client=self.sfc_client_mock, s3_client=self.s3_client_mock)
 
@@ -260,11 +253,11 @@ class TestMomento3UnitAndIntegration(unittest.IsolatedAsyncioTestCase):
         resultado = await servicio.ejecutar_cierre_definitivo(payload=payload_dict_crudo)
 
         self.assertEqual(resultado["status"], "success")
-        self.sfc_client_mock.post_adjunto_queja.assert_not_called()
+        self.sfc_client_mock.post_adjunto_queja.assert_awaited_once()
         payload_formulario_sfc = self.sfc_client_mock.put_actualizar_queja.call_args[1]["payload"]
-        self.assertFalse(
+        self.assertTrue(
             payload_formulario_sfc.get("documentacion_rta_final", False),
-            "No debe reportar documentacion_rta_final=True si el PDF nunca se generó"
+            "El default debe enviarse antes de documentacion_rta_final=True"
         )
 
     @patch("app.core.mapping.SfcSalesforceMapper.crm_entity_to_sfc_payload")

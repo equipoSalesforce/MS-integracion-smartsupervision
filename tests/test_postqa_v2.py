@@ -43,7 +43,7 @@ class CloseTests(unittest.IsolatedAsyncioTestCase):
         self.sent=[]
         async def transfer(**kwargs):
             self.sent.extend(a['nombre_archivo'] for a in kwargs['adjuntos_crm'])
-            return [{'status':'success'}]
+            return [{'status':'OK','file_name':a['nombre_archivo']} for a in kwargs['adjuntos_crm']]
         self.service.s3_service.transferir_lote_s3_a_sfc=AsyncMock(side_effect=transfer)
         self.objects={}
         async def upload(**kwargs): self.objects[kwargs['s3_key']]=kwargs['file_bytes']
@@ -56,7 +56,9 @@ class CloseTests(unittest.IsolatedAsyncioTestCase):
         self.mapper_patch=patch.object(Mapper,'crm_entity_to_sfc_payload',side_effect=lambda *a,**k:{
             'codigo_queja':'synthetic','estado_cod':4,'canal_cod':13,'producto_cod':207,'macro_motivo_cod':940})
         self.mapper_patch.start(); self.addCleanup(self.mapper_patch.stop)
-        self.pdf_patch=patch('app.services.momento_3_sync.generar_pdf_respuesta_final',return_value=b'%PDF-synthetic')
+        from app.utils.pdf_generator import generar_pdf_respuesta_final
+        pdf_bytes=generar_pdf_respuesta_final('Synthetic', 'synthetic', 'Synthetic final answer')
+        self.pdf_patch=patch('app.services.momento_3_sync.generar_pdf_respuesta_final',return_value=pdf_bytes)
         self.pdf=self.pdf_patch.start(); self.addCleanup(self.pdf_patch.stop)
         self.request={'Case_id':'synthetic','Smart_Code__c':'synthetic','Status':'Closed','ClosedDate':'2026-09-24T01:00:00',
                       'cuerpo_respuesta_final':'Synthetic final answer','archivos_s3':[]}
