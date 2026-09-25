@@ -24,7 +24,9 @@ from app.core.metrics import emit_emf_metric
 from app.core.config import settings
 from app.db.redis import get_redis_client
 from app.services.idempotency_service import IdempotencyService
-from app.services.final_response_contract import closure_identity, is_final_response, order_close_attachments
+from app.services.final_response_contract import (
+    closure_identity, final_response_filename, is_final_response, order_close_attachments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +161,17 @@ class Momento3SincronizacionService:
             if campo not in sfc_raw_payload or sfc_raw_payload[campo] is None:
                 sfc_raw_payload[campo] = valor_defecto
 
+    @staticmethod
+    def _respuesta_final_no_enviada(cause: Optional[Exception] = None) -> SfcIntegrationException:
+        status_code = getattr(cause, "status_code", 503) if cause is not None else 409
+        return SfcIntegrationException(
+            status_code=status_code,
+            error_type="FINAL_RESPONSE_DOCUMENT_NOT_SENT",
+            sfc_field="documentacion_rta_final",
+            raw_message="No fue posible enviar la respuesta final de la réplica antes del cierre.",
+            crm_action="No fue posible enviar la respuesta final de la réplica antes del cierre.",
+        )
+
     async def _orquestar_pipeline_momento_3(
         self,
         payload: Any,
@@ -178,6 +191,9 @@ class Momento3SincronizacionService:
             crm_dict = {**crm_dict, "directorio_s3": directory, "archivos_s3": archivos_s3_raw}
 
         sub_operacion = self._determinar_sub_operacion(generar_pdf_cierre, afijo_regulatorio)
+        es_reclose = generar_pdf_cierre and crm_dict.get("crm_operation") == "RECLOSE"
+        if es_reclose and not crm_dict.get("crm_reopen_operation_id"):
+            raise self._respuesta_final_no_enviada()
 
         sfc_id_largo = smart_code
         sfc_raw_payload = SfcSalesforceMapper.crm_entity_to_sfc_payload(crm_dict, momento=3)
@@ -193,15 +209,28 @@ class Momento3SincronizacionService:
             close_id = None
             existing_final = False
             if generar_pdf_cierre:
+                if es_reclose:
+                    # Historical RESP_FINAL_SFC documents remain in CRM/S3 but are not
+                    # retransmitted and never satisfy a later replica closing cycle.
+                    archivos_s3_raw = [item for item in archivos_s3_raw if not is_final_response(item)]
                 archivos_s3_raw = order_close_attachments(archivos_s3_raw)
-                existing_final = any(is_final_response(item) for item in archivos_s3_raw)
+                existing_final = not es_reclose and any(is_final_response(item) for item in archivos_s3_raw)
                 if existing_final or cuerpo_correo:
                     close_checkpoint = IdempotencyService(get_redis_client())
                     close_id = closure_identity(crm_dict)
                     close_receipt = await close_checkpoint.obtener_respuesta_final(close_id)
+                    if es_reclose:
+                        capture_prepared({"cycle_id": close_id}, "RECLOSE_CYCLE_RESOLVED")
+                        capture_prepared({
+                            "cycle_id": close_id,
+                            "checkpoint_sent": bool(close_receipt and close_receipt.get("sent")),
+                        }, "REPLICA_RESP_FINAL_RESOLVED")
                     if close_receipt and close_receipt.get('sent'):
                         archivos_s3_raw = [item for item in archivos_s3_raw if not is_final_response(item)]
                         pdf_generado_exito = True
+                        if es_reclose:
+                            capture_prepared({"cycle_id": close_id, "sent": True},
+                                             "REPLICA_RESP_FINAL_CHECKPOINT_CONFIRMED")
 
             # DELEGACIÓN AL S3 STORAGE SERVICE PARA ADJUNTOS Y AFIJOS DE M3
             if archivos_s3_raw:
@@ -227,10 +256,22 @@ class Momento3SincronizacionService:
                     await self._generar_y_enviar_pdf_respuesta_final(
                         case_id=case_id_crm, sfc_code=sfc_id_largo,
                         cuerpo_correo_html=cuerpo_correo, cliente_nombre=cliente_nombre,
-                        close_id=close_id, checkpoint=close_checkpoint, receipt=close_receipt)
+                        close_id=close_id, checkpoint=close_checkpoint, receipt=close_receipt,
+                        replica=es_reclose, strict_persistence=es_reclose)
                     pdf_generado_exito = True
                 if pdf_generado_exito:
-                    await close_checkpoint.guardar_respuesta_final(close_id, {'sent': True})
+                    stored_receipt = await close_checkpoint.obtener_respuesta_final(close_id)
+                    await close_checkpoint.guardar_respuesta_final(
+                        close_id, {**(stored_receipt or close_receipt or {}), 'sent': True})
+                    confirmed = await close_checkpoint.obtener_respuesta_final(close_id)
+                    if not confirmed or not confirmed.get('sent'):
+                        raise self._respuesta_final_no_enviada()
+                    if es_reclose:
+                        capture_prepared({"cycle_id": close_id, "sent": True},
+                                         "REPLICA_RESP_FINAL_CHECKPOINT_CONFIRMED")
+
+            if es_reclose and not pdf_generado_exito:
+                raise self._respuesta_final_no_enviada()
 
             sfc_raw_payload["codigo_queja"] = sfc_id_largo
             sfc_raw_payload["anexo_queja"] = pdf_generado_exito or len(archivos_s3_raw) > 0
@@ -249,10 +290,20 @@ class Momento3SincronizacionService:
                 payload_sfc["fecha_cierre"] = None
                 capture_reopen_payload(payload_sfc)
 
-            await self.sfc_client.put_actualizar_queja(
-                sfc_codigo_queja=sfc_id_largo, 
-                payload=payload_sfc
-            )
+            if es_reclose:
+                capture_prepared({"cycle_id": close_id, "estado_cod": 4,
+                                  "documentacion_rta_final": True}, "RECLOSE_PATCH_STARTED")
+            try:
+                await self.sfc_client.put_actualizar_queja(
+                    sfc_codigo_queja=sfc_id_largo,
+                    payload=payload_sfc
+                )
+            except Exception:
+                if es_reclose:
+                    capture_prepared({"cycle_id": close_id, "success": False}, "RECLOSE_PATCH_RESULT")
+                raise
+            if es_reclose:
+                capture_prepared({"cycle_id": close_id, "success": True}, "RECLOSE_PATCH_RESULT")
 
             self._emitir_metrica_m3(sub_operacion, bool(archivos_s3_raw), inicio_monotonic, resultado="success")
             return {
@@ -304,7 +355,9 @@ class Momento3SincronizacionService:
         cliente_nombre: str,
         close_id: Optional[str] = None,
         checkpoint: Optional[IdempotencyService] = None,
-        receipt: Optional[dict] = None
+        receipt: Optional[dict] = None,
+        replica: bool = False,
+        strict_persistence: bool = False,
     ):
         def _job_parsing_y_renderizado() -> bytes:
             texto_limpio = extraer_texto_limpio_de_html(cuerpo_correo_html)
@@ -316,10 +369,10 @@ class Momento3SincronizacionService:
                 texto_crm=texto_limpio
             )
 
-        final_pdf_name = f"Respuesta_Final_{case_id}_RESP_FINAL_SFC.pdf"
+        final_pdf_name = final_response_filename(case_id, close_id or case_id, replica=replica)
         # Keep the existing legacy ownership rule (Case is the direct parent).
         s3_key = f"caso/{close_id}/{case_id}/{final_pdf_name}" if close_id else f"caso/{case_id}/{final_pdf_name}"
-        if checkpoint and not receipt:
+        if checkpoint and not receipt and not replica:
             completed = await checkpoint.obtener_archivos_completados(sfc_code, strict=True)
             legacy_key = f'caso/{case_id}/{final_pdf_name}'
             if any(key == legacy_key or key.startswith(legacy_key + ':') for key in completed):
@@ -342,6 +395,9 @@ class Momento3SincronizacionService:
             receipt = {'s3_key':s3_key,'sent':False}
         else:
             file_bytes = await asyncio.to_thread(_job_parsing_y_renderizado)
+            if replica:
+                capture_prepared({"cycle_id": close_id, "file_name": final_pdf_name},
+                                 "REPLICA_RESP_FINAL_CREATED")
 
         try:
             if not receipt:
@@ -350,11 +406,26 @@ class Momento3SincronizacionService:
                 if checkpoint and close_id:
                     await checkpoint.guardar_respuesta_final(close_id, {'s3_key':s3_key,'sent':False})
         except Exception as s3_err:
+            if strict_persistence:
+                raise self._respuesta_final_no_enviada(s3_err) from s3_err
             logger.error(f"⚠️ [Momento 3] No se pudo guardar la copia del PDF en S3: {s3_err}")
 
-        await self.s3_service.transferir_lote_s3_a_sfc(
-            sfc_client=self.sfc_client,
-            sfc_codigo_queja=sfc_code,
-            adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}],
-            case_id=case_id  # 🟢 FIX P1-10 (no-op aquí: bytes ya vienen inline, no se lee de S3)
-        )
+        if replica:
+            capture_prepared({"cycle_id": close_id, "file_name": final_pdf_name},
+                             "REPLICA_RESP_FINAL_UPLOAD_STARTED")
+        try:
+            await self.s3_service.transferir_lote_s3_a_sfc(
+                sfc_client=self.sfc_client,
+                sfc_codigo_queja=sfc_code,
+                adjuntos_crm=[{"nombre_archivo": final_pdf_name, "s3_key": s3_key, "bytes": file_bytes}],
+                case_id=case_id  # 🟢 FIX P1-10 (no-op aquí: bytes ya vienen inline, no se lee de S3)
+            )
+        except Exception as upload_error:
+            if replica:
+                capture_prepared({"cycle_id": close_id, "file_name": final_pdf_name, "success": False},
+                                 "REPLICA_RESP_FINAL_UPLOAD_RESULT")
+                raise self._respuesta_final_no_enviada(upload_error) from upload_error
+            raise
+        if replica:
+            capture_prepared({"cycle_id": close_id, "file_name": final_pdf_name, "success": True},
+                             "REPLICA_RESP_FINAL_UPLOAD_RESULT")

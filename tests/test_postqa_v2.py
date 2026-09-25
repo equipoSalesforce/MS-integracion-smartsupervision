@@ -106,6 +106,66 @@ class CloseTests(unittest.IsolatedAsyncioTestCase):
         self.pdf.assert_not_called()
         self.service.s3_service.transferir_lote_s3_a_sfc.assert_not_awaited()
 
+    async def test_reclose_preserves_but_never_reuses_original_and_sends_replica_final_last(self):
+        self.request.update({
+            'crm_operation':'RECLOSE',
+            'crm_reopen_operation_id':'3a4bb42e-0dc5-4b99-a42d-49ceef8ad72d',
+            'archivos_s3':[self.file('RESP_FINAL_SFC.pdf'),self.file('old_REPLICA_RESP_FINAL_SFC.pdf'),self.file('A.pdf')],
+        })
+        with patch('app.services.momento_3_sync.capture_prepared') as capture:
+            await self.close()
+        self.assertEqual(self.sent[0],'A.pdf')
+        self.assertNotIn('RESP_FINAL_SFC.pdf',self.sent)
+        self.assertNotIn('old_REPLICA_RESP_FINAL_SFC.pdf',self.sent)
+        self.assertIn('REPLICA_RESP_FINAL_SFC',self.sent[-1])
+        self.assertNotIn('RESP_FINAL_SFC_REPLICA',self.sent[-1])
+        self.pdf.assert_called_once()
+        patch_payload=self.client.put_actualizar_queja.call_args.kwargs['payload']
+        self.assertEqual((patch_payload['estado_cod'],patch_payload['documentacion_rta_final']),(4,True))
+        stages={call.args[1] for call in capture.call_args_list}
+        self.assertTrue({'RECLOSE_CYCLE_RESOLVED','REPLICA_RESP_FINAL_RESOLVED',
+            'REPLICA_RESP_FINAL_CREATED','REPLICA_RESP_FINAL_UPLOAD_STARTED',
+            'REPLICA_RESP_FINAL_UPLOAD_RESULT','REPLICA_RESP_FINAL_CHECKPOINT_CONFIRMED',
+            'RECLOSE_PATCH_STARTED','RECLOSE_PATCH_RESULT'}.issubset(stages))
+
+    async def test_reclose_final_upload_failure_never_patches_close(self):
+        self.request.update({
+            'crm_operation':'RECLOSE',
+            'crm_reopen_operation_id':'3a4bb42e-0dc5-4b99-a42d-49ceef8ad72d',
+            'archivos_s3':[self.file('A.pdf')],
+        })
+        async def fail_replica(**kwargs):
+            names=[item['nombre_archivo'] for item in kwargs['adjuntos_crm']]
+            self.sent.extend(names)
+            if any('REPLICA_RESP_FINAL_SFC' in name for name in names):
+                raise ConnectionError('synthetic upload failure')
+            return [{'status':'success'}]
+        self.service.s3_service.transferir_lote_s3_a_sfc.side_effect=fail_replica
+        with self.assertRaises(SfcIntegrationException) as ctx:
+            await self.close()
+        self.assertEqual(ctx.exception.error_type,'FINAL_RESPONSE_DOCUMENT_NOT_SENT')
+        self.assertIn('REPLICA_RESP_FINAL_SFC',self.sent[-1])
+        self.client.put_actualizar_queja.assert_not_awaited()
+
+    async def test_reclose_retry_reuses_same_pdf_and_future_replica_gets_distinct_document(self):
+        self.request.update({
+            'crm_operation':'RECLOSE',
+            'crm_reopen_operation_id':'3a4bb42e-0dc5-4b99-a42d-49ceef8ad72d',
+        })
+        self.client.put_actualizar_queja.side_effect=[ConnectionError('synthetic patch failure'),None,None]
+        with self.assertRaises(ConnectionError):
+            await self.close()
+        first_name=next(name for name in self.sent if 'REPLICA_RESP_FINAL_SFC' in name)
+        await self.close()
+        self.assertEqual(self.sent.count(first_name),1)
+        self.assertEqual(self.pdf.call_count,1)
+        self.request['crm_reopen_operation_id']='8c949135-1b96-45e3-8f23-a2f671a42494'
+        await self.close()
+        replica_names=[name for name in self.sent if 'REPLICA_RESP_FINAL_SFC' in name]
+        self.assertEqual(len(replica_names),2)
+        self.assertNotEqual(replica_names[0],replica_names[1])
+        self.assertEqual(self.pdf.call_count,2)
+
     async def test_normal_attachment_failure_never_sends_final(self):
         self.request['archivos_s3']=[self.file('A.pdf')]
         self.service.s3_service.transferir_lote_s3_a_sfc.side_effect=ConnectionError('synthetic')

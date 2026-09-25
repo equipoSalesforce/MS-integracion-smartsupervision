@@ -438,9 +438,14 @@ class QuejaUnificadaCrmInput(Momento2QuejaCrmInput):
 
     # Internal CRM metadata, never part of the SFC DTO. Omitting None also keeps
     # legacy queue payloads and their idempotency hashes byte-for-byte compatible.
-    crm_operation: Optional[Literal["REOPEN"]] = Field(
+    crm_operation: Optional[Literal["REOPEN", "RECLOSE"]] = Field(
         None, exclude_if=lambda value: value is None,
-        description="Technical CRM operation; present only for a real reopening",
+        description="Technical CRM operation; present only for a real reopening/reclose",
+    )
+    crm_reopen_operation_id: Optional[str] = Field(
+        None, exclude_if=lambda value: value is None,
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+        description="Existing CRM REOPEN operation UUID that identifies the replica cycle",
     )
 
     producto_digital__c: Optional[str] = Field(None, description="Producto digital (Si/No)")

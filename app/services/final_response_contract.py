@@ -21,8 +21,20 @@ def order_close_attachments(items):
 
 
 def closure_identity(crm):
+    # A real M1 reopening already has a durable CRM operation UUID. It is the
+    # replica cycle identity across retries and changes for a future replica.
+    reopen_cycle = crm.get('crm_reopen_operation_id')
+    if reopen_cycle:
+        return str(reopen_cycle)
     # ClosedDate identifies the closing cycle. Legacy callers without it use the
     # response content, never the current time or newly generated PDF bytes.
     cycle = crm.get('ClosedDate') or crm.get('cuerpo_respuesta_final') or ''
     return hashlib.sha256(json.dumps([crm.get('Smart_Code__c'),crm.get('Case_id'),cycle],
                                      default=str,ensure_ascii=False).encode()).hexdigest()
+
+
+def final_response_filename(case_id, close_id, *, replica=False):
+    if not replica:
+        return f"Respuesta_Final_{case_id}_RESP_FINAL_SFC.pdf"
+    cycle_token = ''.join(char for char in str(close_id) if char.isalnum())[:12]
+    return f"Respuesta_Final_{case_id}_{cycle_token}_REPLICA_RESP_FINAL_SFC.pdf"
